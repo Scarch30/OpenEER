@@ -15,7 +15,7 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        // Optionnel : limite les ABIs pour réduire la surface
+        // Optionnel : limiter les ABIs pour réduire la taille
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -39,7 +39,7 @@ android {
 
     buildFeatures { viewBinding = true }
 
-    // Évite les conflits de ressources (dont JNA) pendant le merge
+    // Évite les conflits META-INF et laisse les .so être packagés correctement
     packaging {
         resources {
             excludes += setOf(
@@ -72,6 +72,11 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // ✅ Uniquement l’artefact Android de Vosk
-    implementation("com.alphacephei:vosk-android:0.3.45")
+    // ✅ Vosk Android, en excluant l'ancien JNA en JAR tiré en transitif
+    implementation("com.alphacephei:vosk-android:0.3.45") {
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+
+    // ✅ JNA Android AAR qui embarque libjnidispatch.so
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 }
