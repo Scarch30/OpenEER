@@ -13,6 +13,7 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.ui.formatMeta
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
@@ -103,6 +104,14 @@ class NotePanelController(
 
         val bodyShown = note.body.ifBlank { "(transcription en cours…)" }
         binding.txtBodyDetail.text = bodyShown
+
+        val meta = note.formatMeta()
+        if (meta.isBlank()) {
+            binding.noteMetaFooter.isGone = true
+        } else {
+            binding.noteMetaFooter.isVisible = true
+            binding.noteMetaFooter.text = meta
+        }
 
         val path = note.audioPath
         val playable = !path.isNullOrBlank() && File(path).exists()

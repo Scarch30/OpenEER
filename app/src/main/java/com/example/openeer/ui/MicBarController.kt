@@ -4,12 +4,13 @@ import android.util.Log
 import android.view.MotionEvent
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isGone
+import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.audio.PcmRecorder
 import com.example.openeer.core.RecordingState
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.databinding.ActivityMainBinding
-import com.example.openeer.stt.VoskTranscriber
 import kotlinx.coroutines.*
 import kotlin.math.abs
 
@@ -34,9 +35,9 @@ class MicBarController(
     // Concat de segment
     private var segmentBaseBody: String = ""
 
-    // Streaming Vosk
-    private var streamSession: VoskTranscriber.StreamingSession? = null
-    private var partialJob: Job? = null
+    // Transcription live
+    private var live: LiveTranscriber? = null
+    private var lastWasHandsFree = false
 
     /** Démarre un appui PTT immédiatement. */
     fun beginPress(initialX: Float) {
@@ -98,39 +99,48 @@ class MicBarController(
         binding.iconMic.alpha = 1f
         binding.txtActivity.text = "REC (PTT) • relâchez pour arrêter"
 
-        // Démarrer la session streaming Vosk
-        activity.lifecycleScope.launch {
-            streamSession = withContext(Dispatchers.IO) { VoskTranscriber.startStreaming(activity) }
-        }
+        binding.liveTranscriptionBar.isVisible = true
+        binding.liveTranscriptionText.text = ""
 
-        // Pousser les chunks vers la session + throttle de partial()
-        recorder?.onPcmChunk = { chunk ->
-            val sess = streamSession
-            if (sess != null) {
-                activity.lifecycleScope.launch(Dispatchers.IO) {
-                    sess.feed(chunk)
-                }
-            }
-            // Throttle simple (~700 ms) pour afficher une hypothèse intermédiaire
-            if (partialJob?.isActive != true) {
-                partialJob = activity.lifecycleScope.launch(Dispatchers.Main) {
-                    delay(700)
-                    val partial = withContext(Dispatchers.IO) {
-                        streamSession?.partial() ?: ""
-                    }
-                    if (partial.isNotBlank()) {
+        live = LiveTranscriber(activity).apply {
+            onEvent = { event ->
+                when (event) {
+                    is LiveTranscriber.TranscriptionEvent.Partial -> {
                         val base = segmentBaseBody
                         val sep = if (base.isBlank()) "" else " "
-                        val display = base + sep + partial
+                        val display = base + sep + event.text
                         onAppendLive(display)
-                        // Écrit en DB seulement si on a un id
+                        binding.liveTranscriptionText.text = event.text
                         val nid = getOpenNoteId()
                         if (nid != null) {
                             activity.lifecycleScope.launch(Dispatchers.IO) { repo.setBody(nid, display) }
                         }
                     }
+                    is LiveTranscriber.TranscriptionEvent.Final -> {
+                        val base = segmentBaseBody
+                        val sep = if (base.isBlank()) "" else " "
+                        val finalJoined = (base + sep + event.text).trimEnd() +
+                                if (!lastWasHandsFree) "\n" else ""
+                        activity.lifecycleScope.launch(Dispatchers.Main) {
+                            onReplaceFinal(finalJoined, false)
+                            binding.liveTranscriptionText.text = event.text
+                            Toast.makeText(activity, "Segment ajouté", Toast.LENGTH_SHORT).show()
+                            delay(1500)
+                            if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
+                            else binding.liveTranscriptionText.text = ""
+                        }
+                        val nid = getOpenNoteId()
+                        if (nid != null) {
+                            activity.lifecycleScope.launch(Dispatchers.IO) { repo.setBody(nid, finalJoined) }
+                        }
+                    }
                 }
             }
+            start()
+        }
+
+        recorder?.onPcmChunk = { chunk ->
+            live?.feed(chunk)
         }
     }
 
@@ -144,12 +154,7 @@ class MicBarController(
 
     private fun stopSegment() {
         if (state == RecordingState.IDLE) return
-        val wasHandsFree = (state == RecordingState.RECORDING_HANDS_FREE)
-
-        // Stop live polling
-        val pj = partialJob
-        partialJob = null
-        pj?.cancel()
+        lastWasHandsFree = (state == RecordingState.RECORDING_HANDS_FREE)
 
         // Couper enregistrement
         val rec = recorder
@@ -162,49 +167,29 @@ class MicBarController(
         binding.txtActivity.text = "Prêt"
         state = RecordingState.IDLE
 
-        // Finaliser : 1) arrêter/export WAV  2) finir le flux streaming  3) MAJ note
         activity.lifecycleScope.launch {
             try {
                 val wavPath = withContext(Dispatchers.IO) {
                     rec?.stop()
                     rec?.finalizeToWav()
                 }
-                // 2) final streaming
-                val finalText = withContext(Dispatchers.IO) {
-                    runCatching { streamSession?.finish() ?: "" }.getOrDefault("")
-                }
-                streamSession = null
-
-                // 3) attacher WAV + texte final (remplacement propre)
+                val finalText = withContext(Dispatchers.IO) { live?.stop().orEmpty() }
+                live = null
                 val nid = getOpenNoteId()
                 if (!wavPath.isNullOrBlank() && nid != null) {
                     withContext(Dispatchers.IO) { repo.updateAudio(nid, wavPath) }
                 }
-                val base = segmentBaseBody
-                val sep = if (base.isBlank()) "" else " "
-                val finalJoined = (base + sep + finalText).trimEnd() +
-                        if (!wasHandsFree) "\n" else ""
-                if (finalText.isNotBlank()) {
-                    withContext(Dispatchers.Main) {
-                        // replace pur (on supprime l’hypothèse live)
-                        onReplaceFinal(finalJoined, /*addNewline=*/false)
-                        Toast.makeText(activity, "Segment ajouté", Toast.LENGTH_SHORT).show()
-                    }
-                    if (nid != null) {
-                        withContext(Dispatchers.IO) { repo.setBody(nid, finalJoined) }
-                    }
-                } else {
-                    // rien de décodable : si PTT, juste une fin de ligne
-                    if (!wasHandsFree) {
+                if (finalText.isBlank()) {
+                    if (!lastWasHandsFree) {
                         val current = binding.txtBodyDetail.text?.toString().orEmpty()
                         val text = current + if (current.endsWith("\n")) "" else "\n"
                         withContext(Dispatchers.Main) { onReplaceFinal(text, false) }
                         if (nid != null) withContext(Dispatchers.IO) { repo.setBody(nid, text) }
                     }
+                    withContext(Dispatchers.Main) { binding.liveTranscriptionBar.isGone = true }
                 }
             } catch (_: Throwable) {
-                // silencieux
-                streamSession = null
+                live = null
             }
         }
     }
