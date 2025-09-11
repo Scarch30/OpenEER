@@ -37,7 +37,7 @@ class NoteRepository(private val dao: NoteDao) {
         dao.updateLocation(id, lat, lon, place, accuracyM, System.currentTimeMillis())
     }
 
-    suspend fun setBody(id: Long, body: String) = dao.updateBody(id, body)
+    suspend fun setBody(id: Long, body: String, updatedAt: Long) = dao.updateBody(id, body, updatedAt)
 
     suspend fun createTextNote(
         body: String,

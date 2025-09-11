@@ -78,7 +78,7 @@ class NotePanelController(
         val nid = openNoteId ?: return
         binding.txtBodyDetail.text = displayBody
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(nid, displayBody)
+            repo.setBody(nid, displayBody, System.currentTimeMillis())
         }
     }
 
