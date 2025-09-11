@@ -82,11 +82,13 @@ class NotePanelController(
      * Ici on met à jour l'UI *et* la base (avec updatedAt géré par le repo).
      */
     fun onReplaceFinal(finalBody: String, addNewline: Boolean) {
-        val text = if (addNewline) finalBody + "\n" else finalBody
-        binding.txtBodyDetail.text = text
+        val toAppend = if (addNewline) finalBody + "\n" else finalBody
+        val current = binding.txtBodyDetail.text?.toString().orEmpty()
+        val newText = current + toAppend
+        binding.txtBodyDetail.text = newText
         val nid = openNoteId ?: return
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(nid, text) // le repo met à jour updatedAt
+            repo.setBody(nid, newText) // le repo met à jour updatedAt
         }
     }
 
