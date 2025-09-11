@@ -179,6 +179,13 @@ class MicBarController(
                 if (!wavPath.isNullOrBlank() && nid != null) {
                     withContext(Dispatchers.IO) { repo.updateAudio(nid, wavPath) }
                 }
+                if (finalText.isNotBlank()) {
+                    withContext(Dispatchers.Main) {
+                        onReplaceFinal(finalText, addNewline = !lastWasHandsFree)
+                        if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
+                    }
+                    if (nid != null) withContext(Dispatchers.IO) { repo.setBody(nid, finalText) }
+                }
                 if (finalText.isBlank()) {
                     if (!lastWasHandsFree) {
                         val current = binding.txtBodyDetail.text?.toString().orEmpty()
