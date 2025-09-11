@@ -39,8 +39,6 @@ class NotePanelController(
     /** Dernière note reçue du flux (pour rendre l'UI rapidement) */
     private var currentNote: Note? = null
 
-    /** MediaPlayer simple géré via SimplePlayer (voir bas de fichier) */
-
     /**
      * Ouvre visuellement le panneau et commence à observer la note.
      */
@@ -73,26 +71,22 @@ class NotePanelController(
         binding.recycler.isVisible = true
     }
 
-    /** Reçoit du texte partiel (live) -> on PUSH l'état courant (affichage + DB). */
+    /* Affiche le texte partiel (live) – **aucune écriture DB ici*. */
     fun onAppendLive(displayBody: String) {
         binding.txtBodyDetail.text = displayBody
-        val nid = openNoteId ?: return
-        activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(nid, displayBody, System.currentTimeMillis())
-        }
     }
 
     /**
      * Reçoit du texte final.
-     * Si addNewline = true, on ajoute juste un '\n' **au texte fourni** puis on remplace l'UI/DB.
-     * On NE lit PAS le texte courant pour éviter les doublons.
+     * Si addNewline = true, on ajoute juste un '\n' *au texte fourni* puis on remplace.
+     * Ici on met à jour l'UI *et* la base (avec updatedAt géré par le repo).
      */
     fun onReplaceFinal(finalBody: String, addNewline: Boolean) {
         val text = if (addNewline) finalBody + "\n" else finalBody
         binding.txtBodyDetail.text = text
         val nid = openNoteId ?: return
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(nid, text, System.currentTimeMillis())
+            repo.setBody(nid, text) // le repo met à jour updatedAt
         }
     }
 
