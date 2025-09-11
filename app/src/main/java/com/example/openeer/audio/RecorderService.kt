@@ -11,6 +11,8 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.NoteRepository
 import kotlinx.coroutines.*
 import com.example.openeer.core.getOneShotPlace
+import com.example.openeer.stt.VoskTranscriber
+import java.io.File
 
 class RecorderService : Service() {
 
@@ -87,6 +89,12 @@ class RecorderService : Service() {
 
             if (noteId != 0L && wav != null) {
                 runCatching { repo.updateAudio(noteId, wav) }
+                val text = runCatching {
+                    VoskTranscriber.transcribe(this@RecorderService, File(wav))
+                }.getOrNull()
+                if (!text.isNullOrBlank()) {
+                    runCatching { repo.setBody(noteId, text) }
+                }
             }
 
             // Broadcast retour (noteId + chemin wav)
