@@ -78,7 +78,7 @@ class NotePanelController(
         binding.txtBodyDetail.text = displayBody
         val nid = openNoteId ?: return
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(nid, displayBody)
+            repo.setBody(nid, displayBody, System.currentTimeMillis())
         }
     }
 
@@ -91,7 +91,9 @@ class NotePanelController(
         val text = if (addNewline) finalBody + "\n" else finalBody
         binding.txtBodyDetail.text = text
         val nid = openNoteId ?: return
-        activity.lifecycleScope.launch(Dispatchers.IO) { repo.setBody(nid, text) }
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            repo.setBody(nid, text, System.currentTimeMillis())
+        }
     }
 
     // ---- Internes ----
