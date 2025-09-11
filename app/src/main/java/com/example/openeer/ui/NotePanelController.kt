@@ -1,6 +1,7 @@
 package com.example.openeer.ui
 
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -9,6 +10,10 @@ import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.google.android.material.card.MaterialCardView
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
@@ -28,8 +33,8 @@ class NotePanelController(
     private val binding: ActivityMainBinding
 ) {
     private val repo: NoteRepository by lazy {
-        val dao = AppDatabase.get(activity).noteDao()
-        NoteRepository(dao)
+        val db = AppDatabase.get(activity)
+        NoteRepository(db.noteDao(), db.attachmentDao())
     }
 
     /** id de la note actuellement ouverte (ou null si aucune) */
@@ -38,6 +43,7 @@ class NotePanelController(
 
     /** Dernière note reçue du flux (pour rendre l'UI rapidement) */
     private var currentNote: Note? = null
+    private val attachmentAdapter = AttachmentsAdapter()
 
     /**
      * Ouvre visuellement le panneau et commence à observer la note.
@@ -46,6 +52,19 @@ class NotePanelController(
         openNoteId = noteId
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
+
+        binding.attachmentsStrip.layoutManager =
+            LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
+        binding.attachmentsStrip.adapter = attachmentAdapter
+
+        activity.lifecycleScope.launch {
+            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                repo.attachments(noteId).collectLatest { list ->
+                    attachmentAdapter.submit(list)
+                    binding.attachmentsStrip.isGone = list.isEmpty()
+                }
+            }
+        }
 
         // Observe la note
         activity.lifecycleScope.launch {
@@ -160,6 +179,52 @@ class NotePanelController(
             }
             .setNegativeButton("Annuler", null)
             .show()
+    }
+}
+
+private class AttachmentsAdapter : RecyclerView.Adapter<AttachmentsAdapter.VH>() {
+    private val items = mutableListOf<com.example.openeer.data.Attachment>()
+
+    class VH(val card: MaterialCardView, val img: ImageView) : RecyclerView.ViewHolder(card)
+
+    override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): VH {
+        val ctx = parent.context
+        val size = (72 * ctx.resources.displayMetrics.density).toInt()
+        val card = MaterialCardView(ctx).apply {
+            layoutParams = android.view.ViewGroup.MarginLayoutParams(size, size).apply {
+                marginEnd = (8 * ctx.resources.displayMetrics.density).toInt()
+            }
+        }
+        val img = ImageView(ctx).apply {
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            scaleType = ImageView.ScaleType.CENTER_CROP
+        }
+        card.addView(img)
+        return VH(card, img)
+    }
+
+    override fun getItemCount(): Int = items.size
+
+    override fun onBindViewHolder(holder: VH, position: Int) {
+        val att = items[position]
+        Glide.with(holder.img).load(java.io.File(att.path)).centerCrop().into(holder.img)
+        holder.card.setOnClickListener {
+            val iv = ImageView(holder.card.context)
+            Glide.with(iv).load(java.io.File(att.path)).into(iv)
+            AlertDialog.Builder(holder.card.context)
+                .setView(iv)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        }
+    }
+
+    fun submit(list: List<com.example.openeer.data.Attachment>) {
+        items.clear()
+        items.addAll(list)
+        notifyDataSetChanged()
     }
 }
 
