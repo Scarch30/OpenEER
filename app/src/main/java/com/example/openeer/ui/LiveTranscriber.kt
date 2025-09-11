@@ -2,31 +2,50 @@ package com.example.openeer.ui
 
 import android.content.Context
 import com.example.openeer.stt.VoskTranscriber
+import kotlinx.coroutines.*
 
-/**
- * Petit wrapper utilitaire autour de [VoskTranscriber] pour gérer
- * une session de reconnaissance vocale en continu.
- */
 class LiveTranscriber(private val ctx: Context) {
-    private var session: VoskTranscriber.StreamingSession? = null
-
-    /** Démarre une nouvelle session de transcription. */
-    fun start() {
-        session = VoskTranscriber.startStreaming(ctx)
+    sealed class TranscriptionEvent {
+        data class Partial(val text: String) : TranscriptionEvent()
+        data class Final(val text: String) : TranscriptionEvent()
     }
 
-    /** Alimente la session en PCM 16 kHz mono. */
+    var onEvent: ((TranscriptionEvent) -> Unit)? = null
+
+    private var session: VoskTranscriber.StreamingSession? = null
+    private var scope: CoroutineScope? = null
+
+    fun start() {
+        session = VoskTranscriber.startStreaming(ctx)
+        scope = CoroutineScope(Dispatchers.IO).also { sc ->
+            sc.launch {
+                while (isActive) {
+                    delay(400)
+                    val txt = session?.partial().orEmpty()
+                    if (txt.isNotBlank()) {
+                        withContext(Dispatchers.Main) {
+                            onEvent?.invoke(TranscriptionEvent.Partial(txt))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun feed(pcm: ShortArray) {
         session?.feed(pcm)
     }
 
-    /** Récupère une hypothèse partielle. */
-    fun partial(): String = session?.partial() ?: ""
-
-    /** Termine la session et renvoie le texte final. */
     fun stop(): String {
+        scope?.cancel()
         val txt = session?.finish().orEmpty()
         session = null
+        if (txt.isNotBlank()) {
+            CoroutineScope(Dispatchers.Main).launch {
+                onEvent?.invoke(TranscriptionEvent.Final(txt))
+            }
+        }
+        onEvent = null
         return txt
     }
 }
