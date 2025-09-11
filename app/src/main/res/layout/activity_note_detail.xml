@@ -85,4 +85,16 @@
         android:layout_height="wrap_content"
         android:enabled="false"
         android:padding="16dp" />
+
+    <!-- Métadonnées de la note -->
+    <TextView
+        android:id="@+id/noteMetaFooter"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:textSize="13sp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:visibility="gone" />
 </LinearLayout>

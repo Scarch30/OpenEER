@@ -6,28 +6,37 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Bandeau activité + transcription (placeholder) -->
-    <LinearLayout
-        android:orientation="vertical"
+    <!-- Statut en haut de l'écran -->
+    <TextView
+        android:id="@+id/txtActivity"
+        android:text="Appuyez pour parler"
+        android:textStyle="bold"
+        android:textSize="18sp"
         android:padding="12dp"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content" />
+
+    <!-- Bandeau de transcription live (masqué par défaut) -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/liveTranscriptionBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"
+        android:elevation="4dp"
+        android:padding="8dp"
+        android:visibility="gone">
 
         <TextView
-            android:id="@+id/txtActivity"
-            android:text="Appuyez pour parler"
-            android:textStyle="bold"
-            android:textSize="18sp"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
-        <TextView
-            android:id="@+id/txtLive"
-            android:text="…"
-            android:layout_marginTop="4dp"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-    </LinearLayout>
+            android:id="@+id/liveTranscriptionText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="16sp"
+            android:maxLines="2"
+            android:ellipsize="end" />
+    </com.google.android.material.card.MaterialCardView>
 
     <!-- Panneau NOTE OUVERTE (masqué par défaut) -->
     <LinearLayout
@@ -90,6 +99,18 @@
             android:layout_height="wrap_content"
             android:enabled="false"
             android:padding="12dp" />
+
+        <!-- Métadonnées de la note -->
+        <TextView
+            android:id="@+id/noteMetaFooter"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:textSize="13sp"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- Liste des notes (affichée quand aucune note n'est ouverte) -->
