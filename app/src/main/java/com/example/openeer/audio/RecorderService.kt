@@ -34,7 +34,8 @@ class RecorderService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        repo = NoteRepository(AppDatabase.get(this).noteDao())
+        val db = AppDatabase.get(this)
+        repo = NoteRepository(db.noteDao(), db.attachmentDao())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

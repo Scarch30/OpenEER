@@ -100,6 +100,13 @@
             android:enabled="false"
             android:padding="12dp" />
 
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/attachmentsStrip"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:visibility="gone"
+            android:layout_marginTop="8dp" />
+
         <!-- Métadonnées de la note -->
         <TextView
             android:id="@+id/noteMetaFooter"
