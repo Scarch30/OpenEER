@@ -86,8 +86,8 @@ class MicBarController(
             Toast.makeText(activity, "Aucune note ouverte.", Toast.LENGTH_SHORT).show()
             return
         }
-        state = RecordingState.RECORDING_PTT
 
+        state = RecordingState.RECORDING_PTT
         if (recorder == null) recorder = PcmRecorder(activity)
         recorder?.start()
         Log.d("MicCtl", "Recorder.start()")
@@ -98,7 +98,6 @@ class MicBarController(
         binding.labelMic.text = "Enregistrement (PTT)…"
         binding.iconMic.alpha = 1f
         binding.txtActivity.text = "REC (PTT) • relâchez pour arrêter"
-
         binding.liveTranscriptionBar.isVisible = true
         binding.liveTranscriptionText.text = ""
 
@@ -109,6 +108,7 @@ class MicBarController(
                         val base = segmentBaseBody
                         val sep = if (base.isBlank()) "" else " "
                         val display = base + sep + event.text
+                        // MAJ affichage uniquement (pas d'écriture DB sur les partiels)
                         onAppendLive(display)
                         binding.liveTranscriptionText.text = event.text
                     }
@@ -117,6 +117,15 @@ class MicBarController(
                         val sep = if (base.isBlank()) "" else " "
                         val finalJoined = (base + sep + event.text).trimEnd() +
                                 if (!lastWasHandsFree) "\n" else ""
+
+                        // Sauvegarde en base (thread IO)
+                        val nid = getOpenNoteId()
+                        if (nid != null) {
+                            activity.lifecycleScope.launch(Dispatchers.IO) {
+                                repo.setBody(nid, finalJoined)
+                            }
+                        }
+
                         activity.lifecycleScope.launch(Dispatchers.Main) {
                             onReplaceFinal(finalJoined, false)
                             binding.liveTranscriptionText.text = event.text
@@ -167,15 +176,26 @@ class MicBarController(
                 }
                 val finalText = withContext(Dispatchers.IO) { live?.stop().orEmpty() }
                 live = null
+
                 val nid = getOpenNoteId()
                 if (!wavPath.isNullOrBlank() && nid != null) {
                     withContext(Dispatchers.IO) { repo.updateAudio(nid, wavPath) }
                 }
+
+                if (finalText.isNotBlank()) {
+                    withContext(Dispatchers.Main) {
+                        onReplaceFinal(finalText, addNewline = !lastWasHandsFree)
+                        if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
+                    }
+                    if (nid != null) withContext(Dispatchers.IO) { repo.setBody(nid, finalText) }
+                }
+
                 if (finalText.isBlank()) {
                     if (!lastWasHandsFree) {
                         val current = binding.txtBodyDetail.text?.toString().orEmpty()
                         val text = current + if (current.endsWith("\n")) "" else "\n"
                         withContext(Dispatchers.Main) { onReplaceFinal(text, false) }
+                        if (nid != null) withContext(Dispatchers.IO) { repo.setBody(nid, text) }
                     }
                     withContext(Dispatchers.Main) { binding.liveTranscriptionBar.isGone = true }
                 }
