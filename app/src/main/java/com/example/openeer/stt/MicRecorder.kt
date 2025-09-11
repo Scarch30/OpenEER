@@ -11,17 +11,20 @@ import kotlin.math.min
 @Suppress("MissingPermission")
 
 class MicRecorder(
-    private val sampleRate: Int = 16000
+    private val sampleRate: Int = DEFAULT_SAMPLE_RATE
 ) {
+    companion object {
+        /** Sample rate matching Vosk recognizer (mono/PCM16) */
+        const val DEFAULT_SAMPLE_RATE = 16_000
+    }
+
+    private val channelConfig = AudioFormat.CHANNEL_IN_MONO
+    private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
     private var audioRecord: AudioRecord? = null
     private var bufferSize: Int = 0
 
     fun start(): Boolean {
-        val minBuf = AudioRecord.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
+        val minBuf = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         if (minBuf <= 0) return false
 
         // ~200 ms de tampon min (en bytes)
@@ -30,8 +33,8 @@ class MicRecorder(
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION, // AGC/NS souvent meilleurs
             sampleRate,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
+            channelConfig,
+            audioFormat,
             bufferSize
         )
 
