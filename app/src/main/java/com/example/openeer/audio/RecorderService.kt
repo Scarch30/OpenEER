@@ -93,7 +93,7 @@ class RecorderService : Service() {
                     VoskTranscriber.transcribe(this@RecorderService, File(wav))
                 }.getOrNull()
                 if (!text.isNullOrBlank()) {
-                    runCatching { repo.setBody(noteId, text) }
+                    runCatching { repo.setBody(noteId, text, System.currentTimeMillis()) }
                 }
             }
 
