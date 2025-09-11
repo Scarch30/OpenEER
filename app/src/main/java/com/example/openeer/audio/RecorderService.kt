@@ -21,7 +21,6 @@ class RecorderService : Service() {
         const val ACTION_STOP  = "com.example.openeer.action.STOP"
         const val CH_ID = "recorder"
         const val NOTIF_ID = 42
-
         const val BR_DONE = "com.example.openeer.recorder.DONE"
         const val EXTRA_PATH = "path"
         const val EXTRA_ERROR = "error"
@@ -54,8 +53,8 @@ class RecorderService : Service() {
         scope.launch {
             val place = runCatching { getOneShotPlace(this@RecorderService) }.getOrNull()
             noteId = repo.createTextNote(
-                body = "(audio en cours d’enregistrement…)",
-                lat = place?.lat, lon = place?.lon, place = place?.label
+                body  = "(audio en cours d’enregistrement…)",
+                lat   = place?.lat, lon = place?.lon, place = place?.label
             )
         }
 
@@ -89,11 +88,14 @@ class RecorderService : Service() {
 
             if (noteId != 0L && wav != null) {
                 runCatching { repo.updateAudio(noteId, wav) }
+
                 val text = runCatching {
                     VoskTranscriber.transcribe(this@RecorderService, File(wav))
                 }.getOrNull()
+
                 if (!text.isNullOrBlank()) {
-                    runCatching { repo.setBody(noteId, text, System.currentTimeMillis()) }
+                    // ✨ FIX: setBody ne prend que (id, body)
+                    runCatching { repo.setBody(noteId, text) }
                 }
             }
 

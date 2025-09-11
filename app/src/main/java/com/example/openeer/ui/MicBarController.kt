@@ -127,6 +127,7 @@ class MicBarController(
                         }
 
                         activity.lifecycleScope.launch(Dispatchers.Main) {
+                            // ✨ FIX: pas d’arguments nommés sur un type fonction
                             onReplaceFinal(finalJoined, false)
                             binding.liveTranscriptionText.text = event.text
                             Toast.makeText(activity, "Segment ajouté", Toast.LENGTH_SHORT).show()
@@ -184,7 +185,8 @@ class MicBarController(
 
                 if (finalText.isNotBlank()) {
                     withContext(Dispatchers.Main) {
-                        onReplaceFinal(finalText, addNewline = !lastWasHandsFree)
+                        // ✨ FIX: pas d’arguments nommés
+                        onReplaceFinal(finalText, !lastWasHandsFree)
                         if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
                     }
                     if (nid != null) withContext(Dispatchers.IO) { repo.setBody(nid, finalText) }
