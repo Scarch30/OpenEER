@@ -1,0 +1,19 @@
+# --- Android Studio / Gradle ---
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# --- OpenEER : dossiers lourds ---
+app/src/main/assets/vosk-small-fr/
+app/src/main/assets/vosk-fr/
+app/libs/
+
+# --- Logs & autres ---
+*.log
+

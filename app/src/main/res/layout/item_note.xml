@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true">
+
+
+    <TextView android:id="@+id/titleOrBody"
+        android:text="Titre ou début du corps" android:textStyle="bold"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <TextView android:id="@+id/meta"
+            android:text="30 août 2025 • 19:42:07 • 13013 Marseille"
+            android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="wrap_content"/>
+        <ImageView android:id="@+id/iconReminder"
+            android:visibility="gone"
+            android:src="@android:drawable/ic_lock_idle_alarm"
+            android:layout_width="20dp" android:layout_height="20dp"/>
+    </LinearLayout>
+</LinearLayout>

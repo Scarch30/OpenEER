@@ -1,0 +1,49 @@
+<manifest package="com.example.openeer" xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Micro + caméra -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+
+    <!-- Localisation -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+
+    <!-- Notifications (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- Exact alarms -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+
+    <!-- Service micro -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+
+    <application
+        android:allowBackup="true"
+        android:label="OpenEER"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Material3.DayNight.NoActionBar">
+
+        <activity android:name=".ui.OnboardingActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".ui.MainActivity" android:exported="false"/>
+
+        <activity android:name=".ui.NoteDetailActivity" android:exported="false"/>
+
+        <service
+            android:name=".audio.RecorderService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"/>
+    </application>
+</manifest>

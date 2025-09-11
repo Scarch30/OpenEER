@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Bandeau activité + transcription (placeholder) -->
+    <LinearLayout
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:id="@+id/txtActivity"
+            android:text="Appuyez pour parler"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:id="@+id/txtLive"
+            android:text="…"
+            android:layout_marginTop="4dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <!-- Panneau NOTE OUVERTE (masqué par défaut) -->
+    <LinearLayout
+        android:id="@+id/notePanel"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <!-- Barre titre + bouton retour -->
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <ImageView
+                android:id="@+id/btnBack"
+                android:src="@android:drawable/ic_media_previous"
+                android:contentDescription="Retour"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:padding="4dp" />
+
+            <TextView
+                android:id="@+id/txtTitleDetail"
+                android:text="Sans titre"
+                android:textStyle="bold"
+                android:textSize="22sp"
+                android:layout_marginStart="8dp"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+
+        <!-- Corps défilant -->
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+
+            <TextView
+                android:id="@+id/txtBodyDetail"
+                android:text="(transcription en cours…)"
+                android:textSize="16sp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </ScrollView>
+
+        <!-- Bouton Lecture audio -->
+        <Button
+            android:id="@+id/btnPlayDetail"
+            android:text="Lecture"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:padding="12dp" />
+    </LinearLayout>
+
+    <!-- Liste des notes (affichée quand aucune note n'est ouverte) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recycler"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- GROS bouton / barre d’enregistrement pleine largeur -->
+    <LinearLayout
+        android:id="@+id/btnMicBar"
+        android:layout_width="match_parent"
+        android:layout_height="84dp"
+        android:background="@drawable/bg_record_bar"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:gravity="center"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:id="@+id/iconMic"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@android:drawable/ic_btn_speak_now"
+            android:contentDescription="Micro" />
+
+        <TextView
+            android:id="@+id/labelMic"
+            android:text="Appuyez pour parler"
+            android:textSize="18sp"
+            android:alpha="0.9"
+            android:layout_marginStart="12dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <!-- Barre d’actions large (icônes + labels) -->
+    <LinearLayout
+        android:id="@+id/bottomBar"
+        android:orientation="horizontal"
+        android:paddingTop="6dp"
+        android:paddingBottom="10dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:gravity="center"
+        android:layout_width="match_parent"
+        android:layout_height="72dp">
+
+        <!-- Clavier -->
+        <LinearLayout
+            android:id="@+id/btnKeyboard"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_menu_edit"
+                android:contentDescription="Clavier" />
+
+            <TextView
+                android:text="Clavier"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- Photo -->
+        <LinearLayout
+            android:id="@+id/btnPhoto"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_menu_camera"
+                android:contentDescription="Photo" />
+
+            <TextView
+                android:text="Photo"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- Bibliothèque -->
+        <LinearLayout
+            android:id="@+id/btnLibrary"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_menu_agenda"
+                android:contentDescription="Bibliothèque" />
+
+            <TextView
+                android:text="Bibliothèque"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- Menu -->
+        <LinearLayout
+            android:id="@+id/btnMenu"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_menu_manage"
+                android:contentDescription="Menu" />
+
+            <TextView
+                android:text="Menu"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>
