@@ -21,8 +21,8 @@ interface NoteDao {
     @Query("UPDATE notes SET audioPath = :path, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateAudioPath(id: Long, path: String, updatedAt: Long)
 
-    @Query("UPDATE notes SET body = :body WHERE id = :id")
-    suspend fun updateBody(id: Long, body: String)
+    @Query("UPDATE notes SET body = :body, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateBody(id: Long, body: String, updatedAt: Long)
 
     @Update
     suspend fun update(note: Note)
