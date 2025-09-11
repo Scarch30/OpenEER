@@ -84,14 +84,12 @@ class NotePanelController(
 
     /**
      * Reçoit du texte final.
-     * Si addNewline = true, on ajoute juste un '\n' **au texte fourni** puis on remplace l'UI/DB.
-     * On NE lit PAS le texte courant pour éviter les doublons.
+     * Si addNewline = true, on ajoute juste un '\n' **au texte fourni** puis on remplace
+     * l'UI/DB via [onAppendLive]. On NE lit PAS le texte courant pour éviter les doublons.
      */
     fun onReplaceFinal(finalBody: String, addNewline: Boolean) {
         val text = if (addNewline) finalBody + "\n" else finalBody
-        binding.txtBodyDetail.text = text
-        val nid = openNoteId ?: return
-        activity.lifecycleScope.launch(Dispatchers.IO) { repo.setBody(nid, text) }
+        onAppendLive(text)
     }
 
     // ---- Internes ----

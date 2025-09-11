@@ -111,10 +111,6 @@ class MicBarController(
                         val display = base + sep + event.text
                         onAppendLive(display)
                         binding.liveTranscriptionText.text = event.text
-                        val nid = getOpenNoteId()
-                        if (nid != null) {
-                            activity.lifecycleScope.launch(Dispatchers.IO) { repo.setBody(nid, display) }
-                        }
                     }
                     is LiveTranscriber.TranscriptionEvent.Final -> {
                         val base = segmentBaseBody
@@ -128,10 +124,6 @@ class MicBarController(
                             delay(1500)
                             if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
                             else binding.liveTranscriptionText.text = ""
-                        }
-                        val nid = getOpenNoteId()
-                        if (nid != null) {
-                            activity.lifecycleScope.launch(Dispatchers.IO) { repo.setBody(nid, finalJoined) }
                         }
                     }
                 }
@@ -184,7 +176,6 @@ class MicBarController(
                         val current = binding.txtBodyDetail.text?.toString().orEmpty()
                         val text = current + if (current.endsWith("\n")) "" else "\n"
                         withContext(Dispatchers.Main) { onReplaceFinal(text, false) }
-                        if (nid != null) withContext(Dispatchers.IO) { repo.setBody(nid, text) }
                     }
                     withContext(Dispatchers.Main) { binding.liveTranscriptionBar.isGone = true }
                 }
