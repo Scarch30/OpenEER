@@ -75,8 +75,8 @@ class NotePanelController(
 
     /** Reçoit du texte partiel (live) -> on PUSH l'état courant (affichage + DB). */
     fun onAppendLive(displayBody: String) {
-        binding.txtBodyDetail.text = displayBody
         val nid = openNoteId ?: return
+        binding.txtBodyDetail.text = displayBody
         activity.lifecycleScope.launch(Dispatchers.IO) {
             repo.setBody(nid, displayBody)
         }
