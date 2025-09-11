@@ -79,4 +79,6 @@ dependencies {
 
     // ✅ JNA Android AAR qui embarque libjnidispatch.so
     implementation("net.java.dev.jna:jna:5.13.0@aar")
+
+    implementation("com.github.bumptech.glide:glide:4.16.0")
 }

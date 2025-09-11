@@ -3,15 +3,20 @@ package com.example.openeer.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.net.Uri
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.ListView
 import android.widget.Toast
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -22,10 +27,12 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.databinding.ActivityMainBinding
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
     private lateinit var b: ActivityMainBinding
@@ -35,8 +42,8 @@ class MainActivity : AppCompatActivity() {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                val dao = AppDatabase.get(this@MainActivity).noteDao()
-                return NotesVm(NoteRepository(dao)) as T
+                val db = AppDatabase.get(this@MainActivity)
+                return NotesVm(NoteRepository(db.noteDao(), db.attachmentDao())) as T
             }
         }
     }
@@ -48,13 +55,48 @@ class MainActivity : AppCompatActivity() {
 
     // Repo partagé
     private val repo: NoteRepository by lazy {
-        val dao = AppDatabase.get(this).noteDao()
-        NoteRepository(dao)
+        val db = AppDatabase.get(this)
+        NoteRepository(db.noteDao(), db.attachmentDao())
     }
 
     // Contrôleurs
     private lateinit var notePanel: NotePanelController
     private lateinit var micCtl: MicBarController
+
+    private var tempPhotoPath: String? = null
+
+    private val takePhotoLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val path = tempPhotoPath
+        val nid = notePanel.openNoteId
+        if (ok && path != null && nid != null) {
+            lifecycleScope.launch(Dispatchers.IO) { repo.addPhoto(nid, path) }
+        } else if (path != null) {
+            File(path).delete()
+        }
+        tempPhotoPath = null
+    }
+
+    private val pickPhotoLauncher = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val nid = notePanel.openNoteId ?: return@registerForActivityResult
+        if (uri != null) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val dir = File(filesDir, "images").apply { mkdirs() }
+                val dest = File(dir, "img_${'$'}{System.currentTimeMillis()}.jpg")
+                contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { input.copyTo(it) }
+                }
+                repo.addPhoto(nid, dest.absolutePath)
+            }
+        }
+    }
+
+    private val readMediaPermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            openGallery()
+        } else {
+            Toast.makeText(this, "Permission galerie refusée", Toast.LENGTH_LONG).show()
+        }
+    }
 
     // Permissions
     private val recordPermLauncher = registerForActivityResult(
@@ -73,6 +115,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) {
+            File(cacheDir, "images").listFiles()?.forEach { it.delete() }
+        } else {
+            tempPhotoPath = savedInstanceState.getString("tempPhotoPath")
+        }
         WindowCompat.setDecorFitsSystemWindows(window, true)
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
@@ -148,36 +195,76 @@ class MainActivity : AppCompatActivity() {
 
         // Boutons bas
         b.btnKeyboard.setOnClickListener {
-            ensureOpenNote()
-            Toast.makeText(this, "Saisie clavier à venir (note déjà ouverte).", Toast.LENGTH_SHORT).show()
+            lifecycleScope.launch {
+                ensureOpenNote()
+                Toast.makeText(this@MainActivity, "Saisie clavier à venir (note déjà ouverte).", Toast.LENGTH_SHORT).show()
+            }
         }
         b.btnPhoto.setOnClickListener {
-            ensureOpenNote()
-            Toast.makeText(this, "Capture photo à venir (note déjà ouverte).", Toast.LENGTH_SHORT).show()
+            lifecycleScope.launch {
+                ensureOpenNote()
+                showPhotoSheet()
+            }
         }
     }
 
-    private fun ensureOpenNote() {
-        if (notePanel.openNoteId != null) return
-        lifecycleScope.launch {
-            val newId = withContext(Dispatchers.IO) { repo.createTextNote("(transcription en cours…)") }
-            Toast.makeText(this@MainActivity, "Note créée (#$newId)", Toast.LENGTH_SHORT).show()
-            notePanel.open(newId)
+    private suspend fun ensureOpenNote(): Long {
+        notePanel.openNoteId?.let { return it }
+        val newId = withContext(Dispatchers.IO) { repo.createTextNote("(transcription en cours…)") }
+        Toast.makeText(this@MainActivity, "Note créée (#$newId)", Toast.LENGTH_SHORT).show()
+        notePanel.open(newId)
 
-            // 🌍 enrichissement lieu non bloquant
-            lifecycleScope.launch(Dispatchers.IO) {
-                val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
-                if (place != null) {
-                    repo.updateLocation(
-                        id = newId,
-                        lat = place.lat,
-                        lon = place.lon,
-                        place = place.label,
-                        accuracyM = place.accuracyM
-                    )
-                }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
+            if (place != null) {
+                repo.updateLocation(
+                    id = newId,
+                    lat = place.lat,
+                    lon = place.lon,
+                    place = place.label,
+                    accuracyM = place.accuracyM
+                )
             }
         }
+        return newId
+    }
+
+    private fun showPhotoSheet() {
+        val sheet = BottomSheetDialog(this)
+        val list = ListView(this)
+        val opts = listOf("Prendre une photo", "Depuis la galerie")
+        list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, opts)
+        list.setOnItemClickListener { _, _, pos, _ ->
+            when (pos) {
+                0 -> openCamera()
+                1 -> openGallery()
+            }
+            sheet.dismiss()
+        }
+        sheet.setContentView(list)
+        sheet.show()
+    }
+
+    private fun openCamera() {
+        val nid = notePanel.openNoteId ?: return
+        val dir = File(cacheDir, "images").apply { mkdirs() }
+        val file = File(dir, "cap_${'$'}{System.currentTimeMillis()}.jpg")
+        tempPhotoPath = file.absolutePath
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        takePhotoLauncher.launch(uri)
+    }
+
+    private fun openGallery() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+            readMediaPermLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
+            return
+        }
+        pickPhotoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("tempPhotoPath", tempPhotoPath)
     }
 
     // ---------- Ouvrir une note existante (depuis la liste) ----------
