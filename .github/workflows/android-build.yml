@@ -44,15 +44,3 @@ jobs:
 
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebug
-
-- name: Upload unit test HTML report
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-tests-html
-          path: app/build/reports/tests/testDebugUnitTest
-
-      - name: Upload unit test JUnit XML
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-tests-junit-xml
-          path: app/build/test-results/testDebugUnitTest
