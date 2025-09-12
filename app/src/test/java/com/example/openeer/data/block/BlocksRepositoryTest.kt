@@ -1,29 +1,36 @@
 package com.example.openeer.data.block
 
-import androidx.test.core.app.ApplicationProvider
+import android.content.Context
 import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class BlocksRepositoryTest {
+
     private lateinit var db: AppDatabase
     private lateinit var repo: BlocksRepository
 
-    private lateinit var noteId: Long
+    // ⚠️ pas de lateinit sur un primitif
+    private var noteId: Long = 0L
 
     @Before
     fun setup() {
-        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(ctx, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
         repo = BlocksRepository(db.blockDao())
+
         noteId = runBlocking {
             db.noteDao().insert(Note())
         }
@@ -45,6 +52,7 @@ class BlocksRepositoryTest {
 
         val blocks = db.blockDao().observeBlocks(noteId).first()
         assertEquals(5, blocks.size)
+
         assertEquals(textId, blocks[0].id)
         assertEquals(BlockType.TEXT, blocks[0].type)
         assertEquals(gid, blocks[0].groupId)
@@ -64,17 +72,19 @@ class BlocksRepositoryTest {
         assertEquals("world", blocks[3].text)
 
         assertEquals(BlockType.LOCATION, blocks[4].type)
-        assertEquals(1.0, blocks[4].lat, 0.0)
-        assertEquals(2.0, blocks[4].lon, 0.0)
+        // ⚠️ lat/lon sont Double? dans l’entity → on vérifie notNull avant comparaison
+        assertNotNull(blocks[4].lat)
+        assertNotNull(blocks[4].lon)
+        assertEquals(1.0, blocks[4].lat!!, 0.0)
+        assertEquals(2.0, blocks[4].lon!!, 0.0)
         assertEquals("place", blocks[4].placeName)
     }
 
     @Test
     fun reorderUpdatesPositions() = runBlocking {
         val ids = mutableListOf<Long>()
-        repeat(3) { i ->
-            ids += repo.appendText(noteId, "b$i")
-        }
+        repeat(3) { i -> ids += repo.appendText(noteId, "b$i") }
+
         val newOrder = listOf(ids[2], ids[0], ids[1])
         repo.reorder(noteId, newOrder)
 
@@ -83,4 +93,3 @@ class BlocksRepositoryTest {
         assertEquals(listOf(0, 1, 2), blocks.map { it.position })
     }
 }
-
