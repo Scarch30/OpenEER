@@ -20,6 +20,10 @@ interface BlockDao {
     @Query("SELECT * FROM blocks WHERE noteId = :noteId ORDER BY position ASC")
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>>
 
+    @Transaction
+    @Query("SELECT * FROM notes WHERE id = :noteId")
+    fun observeNoteWithBlocks(noteId: Long): Flow<NoteWithBlocks>
+
     @Query("SELECT * FROM blocks WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): BlockEntity?
 

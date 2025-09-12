@@ -5,11 +5,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import com.example.openeer.data.Note
+import com.example.openeer.data.NoteDao
 
 fun generateGroupId(): String = UUID.randomUUID().toString()
 
 class BlocksRepository(
     private val blockDao: BlockDao,
+    private val noteDao: NoteDao? = null,
     private val io: CoroutineDispatcher = Dispatchers.IO
 ) {
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
@@ -124,5 +127,44 @@ class BlocksRepository(
         withContext(io) {
             blockDao.reorder(noteId, orderedBlockIds)
         }
+    }
+
+    suspend fun updateText(blockId: Long, newText: String) {
+        withContext(io) {
+            val current = blockDao.getById(blockId) ?: return@withContext
+            val now = System.currentTimeMillis()
+            blockDao.update(current.copy(text = newText, updatedAt = now))
+        }
+    }
+
+    suspend fun appendSketch(
+        noteId: Long,
+        mediaUri: String,
+        width: Int? = null,
+        height: Int? = null,
+        mimeType: String = "image/png",
+        groupId: String? = null
+    ): Long {
+        val now = System.currentTimeMillis()
+        val block = BlockEntity(
+            noteId = noteId,
+            type = BlockType.SKETCH,
+            position = 0,
+            groupId = groupId,
+            mediaUri = mediaUri,
+            mimeType = mimeType,
+            width = width,
+            height = height,
+            createdAt = now,
+            updatedAt = now
+        )
+        return insert(noteId, block)
+    }
+
+    suspend fun ensureNoteWithInitialText(): Long {
+        val dao = noteDao ?: throw IllegalStateException("noteDao required")
+        val noteId = withContext(io) { dao.insert(Note()) }
+        appendText(noteId, "")
+        return noteId
     }
 }

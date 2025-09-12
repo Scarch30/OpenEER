@@ -27,6 +27,7 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.ui.editor.NoteEditorActivity
 import com.example.openeer.databinding.ActivityMainBinding
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +63,7 @@ class MainActivity : AppCompatActivity() {
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(this)
-        BlocksRepository(db.blockDao())
+        BlocksRepository(db.blockDao(), db.noteDao())
     }
 
     // Contrôleurs
@@ -208,8 +209,17 @@ class MainActivity : AppCompatActivity() {
         // Boutons bas
         b.btnKeyboard.setOnClickListener {
             lifecycleScope.launch {
-                ensureOpenNote()
-                Toast.makeText(this@MainActivity, "Saisie clavier à venir (note déjà ouverte).", Toast.LENGTH_SHORT).show()
+                val nid = if (notePanel.openNoteId == null) {
+                    withContext(Dispatchers.IO) { blocksRepo.ensureNoteWithInitialText() }
+                } else {
+                    val existing = notePanel.openNoteId!!
+                    withContext(Dispatchers.IO) { blocksRepo.appendText(existing, "") }
+                    existing
+                }
+                val i = Intent(this@MainActivity, NoteEditorActivity::class.java)
+                i.putExtra("noteId", nid)
+                i.putExtra("focusLast", true)
+                startActivity(i)
             }
         }
         b.btnPhoto.setOnClickListener {
