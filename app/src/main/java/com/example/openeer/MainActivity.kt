@@ -26,6 +26,7 @@ import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +60,11 @@ class MainActivity : AppCompatActivity() {
         NoteRepository(db.noteDao(), db.attachmentDao())
     }
 
+    private val blocksRepo: BlocksRepository by lazy {
+        val db = AppDatabase.get(this)
+        BlocksRepository(db.blockDao())
+    }
+
     // Contrôleurs
     private lateinit var notePanel: NotePanelController
     private lateinit var micCtl: MicBarController
@@ -70,7 +76,10 @@ class MainActivity : AppCompatActivity() {
         val path = tempPhotoPath
         val nid = notePanel.openNoteId
         if (ok && path != null && nid != null) {
-            lifecycleScope.launch(Dispatchers.IO) { repo.addPhoto(nid, path) }
+            lifecycleScope.launch(Dispatchers.IO) {
+                repo.addPhoto(nid, path)
+                blocksRepo.appendPhoto(nid, path, mimeType = "image/*")
+            }
         } else if (path != null) {
             File(path).delete()
         }
@@ -87,6 +96,7 @@ class MainActivity : AppCompatActivity() {
                     dest.outputStream().use { input.copyTo(it) }
                 }
                 repo.addPhoto(nid, dest.absolutePath)
+                blocksRepo.appendPhoto(nid, dest.absolutePath, mimeType = "image/*")
             }
         }
     }
@@ -144,6 +154,7 @@ class MainActivity : AppCompatActivity() {
             activity = this,
             binding = b,
             repo = repo,
+            blocksRepo = blocksRepo,
             getOpenNoteId = { notePanel.openNoteId },
             onAppendLive = { body -> notePanel.onAppendLive(body) },
             onReplaceFinal = { body, addNewline -> notePanel.onReplaceFinal(body, addNewline) }
@@ -176,6 +187,7 @@ class MainActivity : AppCompatActivity() {
                                         place = place.label,
                                         accuracyM = place.accuracyM
                                     )
+                                    blocksRepo.appendLocation(newId, place.lat, place.lon, place.label)
                                 }
                             }
 
@@ -183,10 +195,10 @@ class MainActivity : AppCompatActivity() {
                             micCtl.beginPress(initialX = ev.x)
                         }
                         return@setOnTouchListener true
-                    } else {
-                        micCtl.beginPress(initialX = ev.x)
-                        return@setOnTouchListener true
-                    }
+                        } else {
+                            micCtl.beginPress(initialX = ev.x)
+                            return@setOnTouchListener true
+                        }
                 }
             }
             micCtl.onTouch(ev)
@@ -224,6 +236,7 @@ class MainActivity : AppCompatActivity() {
                     place = place.label,
                     accuracyM = place.accuracyM
                 )
+                blocksRepo.appendLocation(newId, place.lat, place.lon, place.label)
             }
         }
         return newId

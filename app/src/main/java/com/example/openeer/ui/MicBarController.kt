@@ -10,6 +10,8 @@ import androidx.lifecycle.lifecycleScope
 import com.example.openeer.audio.PcmRecorder
 import com.example.openeer.core.RecordingState
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
 import kotlinx.coroutines.*
 import kotlin.math.abs
@@ -18,6 +20,7 @@ class MicBarController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
     private val repo: NoteRepository,
+    private val blocksRepo: BlocksRepository,
     private val getOpenNoteId: () -> Long?,
     private val onAppendLive: (String) -> Unit,
     private val onReplaceFinal: (String, Boolean) -> Unit
@@ -159,7 +162,14 @@ class MicBarController(
 
                 val nid = getOpenNoteId()
                 if (!wavPath.isNullOrBlank() && nid != null) {
-                    withContext(Dispatchers.IO) { repo.updateAudio(nid, wavPath) }
+                    val gid = generateGroupId()
+                    withContext(Dispatchers.IO) {
+                        repo.updateAudio(nid, wavPath)
+                        blocksRepo.appendAudio(nid, wavPath, null, "audio/wav", gid)
+                        if (finalText.isNotEmpty()) {
+                            blocksRepo.appendTranscription(nid, finalText, gid)
+                        }
+                    }
                 }
 
                 var segment = finalText
