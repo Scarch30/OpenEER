@@ -83,6 +83,7 @@ dependencies {
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.test:core:1.5.0")
 
     // (optionnel mais utile plus tard)
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
