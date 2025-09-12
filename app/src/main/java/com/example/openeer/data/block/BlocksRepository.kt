@@ -119,13 +119,10 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
+    // ⚠️ FIX: on délègue au DAO (double passe avec positions temporaires uniques)
     suspend fun reorder(noteId: Long, orderedBlockIds: List<Long>) {
         withContext(io) {
-            orderedBlockIds.forEach { id -> blockDao.updatePosition(id, noteId, -1) }
-            orderedBlockIds.forEachIndexed { index, id ->
-                blockDao.updatePosition(id, noteId, index)
-            }
+            blockDao.reorder(noteId, orderedBlockIds)
         }
     }
 }
-
