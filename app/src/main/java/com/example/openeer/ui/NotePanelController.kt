@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import android.content.Intent
 import java.io.File
 
 /**
@@ -43,7 +44,14 @@ class NotePanelController(
 
     /** Dernière note reçue du flux (pour rendre l'UI rapidement) */
     private var currentNote: Note? = null
-    private val attachmentAdapter = AttachmentsAdapter()
+
+    private val attachmentAdapter = AttachmentsAdapter(
+        onClick = { path ->
+            val i = Intent(activity, PhotoViewerActivity::class.java)
+            i.putExtra("path", path)
+            activity.startActivity(i)
+        }
+    )
 
     /**
      * Ouvre visuellement le panneau et commence à observer la note.
@@ -57,11 +65,13 @@ class NotePanelController(
             LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
         binding.attachmentsStrip.adapter = attachmentAdapter
 
+        // Flux des pièces jointes (filtre les fichiers manquants pour éviter vignettes mortes)
         activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 repo.attachments(noteId).collectLatest { list ->
-                    attachmentAdapter.submit(list)
-                    binding.attachmentsStrip.isGone = list.isEmpty()
+                    val existing = list.filter { File(it.path).exists() && it.type == "photo" }
+                    attachmentAdapter.submit(existing.map { it.path })
+                    binding.attachmentsStrip.isGone = existing.isEmpty()
                 }
             }
         }
@@ -182,8 +192,12 @@ class NotePanelController(
     }
 }
 
-private class AttachmentsAdapter : RecyclerView.Adapter<AttachmentsAdapter.VH>() {
-    private val items = mutableListOf<com.example.openeer.data.Attachment>()
+/** Liste horizontale de vignettes. */
+private class AttachmentsAdapter(
+    private val onClick: (String) -> Unit
+) : RecyclerView.Adapter<AttachmentsAdapter.VH>() {
+
+    private val items = mutableListOf<String>() // chemins absolus
 
     class VH(val card: MaterialCardView, val img: ImageView) : RecyclerView.ViewHolder(card)
 
@@ -194,6 +208,7 @@ private class AttachmentsAdapter : RecyclerView.Adapter<AttachmentsAdapter.VH>()
             layoutParams = android.view.ViewGroup.MarginLayoutParams(size, size).apply {
                 marginEnd = (8 * ctx.resources.displayMetrics.density).toInt()
             }
+            radius = 16f
         }
         val img = ImageView(ctx).apply {
             layoutParams = android.view.ViewGroup.LayoutParams(
@@ -201,6 +216,7 @@ private class AttachmentsAdapter : RecyclerView.Adapter<AttachmentsAdapter.VH>()
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT
             )
             scaleType = ImageView.ScaleType.CENTER_CROP
+            clipToOutline = true
         }
         card.addView(img)
         return VH(card, img)
@@ -209,19 +225,19 @@ private class AttachmentsAdapter : RecyclerView.Adapter<AttachmentsAdapter.VH>()
     override fun getItemCount(): Int = items.size
 
     override fun onBindViewHolder(holder: VH, position: Int) {
-        val att = items[position]
-        Glide.with(holder.img).load(java.io.File(att.path)).centerCrop().into(holder.img)
-        holder.card.setOnClickListener {
-            val iv = ImageView(holder.card.context)
-            Glide.with(iv).load(java.io.File(att.path)).into(iv)
-            AlertDialog.Builder(holder.card.context)
-                .setView(iv)
-                .setPositiveButton(android.R.string.ok, null)
-                .show()
-        }
+        val path = items[position]
+        // 🔑 évite la miniature « collée »
+        holder.img.setImageDrawable(null)
+        Glide.with(holder.img).clear(holder.img)
+        Glide.with(holder.img)
+            .load(File(path))
+            .centerCrop()
+            .into(holder.img)
+
+        holder.card.setOnClickListener { onClick(path) }
     }
 
-    fun submit(list: List<com.example.openeer.data.Attachment>) {
+    fun submit(list: List<String>) {
         items.clear()
         items.addAll(list)
         notifyDataSetChanged()

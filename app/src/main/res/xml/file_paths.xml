@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <external-cache-path name="images" path="images/" />
-    <files-path name="images" path="images/" />
+    <!-- URI pour /data/data/<package>/cache/images/... -->
+    <cache-path
+        name="images_cache"
+        path="images/" />
+
+    <!-- URI pour /data/data/<package>/files/images/... (si tu l'utilises ailleurs) -->
+    <files-path
+        name="images_files"
+        path="images/" />
+
+    <!-- URI pour /storage/.../Android/data/<package>/cache/images/... (si jamais) -->
+    <external-cache-path
+        name="images_external_cache"
+        path="images/" />
 </paths>

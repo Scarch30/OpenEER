@@ -7,7 +7,11 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Note::class, Attachment::class], version = 3, exportSchema = false)
+@Database(
+    entities = [Note::class, Attachment::class],
+    version = 3,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
     abstract fun attachmentDao(): AttachmentDao
@@ -36,9 +40,11 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "openEER.db"
-                ).addMigrations(MIGRATION_2_3)
-                 .fallbackToDestructiveMigration()
-                 .build().also { INSTANCE = it }
+                )
+                    .addMigrations(MIGRATION_2_3)
+                    // ⚠️ on évite fallbackToDestructiveMigration pour ne pas perdre les données
+                    .build()
+                    .also { INSTANCE = it }
             }
     }
 }

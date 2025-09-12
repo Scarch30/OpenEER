@@ -6,16 +6,13 @@ class NoteRepository(
 ) {
     val allNotes = noteDao.getAllFlow()
 
-    // ✅ nouveaux helpers pour l'écran détail
     fun note(id: Long) = noteDao.getByIdFlow(id)
     suspend fun noteOnce(id: Long) = noteDao.getByIdOnce(id)
 
     fun attachments(noteId: Long) = attachmentDao.byNoteId(noteId)
-
     suspend fun addPhoto(noteId: Long, path: String) {
         attachmentDao.insert(Attachment(noteId = noteId, type = "photo", path = path))
     }
-
     suspend fun removeAttachment(id: Long) {
         attachmentDao.delete(id)
     }

@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var notePanel: NotePanelController
     private lateinit var micCtl: MicBarController
 
+    // chemin temporaire utilisé par TakePicture()
     private var tempPhotoPath: String? = null
 
     private val takePhotoLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
@@ -81,7 +82,7 @@ class MainActivity : AppCompatActivity() {
         if (uri != null) {
             lifecycleScope.launch(Dispatchers.IO) {
                 val dir = File(filesDir, "images").apply { mkdirs() }
-                val dest = File(dir, "img_${'$'}{System.currentTimeMillis()}.jpg")
+                val dest = File(dir, "img_${System.currentTimeMillis()}.jpg")
                 contentResolver.openInputStream(uri)?.use { input ->
                     dest.outputStream().use { input.copyTo(it) }
                 }
@@ -115,11 +116,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) {
-            File(cacheDir, "images").listFiles()?.forEach { it.delete() }
-        } else {
-            tempPhotoPath = savedInstanceState.getString("tempPhotoPath")
-        }
+
+        // ❌ on ne nettoie plus le cache des images ici — sinon les photos “disparaissent”
+        // if (savedInstanceState == null) {
+        //     File(cacheDir, "images").listFiles()?.forEach { it.delete() }
+        // } else {
+        //     tempPhotoPath = savedInstanceState.getString("tempPhotoPath")
+        // }
+        tempPhotoPath = savedInstanceState?.getString("tempPhotoPath")
+
         WindowCompat.setDecorFitsSystemWindows(window, true)
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
@@ -149,21 +154,18 @@ class MainActivity : AppCompatActivity() {
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     v.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                    // Permission micro si pas accordée (ne bloque pas la création)
                     if (!hasRecordPerm()) {
                         recordPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                    // Si aucune note ouverte, on en crée une tout de suite et on ouvre le panneau
                     if (notePanel.openNoteId == null) {
                         lifecycleScope.launch {
                             val newId = withContext(Dispatchers.IO) {
-                                // Création immédiate, corps placeholder
                                 repo.createTextNote(body = "(transcription en cours…)")
                             }
                             Toast.makeText(this@MainActivity, "Note créée (#$newId)", Toast.LENGTH_SHORT).show()
                             notePanel.open(newId)
 
-                            // 🌍 Enrichissement lieu en arrière-plan (non bloquant)
+                            // 🌍 enrichissement lieu en arrière-plan
                             lifecycleScope.launch(Dispatchers.IO) {
                                 val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
                                 if (place != null) {
@@ -177,18 +179,16 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
 
-                            // Puis on laisse le touch continuer vers le MicBarController
+                            // Laisse le touch continuer vers le MicBarController
                             micCtl.beginPress(initialX = ev.x)
                         }
                         return@setOnTouchListener true
                     } else {
-                        // Une note est déjà ouverte : on démarre tout de suite le PTT
                         micCtl.beginPress(initialX = ev.x)
                         return@setOnTouchListener true
                     }
                 }
             }
-            // Délègue les mouvements/relâchements au mic controller
             micCtl.onTouch(ev)
             true
         }
@@ -246,11 +246,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openCamera() {
+        // ✅ Sauvegarde PERSISTANTE : filesDir/images (et plus cacheDir)
         val nid = notePanel.openNoteId ?: return
-        val dir = File(cacheDir, "images").apply { mkdirs() }
-        val file = File(dir, "cap_${'$'}{System.currentTimeMillis()}.jpg")
+        val dir = File(filesDir, "images").apply { mkdirs() }
+        val file = File(dir, "cap_${System.currentTimeMillis()}.jpg")
         tempPhotoPath = file.absolutePath
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val uri: Uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
         takePhotoLauncher.launch(uri)
     }
 
