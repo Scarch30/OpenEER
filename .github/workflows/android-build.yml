@@ -36,6 +36,23 @@ jobs:
                      "platforms;android-34" \
                      "build-tools;34.0.0"
 
+      # -- Optionnel : cache+download du modèle Vosk (décommente si tu publies le zip en Release) --
+      # - name: Cache Vosk model
+      #   id: voskcache
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: app/src/main/assets/vosk-small-fr
+      #     key: vosk-small-fr-0.22
+      #
+      # - name: Download Vosk model (if cache miss)
+      #   if: steps.voskcache.outputs.cache-hit != 'true'
+      #   run: |
+      #     mkdir -p app/src/main/assets
+      #     curl -L -o model.zip "https://github.com/Scarch30/OpenEER/releases/download/models-v1/vosk-model-small-fr-0.22.zip"
+      #     unzip -q model.zip -d app/src/main/assets
+      #     mv app/src/main/assets/vosk-model-small-fr-0.22 app/src/main/assets/vosk-small-fr
+      #     rm model.zip
+
       - name: Make gradlew executable
         run: chmod +x gradlew
 
@@ -44,3 +61,18 @@ jobs:
 
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebug
+
+      # --------- Rapports utiles pour debug (unit tests) ----------
+      - name: Upload unit test HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-html
+          path: app/build/reports/tests/testDebugUnitTest
+
+      - name: Upload unit test JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-junit-xml
+          path: app/build/test-results/testDebugUnitTest
