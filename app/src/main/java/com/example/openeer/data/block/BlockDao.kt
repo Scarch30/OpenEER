@@ -35,10 +35,20 @@ interface BlockDao {
         return insert(template.copy(noteId = noteId, position = pos))
     }
 
+    /**
+     * Réordonne sans violer l'unique (noteId, position) :
+     *  - Passe 1 : place des positions temporaires négatives uniques (-1, -2, ...)
+     *  - Passe 2 : assigne les positions finales 0..n-1 dans l'ordre demandé
+     */
     @Transaction
     suspend fun reorder(noteId: Long, orderedBlockIds: List<Long>) {
-        orderedBlockIds.forEachIndexed { index, blockId ->
-            updatePosition(blockId, noteId, index)
+        // Pass 1: positions temporaires (évite toute collision)
+        orderedBlockIds.forEachIndexed { idx, blockId ->
+            updatePosition(blockId, noteId, -(idx + 1))
+        }
+        // Pass 2: positions finales
+        orderedBlockIds.forEachIndexed { idx, blockId ->
+            updatePosition(blockId, noteId, idx)
         }
     }
 }
