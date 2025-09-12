@@ -39,6 +39,11 @@ android {
 
     buildFeatures { viewBinding = true }
 
+    // ⚙️ Options tests JVM (Robolectric a besoin des ressources)
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     // Évite les conflits META-INF et laisse les .so être packagés correctement
     packaging {
         resources {
@@ -82,10 +87,15 @@ dependencies {
 
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("androidx.test:core:1.5.0")
+   // ---------- Tests (JVM) ----------
+testImplementation("junit:junit:4.13.2")
+testImplementation("org.robolectric:robolectric:4.12.1")
+testImplementation("androidx.test:core:1.6.1")
+testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+testImplementation("androidx.room:room-testing:$room")
 
-    // (optionnel mais utile plus tard)
+
+    // ---------- Tests instrumentés (Android) ----------
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }
