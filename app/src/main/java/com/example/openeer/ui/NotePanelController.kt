@@ -17,6 +17,7 @@ import com.google.android.material.card.MaterialCardView
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.formatMeta
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,11 @@ class NotePanelController(
         NoteRepository(db.noteDao(), db.attachmentDao())
     }
 
+    private val blocksRepo: BlocksRepository by lazy {
+        val db = AppDatabase.get(activity)
+        BlocksRepository(db.blockDao())
+    }
+
     /** id de la note actuellement ouverte (ou null si aucune) */
     var openNoteId: Long? = null
         private set
@@ -54,7 +60,7 @@ class NotePanelController(
     )
 
     /**
-     * Ouvre visuellement le panneau et commence à observer la note.
+     * Ouvre visuellement le panneau et commence à observer une note.
      */
     fun open(noteId: Long) {
         openNoteId = noteId
@@ -124,6 +130,8 @@ class NotePanelController(
     // ---- Internes ----
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
 
+    fun observeBlocks(noteId: Long) = blocksRepo.observeBlocks(noteId)
+
     private fun render(note: Note?) {
         if (note == null) return
         val title = note.title?.takeIf { it.isNotBlank() } ?: "Sans titre"
@@ -192,7 +200,7 @@ class NotePanelController(
     }
 }
 
-/** Liste horizontale de vignettes. */
+    /** Liste horizontale de vignettes. */
 private class AttachmentsAdapter(
     private val onClick: (String) -> Unit
 ) : RecyclerView.Adapter<AttachmentsAdapter.VH>() {

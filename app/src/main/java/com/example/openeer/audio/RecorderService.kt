@@ -9,6 +9,8 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.generateGroupId
 import kotlinx.coroutines.*
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.stt.VoskTranscriber
@@ -29,6 +31,7 @@ class RecorderService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var repo: NoteRepository
+    private lateinit var blocksRepo: BlocksRepository
     private var noteId: Long = 0L
     private var pcm: PcmRecorder? = null
 
@@ -36,6 +39,7 @@ class RecorderService : Service() {
         super.onCreate()
         val db = AppDatabase.get(this)
         repo = NoteRepository(db.noteDao(), db.attachmentDao())
+        blocksRepo = BlocksRepository(db.blockDao())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -57,6 +61,9 @@ class RecorderService : Service() {
                 body  = "(audio en cours d’enregistrement…)",
                 lat   = place?.lat, lon = place?.lon, place = place?.label
             )
+            if (place != null) {
+                blocksRepo.appendLocation(noteId, place.lat, place.lon, place.label)
+            }
         }
 
         pcm = PcmRecorder(this).also { rec ->
@@ -88,15 +95,19 @@ class RecorderService : Service() {
             val wav = runCatching { rec.finalizeToWav() }.getOrNull()
 
             if (noteId != 0L && wav != null) {
-                runCatching { repo.updateAudio(noteId, wav) }
+                val gid = generateGroupId()
+                runCatching {
+                    repo.updateAudio(noteId, wav)
+                    blocksRepo.appendAudio(noteId, wav, null, "audio/wav", gid)
+                }
 
                 val text = runCatching {
                     VoskTranscriber.transcribe(this@RecorderService, File(wav))
                 }.getOrNull()
 
                 if (!text.isNullOrBlank()) {
-                    // ✨ FIX: setBody ne prend que (id, body)
                     runCatching { repo.setBody(noteId, text) }
+                    runCatching { blocksRepo.appendTranscription(noteId, text, gid) }
                 }
             }
 
