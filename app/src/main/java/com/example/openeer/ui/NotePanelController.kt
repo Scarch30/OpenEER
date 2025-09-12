@@ -60,7 +60,7 @@ class NotePanelController(
     )
 
     /**
-     * Ouvre visuellement le panneau et commence à observer la note.
+     * Ouvre visuellement le panneau et commence à observer une note.
      */
     fun open(noteId: Long) {
         openNoteId = noteId
