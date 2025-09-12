@@ -41,7 +41,7 @@ class NotePanelController(
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(activity)
-        BlocksRepository(db.blockDao())
+        BlocksRepository(db.blockDao(), db.noteDao())
     }
 
     /** id de la note actuellement ouverte (ou null si aucune) */
