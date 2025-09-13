@@ -1,14 +1,20 @@
-package com.example.openeer.ui.keyboard
+package com.example.openeer.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.inputmethod.InputMethodManager
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
-import com.example.openeer.databinding.ActivityKeyboardCaptureBinding
+import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
-import com.example.openeer.ui.sketch.SketchView
+import com.example.openeer.databinding.ActivityKeyboardCaptureBinding
+import com.example.openeer.ui.draw.SketchView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -25,6 +31,8 @@ class KeyboardCaptureActivity : AppCompatActivity() {
 
     private var mode: String = "INLINE"
     private var noteId: Long? = null
+    private var focusLast: Boolean = false
+    private var imeVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,30 +40,45 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         mode = intent.getStringExtra("mode") ?: "INLINE"
-        if (mode != "NEW_NOTE") {
-            val id = intent.getLongExtra("noteId", -1L)
-            if (id > 0) noteId = id
+        noteId = intent.getLongExtra("noteId", -1L).takeIf { it > 0 }
+        focusLast = intent.getBooleanExtra("focusLast", false)
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val vis = insets.isVisible(WindowInsetsCompat.Type.ime())
+            binding.toolBar.isVisible = vis
+            if (imeVisible && !vis) {
+                setResult(RESULT_CANCELED)
+                finish()
+            }
+            imeVisible = vis
+            insets
         }
 
-        binding.editText.requestFocus()
-
-        binding.btnPen.setOnClickListener {
-            binding.sketchView.setTool(SketchView.Tool.PEN)
-        }
-        binding.btnEraser.setOnClickListener {
-            binding.sketchView.setTool(SketchView.Tool.ERASER)
-        }
+        binding.btnPen.setOnClickListener { binding.sketchView.setTool(SketchView.Tool.PEN) }
+        binding.btnLine.setOnClickListener { binding.sketchView.setTool(SketchView.Tool.LINE) }
         binding.btnShape.setOnClickListener {
             binding.sketchView.setTool(SketchView.Tool.SHAPE)
             binding.sketchView.cycleShape()
         }
+        binding.btnEraser.setOnClickListener { binding.sketchView.setTool(SketchView.Tool.ERASER) }
         binding.btnUndo.setOnClickListener { binding.sketchView.undo() }
         binding.btnOk.setOnClickListener { validateAndFinish() }
+        binding.btnCancel.setOnClickListener { setResult(RESULT_CANCELED); finish() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        binding.editText.requestFocus()
+        if (focusLast) {
+            binding.editText.setSelection(binding.editText.length())
+        }
+        val imm = getSystemService(InputMethodManager::class.java)
+        imm?.showSoftInput(binding.editText, InputMethodManager.SHOW_IMPLICIT)
     }
 
     private fun validateAndFinish() {
         val text = binding.editText.text?.toString()?.trim().orEmpty()
-        val hasSketch = binding.sketchView.hasContent()
+        val hasSketch = !binding.sketchView.isEmpty()
         if (text.isBlank() && !hasSketch) {
             setResult(RESULT_CANCELED)
             finish()
@@ -84,6 +107,12 @@ class KeyboardCaptureActivity : AppCompatActivity() {
                 ids += id
                 true
             } else false
+            if (addedText) {
+                Toast.makeText(this@KeyboardCaptureActivity, R.string.msg_block_text_added, Toast.LENGTH_SHORT).show()
+            }
+            if (addedSketch) {
+                Toast.makeText(this@KeyboardCaptureActivity, R.string.msg_sketch_added, Toast.LENGTH_SHORT).show()
+            }
             val data = Intent().apply {
                 putExtra("blockIds", ids.toLongArray())
                 putExtra("noteId", nid)
@@ -97,7 +126,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
 
     private suspend fun ensureNote(): Long {
         return when (mode) {
-            "NEW_NOTE" -> withContext(Dispatchers.IO) { repo.ensureNoteWithInitialText() }
+            "NEW" -> withContext(Dispatchers.IO) { repo.ensureNoteWithInitialText() }
             else -> noteId ?: throw IllegalStateException("noteId required")
         }
     }

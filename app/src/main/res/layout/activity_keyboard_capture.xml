@@ -23,7 +23,7 @@
             android:background="@android:color/transparent"
             android:hint=""/>
 
-        <com.example.openeer.ui.sketch.SketchView
+        <com.example.openeer.ui.draw.SketchView
             android:id="@+id/sketchView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -37,6 +37,7 @@
         android:layout_height="48dp"
         android:orientation="horizontal"
         android:gravity="center"
+        android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -48,6 +49,14 @@
             android:src="@drawable/ic_tool_pen"
             android:background="@android:color/transparent"
             android:contentDescription="Pen"/>
+
+        <ImageButton
+            android:id="@+id/btnLine"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_tool_line"
+            android:background="@android:color/transparent"
+            android:contentDescription="Line"/>
 
         <ImageButton
             android:id="@+id/btnShape"
@@ -80,6 +89,14 @@
             android:src="@drawable/ic_check"
             android:background="@android:color/transparent"
             android:contentDescription="@string/action_validate"/>
+
+        <ImageButton
+            android:id="@+id/btnCancel"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_close"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/action_cancel"/>
 
     </LinearLayout>
 

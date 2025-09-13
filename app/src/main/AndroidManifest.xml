@@ -49,7 +49,11 @@
 
         <activity android:name=".ui.editor.NoteEditorActivity" android:exported="false"/>
         <activity android:name=".ui.sketch.SketchEditorActivity" android:exported="false"/>
-        <activity android:name=".ui.keyboard.KeyboardCaptureActivity" android:exported="false"/>
+        <activity
+            android:name=".ui.KeyboardCaptureActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar"/>
 
 
         <service
