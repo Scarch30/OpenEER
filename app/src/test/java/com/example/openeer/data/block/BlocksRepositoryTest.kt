@@ -112,6 +112,14 @@ class BlocksRepositoryTest {
     }
 
     @Test
+    fun createTextBlock_insertsEmpty() = runBlocking {
+        val id = repo.createTextBlock(noteId)
+        val block = db.blockDao().getById(id)
+        assertEquals(BlockType.TEXT, block?.type)
+        assertEquals("", block?.text)
+    }
+
+    @Test
     fun appendSketch_only() = runBlocking {
         repo.appendSketch(noteId, "uri://sk", width = 10, height = 20)
         val blocks = db.blockDao().observeBlocks(noteId).first()
