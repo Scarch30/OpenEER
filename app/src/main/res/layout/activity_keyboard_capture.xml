@@ -3,29 +3,29 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#333333">
-
-    <com.example.openeer.ui.sketch.SketchView
-        android:id="@+id/sketchView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@android:color/transparent" />
+    android:background="#333333"
+    android:fitsSystemWindows="false">
 
     <EditText
         android:id="@+id/editText"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
+        android:layout_height="match_parent"
         android:imeOptions="actionDone"
         android:inputType="textMultiLine"
-        android:maxLines="6"
         android:gravity="top|start"
         android:background="@android:color/transparent"
         android:textColor="#FFFFFF"
         android:padding="8dp" />
 
+    <com.example.openeer.ui.sketch.SketchView
+        android:id="@+id/sketchView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:visibility="gone" />
+
     <LinearLayout
-        android:id="@+id/toolBar"
+        android:id="@+id/toolStrip"
         android:layout_width="match_parent"
         android:layout_height="48dp"
         android:layout_gravity="bottom"
@@ -80,14 +80,6 @@
             android:background="@android:color/transparent"
             android:contentDescription="@string/action_validate"
             android:src="@drawable/ic_check" />
-
-        <ImageButton
-            android:id="@+id/btnCancel"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/action_cancel"
-            android:src="@drawable/ic_close" />
 
     </LinearLayout>
 
