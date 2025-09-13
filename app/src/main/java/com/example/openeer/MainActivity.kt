@@ -27,8 +27,8 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
-import com.example.openeer.ui.editor.NoteEditorActivity
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.R
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import android.content.Intent
+import com.example.openeer.ui.keyboard.KeyboardCaptureActivity
 
 class MainActivity : AppCompatActivity() {
     private lateinit var b: ActivityMainBinding
@@ -86,6 +87,27 @@ class MainActivity : AppCompatActivity() {
             File(path).delete()
         }
         tempPhotoPath = null
+    }
+
+    private val keyboardCaptureLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val data = result.data
+            val noteId = data?.getLongExtra("noteId", -1L) ?: -1L
+            if (noteId > 0) {
+                notePanel.open(noteId)
+            }
+            val addedText = data?.getBooleanExtra("addedText", false) ?: false
+            val addedSketch = data?.getBooleanExtra("addedSketch", false) ?: false
+            val msg = when {
+                addedText && addedSketch -> getString(R.string.msg_capture_added, 2)
+                addedSketch -> getString(R.string.msg_sketch_added)
+                addedText -> getString(R.string.msg_block_text_added)
+                else -> null
+            }
+            msg?.let { Toast.makeText(this, it, Toast.LENGTH_SHORT).show() }
+        }
     }
 
     private val pickPhotoLauncher = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -149,7 +171,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Note panel controller (panneau "note ouverte")
-        notePanel = NotePanelController(this, b)
+        notePanel = NotePanelController(this, b) { mode, nid ->
+            launchKeyboardCapture(mode, nid)
+        }
 
         // Mic controller (push-to-talk + mains libres)
         micCtl = MicBarController(
@@ -209,19 +233,8 @@ class MainActivity : AppCompatActivity() {
 
         // Boutons bas
         b.btnKeyboard.setOnClickListener {
-            lifecycleScope.launch {
-                val nid = if (notePanel.openNoteId == null) {
-                    withContext(Dispatchers.IO) { blocksRepo.ensureNoteWithInitialText() }
-                } else {
-                    val existing = notePanel.openNoteId!!
-                    withContext(Dispatchers.IO) { blocksRepo.appendText(existing, "") }
-                    existing
-                }
-                val i = Intent(this@MainActivity, NoteEditorActivity::class.java)
-                i.putExtra("noteId", nid)
-                i.putExtra("focusLast", true)
-                startActivity(i)
-            }
+            val mode = if (notePanel.openNoteId == null) "NEW_NOTE" else "SUB_NOTE"
+            launchKeyboardCapture(mode, notePanel.openNoteId)
         }
         b.btnPhoto.setOnClickListener {
             lifecycleScope.launch {
@@ -251,6 +264,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return newId
+    }
+
+    fun launchKeyboardCapture(mode: String, noteId: Long? = null) {
+        val i = Intent(this, KeyboardCaptureActivity::class.java)
+        i.putExtra("mode", mode)
+        noteId?.let { i.putExtra("noteId", it) }
+        keyboardCaptureLauncher.launch(i)
     }
 
     private fun showPhotoSheet() {
