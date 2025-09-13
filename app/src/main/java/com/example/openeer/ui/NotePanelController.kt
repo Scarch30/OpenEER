@@ -32,7 +32,8 @@ import java.io.File
  */
 class NotePanelController(
     private val activity: AppCompatActivity,
-    private val binding: ActivityMainBinding
+    private val binding: ActivityMainBinding,
+    private val startKeyboard: (String, Long?) -> Unit
 ) {
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(activity)
@@ -96,6 +97,10 @@ class NotePanelController(
         binding.btnBack.setOnClickListener { close() }
         binding.txtTitleDetail.setOnClickListener { promptEditTitle() }
         binding.btnPlayDetail.setOnClickListener { togglePlay() }
+        binding.txtBodyDetail.setOnClickListener {
+            val nid = openNoteId ?: return@setOnClickListener
+            startKeyboard("INLINE", nid)
+        }
     }
 
     /** Ferme le panneau et revient à la liste. */

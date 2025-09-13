@@ -129,11 +129,11 @@ class BlocksRepository(
         }
     }
 
-    suspend fun updateText(blockId: Long, newText: String) {
+    suspend fun updateText(blockId: Long, text: String) {
         withContext(io) {
             val current = blockDao.getById(blockId) ?: return@withContext
             val now = System.currentTimeMillis()
-            blockDao.update(current.copy(text = newText, updatedAt = now))
+            blockDao.update(current.copy(text = text, updatedAt = now))
         }
     }
 
@@ -161,10 +161,12 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
-    suspend fun ensureNoteWithInitialText(): Long {
+    suspend fun ensureNoteWithInitialText(initial: String = ""): Long {
         val dao = noteDao ?: throw IllegalStateException("noteDao required")
         val noteId = withContext(io) { dao.insert(Note()) }
-        appendText(noteId, "")
+        if (initial.isNotEmpty()) {
+            appendText(noteId, initial)
+        }
         return noteId
     }
 }
