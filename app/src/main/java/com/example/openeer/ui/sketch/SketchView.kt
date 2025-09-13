@@ -1,4 +1,4 @@
-package com.example.openeer.ui.draw
+package com.example.openeer.ui.sketch
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -9,20 +9,29 @@ import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import android.net.Uri
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.PI
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 
 class SketchView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    enum class Tool { PEN, LINE, SHAPE, ERASER }
-    enum class Shape { RECT, OVAL, TRIANGLE, ARROW }
+    enum class Mode { PEN, LINE, RECT, CIRCLE, ARROW, ERASE }
 
-    var currentTool: Tool = Tool.PEN
-    var currentShape: Shape = Shape.RECT
+    private var mode: Mode = Mode.PEN
+    private val actions = mutableListOf<Pair<Path, Paint>>()
+    private var tempPath: Path? = null
+    private var startX = 0f
+    private var startY = 0f
 
     private val drawPaint = Paint().apply {
         color = Color.BLACK
@@ -35,56 +44,36 @@ class SketchView @JvmOverloads constructor(
         color = Color.TRANSPARENT
         style = Paint.Style.STROKE
         strokeWidth = 20f
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
         isAntiAlias = true
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
 
-    private val paths = mutableListOf<Pair<Path, Paint>>()
-    private var tempPath: Path? = null
-    private var startX = 0f
-    private var startY = 0f
-
-    fun setTool(tool: Tool) {
-        currentTool = tool
-    }
-
-    fun cycleShape() {
-        currentShape = when (currentShape) {
-            Shape.RECT -> Shape.OVAL
-            Shape.OVAL -> Shape.TRIANGLE
-            Shape.TRIANGLE -> Shape.ARROW
-            Shape.ARROW -> Shape.RECT
-        }
-    }
+    fun setMode(m: Mode) { mode = m }
 
     fun undo() {
-        if (paths.isNotEmpty()) {
-            paths.removeLast()
+        if (actions.isNotEmpty()) {
+            actions.removeLast()
             invalidate()
         }
     }
 
-    fun isEmpty(): Boolean = paths.isEmpty()
-    fun hasContent(): Boolean = !isEmpty()
+    fun hasContent(): Boolean = actions.isNotEmpty()
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        paths.forEach { (p, paint) -> canvas.drawPath(p, paint) }
+        actions.forEach { (p, paint) -> canvas.drawPath(p, paint) }
         tempPath?.let { path ->
-            val paint = when (currentTool) {
-                Tool.ERASER -> erasePaint
-                else -> drawPaint
-            }
+            val paint = if (mode == Mode.ERASE) erasePaint else drawPaint
             canvas.drawPath(path, paint)
         }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (currentTool) {
-            Tool.PEN -> handlePen(event)
-            Tool.LINE -> handleLine(event)
-            Tool.SHAPE -> handleShape(event)
-            Tool.ERASER -> handleEraser(event)
+        when (mode) {
+            Mode.PEN -> handlePen(event)
+            Mode.LINE -> handleLine(event)
+            Mode.RECT, Mode.CIRCLE, Mode.ARROW -> handleShape(event)
+            Mode.ERASE -> handleEraser(event)
         }
         return true
     }
@@ -94,12 +83,10 @@ class SketchView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 tempPath = Path().apply { moveTo(ev.x, ev.y) }
             }
-            MotionEvent.ACTION_MOVE -> {
-                tempPath?.lineTo(ev.x, ev.y)
-            }
+            MotionEvent.ACTION_MOVE -> tempPath?.lineTo(ev.x, ev.y)
             MotionEvent.ACTION_UP -> {
                 tempPath?.lineTo(ev.x, ev.y)
-                tempPath?.let { paths += it to Paint(drawPaint) }
+                tempPath?.let { actions += it to Paint(drawPaint) }
                 tempPath = null
             }
         }
@@ -111,12 +98,10 @@ class SketchView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 tempPath = Path().apply { moveTo(ev.x, ev.y) }
             }
-            MotionEvent.ACTION_MOVE -> {
-                tempPath?.lineTo(ev.x, ev.y)
-            }
+            MotionEvent.ACTION_MOVE -> tempPath?.lineTo(ev.x, ev.y)
             MotionEvent.ACTION_UP -> {
                 tempPath?.lineTo(ev.x, ev.y)
-                tempPath?.let { paths += it to Paint(erasePaint) }
+                tempPath?.let { actions += it to Paint(erasePaint) }
                 tempPath = null
             }
         }
@@ -141,7 +126,7 @@ class SketchView @JvmOverloads constructor(
                     moveTo(startX, startY)
                     lineTo(ev.x, ev.y)
                 }
-                tempPath?.let { paths += it to Paint(drawPaint) }
+                tempPath?.let { actions += it to Paint(drawPaint) }
                 tempPath = null
             }
         }
@@ -160,37 +145,43 @@ class SketchView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP -> {
                 tempPath = buildShapePath(startX, startY, ev.x, ev.y)
-                tempPath?.let { paths += it to Paint(drawPaint) }
+                tempPath?.let { actions += it to Paint(drawPaint) }
                 tempPath = null
             }
         }
         invalidate()
     }
 
-    private fun buildShapePath(sx: Float, sy: Float, ex: Float, ey: Float): Path {
-        return when (currentShape) {
-            Shape.RECT -> Path().apply { addRect(sx, sy, ex, ey, Path.Direction.CW) }
-            Shape.OVAL -> Path().apply { addOval(RectF(sx, sy, ex, ey), Path.Direction.CW) }
-            Shape.TRIANGLE -> Path().apply {
-                moveTo((sx + ex) / 2f, sy)
-                lineTo(ex, ey)
-                lineTo(sx, ey)
-                close()
-            }
-            Shape.ARROW -> Path().apply {
-                moveTo(sx, (sy + ey) / 2f)
-                lineTo(ex, (sy + ey) / 2f)
-                lineTo(ex - (ey - sy) / 4f, sy)
-                moveTo(ex, (sy + ey) / 2f)
-                lineTo(ex - (ey - sy) / 4f, ey)
-            }
+    private fun buildShapePath(sx: Float, sy: Float, ex: Float, ey: Float): Path = when (mode) {
+        Mode.RECT -> Path().apply { addRect(sx, sy, ex, ey, Path.Direction.CW) }
+        Mode.CIRCLE -> Path().apply { addOval(RectF(sx, sy, ex, ey), Path.Direction.CW) }
+        Mode.ARROW -> Path().apply {
+            moveTo(sx, sy)
+            lineTo(ex, ey)
+            val angle = atan2((ey - sy), (ex - sx))
+            val len = 40f
+            lineTo(
+                (ex - len * cos(angle - PI / 6)).toFloat(),
+                (ey - len * sin(angle - PI / 6)).toFloat()
+            )
+            moveTo(ex, ey)
+            lineTo(
+                (ex - len * cos(angle + PI / 6)).toFloat(),
+                (ey - len * sin(angle + PI / 6)).toFloat()
+            )
         }
+        else -> Path()
     }
 
-    fun exportBitmap(): Bitmap {
+    fun exportPngTo(dir: File): Uri {
         val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        draw(c)
-        return bmp
+        val canvas = Canvas(bmp)
+        draw(canvas)
+        dir.mkdirs()
+        val file = File(dir, "sketch_${System.currentTimeMillis()}.png")
+        FileOutputStream(file).use { out ->
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        return Uri.fromFile(file)
     }
 }

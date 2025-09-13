@@ -38,6 +38,19 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
+    suspend fun createTextBlock(noteId: Long): Long {
+        val now = System.currentTimeMillis()
+        val block = BlockEntity(
+            noteId = noteId,
+            type = BlockType.TEXT,
+            position = 0,
+            text = "",
+            createdAt = now,
+            updatedAt = now
+        )
+        return insert(noteId, block)
+    }
+
     suspend fun appendPhoto(
         noteId: Long,
         mediaUri: String,

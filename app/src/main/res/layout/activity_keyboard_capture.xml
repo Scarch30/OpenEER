@@ -1,103 +1,94 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#333333">
 
-    <FrameLayout
-        android:id="@+id/frame"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@+id/toolBar"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+    <com.example.openeer.ui.sketch.SketchView
+        android:id="@+id/sketchView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent" />
 
-        <EditText
-            android:id="@+id/editText"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:gravity="top|start"
-            android:textColor="#FFFFFF"
-            android:background="@android:color/transparent"
-            android:hint=""/>
-
-        <com.example.openeer.ui.draw.SketchView
-            android:id="@+id/sketchView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@android:color/transparent"/>
-
-    </FrameLayout>
+    <EditText
+        android:id="@+id/editText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:imeOptions="actionDone"
+        android:inputType="textMultiLine"
+        android:maxLines="6"
+        android:gravity="top|start"
+        android:background="@android:color/transparent"
+        android:textColor="#FFFFFF"
+        android:padding="8dp" />
 
     <LinearLayout
         android:id="@+id/toolBar"
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="48dp"
+        android:layout_gravity="bottom"
         android:orientation="horizontal"
         android:gravity="center"
-        android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        android:visibility="gone">
 
         <ImageButton
             android:id="@+id/btnPen"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:src="@drawable/ic_tool_pen"
             android:background="@android:color/transparent"
-            android:contentDescription="Pen"/>
+            android:contentDescription="Pen"
+            android:src="@drawable/ic_tool_pen" />
 
         <ImageButton
             android:id="@+id/btnLine"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:src="@drawable/ic_tool_line"
             android:background="@android:color/transparent"
-            android:contentDescription="Line"/>
+            android:contentDescription="Line"
+            android:src="@drawable/ic_tool_line" />
 
         <ImageButton
             android:id="@+id/btnShape"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:src="@drawable/ic_tool_shapes"
             android:background="@android:color/transparent"
-            android:contentDescription="Shape"/>
+            android:contentDescription="Shape"
+            android:src="@drawable/ic_tool_shapes" />
 
         <ImageButton
             android:id="@+id/btnEraser"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:src="@drawable/ic_tool_eraser"
             android:background="@android:color/transparent"
-            android:contentDescription="Eraser"/>
+            android:contentDescription="Eraser"
+            android:src="@drawable/ic_tool_eraser" />
 
         <ImageButton
             android:id="@+id/btnUndo"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:src="@drawable/ic_tool_undo"
             android:background="@android:color/transparent"
-            android:contentDescription="Undo"/>
+            android:contentDescription="Undo"
+            android:src="@drawable/ic_tool_undo" />
 
         <ImageButton
             android:id="@+id/btnOk"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:src="@drawable/ic_check"
             android:background="@android:color/transparent"
-            android:contentDescription="@string/action_validate"/>
+            android:contentDescription="@string/action_validate"
+            android:src="@drawable/ic_check" />
 
         <ImageButton
             android:id="@+id/btnCancel"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:src="@drawable/ic_close"
             android:background="@android:color/transparent"
-            android:contentDescription="@string/action_cancel"/>
+            android:contentDescription="@string/action_cancel"
+            android:src="@drawable/ic_close" />
 
     </LinearLayout>
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+</FrameLayout>

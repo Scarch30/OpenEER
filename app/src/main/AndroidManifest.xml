@@ -53,7 +53,8 @@
             android:name=".ui.KeyboardCaptureActivity"
             android:exported="false"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.Material3.DayNight.NoActionBar"/>
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar"
+            android:windowSoftInputMode="stateVisible|adjustResize"/>
 
 
         <service
