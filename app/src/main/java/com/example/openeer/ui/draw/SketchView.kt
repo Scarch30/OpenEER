@@ -1,4 +1,4 @@
-package com.example.openeer.ui.sketch
+package com.example.openeer.ui.draw
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -18,7 +18,7 @@ class SketchView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    enum class Tool { PEN, ERASER, SHAPE }
+    enum class Tool { PEN, LINE, SHAPE, ERASER }
     enum class Shape { RECT, OVAL, TRIANGLE, ARROW }
 
     var currentTool: Tool = Tool.PEN
@@ -64,7 +64,8 @@ class SketchView @JvmOverloads constructor(
         }
     }
 
-    fun hasContent(): Boolean = paths.isNotEmpty()
+    fun isEmpty(): Boolean = paths.isEmpty()
+    fun hasContent(): Boolean = !isEmpty()
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -81,8 +82,9 @@ class SketchView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (currentTool) {
             Tool.PEN -> handlePen(event)
-            Tool.ERASER -> handleEraser(event)
+            Tool.LINE -> handleLine(event)
             Tool.SHAPE -> handleShape(event)
+            Tool.ERASER -> handleEraser(event)
         }
         return true
     }
@@ -115,6 +117,31 @@ class SketchView @JvmOverloads constructor(
             MotionEvent.ACTION_UP -> {
                 tempPath?.lineTo(ev.x, ev.y)
                 tempPath?.let { paths += it to Paint(erasePaint) }
+                tempPath = null
+            }
+        }
+        invalidate()
+    }
+
+    private fun handleLine(ev: MotionEvent) {
+        when (ev.action) {
+            MotionEvent.ACTION_DOWN -> {
+                startX = ev.x
+                startY = ev.y
+                tempPath = Path().apply { moveTo(startX, startY) }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                tempPath = Path().apply {
+                    moveTo(startX, startY)
+                    lineTo(ev.x, ev.y)
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                tempPath = Path().apply {
+                    moveTo(startX, startY)
+                    lineTo(ev.x, ev.y)
+                }
+                tempPath?.let { paths += it to Paint(drawPaint) }
                 tempPath = null
             }
         }

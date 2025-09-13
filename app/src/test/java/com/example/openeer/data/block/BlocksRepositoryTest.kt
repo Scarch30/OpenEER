@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
+import com.example.openeer.data.block.generateGroupId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -102,13 +103,34 @@ class BlocksRepositoryTest {
     }
 
     @Test
-    fun appendSketch_createsBlock() = runBlocking {
-        val id = repo.appendSketch(noteId, "uri://sketch", width = 10, height = 20)
-        val block = db.blockDao().getById(id)
-        assertNotNull(block)
-        assertEquals(BlockType.SKETCH, block!!.type)
-        assertEquals("uri://sketch", block.mediaUri)
-        assertEquals(10, block.width)
-        assertEquals(20, block.height)
+    fun appendText_only() = runBlocking {
+        repo.appendText(noteId, "abc")
+        val blocks = db.blockDao().observeBlocks(noteId).first()
+        assertEquals(1, blocks.size)
+        assertEquals(BlockType.TEXT, blocks[0].type)
+        assertEquals("abc", blocks[0].text)
+    }
+
+    @Test
+    fun appendSketch_only() = runBlocking {
+        repo.appendSketch(noteId, "uri://sk", width = 10, height = 20)
+        val blocks = db.blockDao().observeBlocks(noteId).first()
+        assertEquals(1, blocks.size)
+        assertEquals(BlockType.SKETCH, blocks[0].type)
+        assertEquals("uri://sk", blocks[0].mediaUri)
+    }
+
+    @Test
+    fun appendTextAndSketch_sameGroup() = runBlocking {
+        val gid = generateGroupId()
+        repo.appendText(noteId, "t", gid)
+        repo.appendSketch(noteId, "u", groupId = gid)
+        val blocks = db.blockDao().observeBlocks(noteId).first()
+        assertEquals(2, blocks.size)
+        assertEquals(listOf(0,1), blocks.map { it.position })
+        assertEquals(gid, blocks[0].groupId)
+        assertEquals(gid, blocks[1].groupId)
+        assertEquals(BlockType.TEXT, blocks[0].type)
+        assertEquals(BlockType.SKETCH, blocks[1].type)
     }
 }
