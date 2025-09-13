@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import android.content.Intent
-import com.example.openeer.ui.keyboard.KeyboardCaptureActivity
+import com.example.openeer.ui.KeyboardCaptureActivity
 
 class MainActivity : AppCompatActivity() {
     private lateinit var b: ActivityMainBinding
@@ -171,8 +171,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Note panel controller (panneau "note ouverte")
-        notePanel = NotePanelController(this, b) { mode, nid ->
-            launchKeyboardCapture(mode, nid)
+        notePanel = NotePanelController(this, b) { mode, nid, focus ->
+            launchKeyboardCapture(mode, nid, focus)
         }
 
         // Mic controller (push-to-talk + mains libres)
@@ -233,7 +233,7 @@ class MainActivity : AppCompatActivity() {
 
         // Boutons bas
         b.btnKeyboard.setOnClickListener {
-            val mode = if (notePanel.openNoteId == null) "NEW_NOTE" else "SUB_NOTE"
+            val mode = if (notePanel.openNoteId == null) "NEW" else "SUB"
             launchKeyboardCapture(mode, notePanel.openNoteId)
         }
         b.btnPhoto.setOnClickListener {
@@ -266,10 +266,11 @@ class MainActivity : AppCompatActivity() {
         return newId
     }
 
-    fun launchKeyboardCapture(mode: String, noteId: Long? = null) {
+    fun launchKeyboardCapture(mode: String, noteId: Long? = null, focusLast: Boolean = false) {
         val i = Intent(this, KeyboardCaptureActivity::class.java)
         i.putExtra("mode", mode)
         noteId?.let { i.putExtra("noteId", it) }
+        if (focusLast) i.putExtra("focusLast", true)
         keyboardCaptureLauncher.launch(i)
     }
 

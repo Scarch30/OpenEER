@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <com.example.openeer.ui.sketch.SketchView
+    <com.example.openeer.ui.draw.SketchView
         android:id="@+id/sketchView"
         android:layout_width="match_parent"
         android:layout_height="0dp"

@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">OpenEER</string>
     <string name="action_validate">Valider</string>
+    <string name="action_cancel">Annuler</string>
     <string name="msg_block_text_added">Bloc texte ajouté</string>
     <string name="msg_sketch_added">Croquis ajouté</string>
     <string name="msg_capture_added">Capture ajoutée (%1$d blocs)</string>
