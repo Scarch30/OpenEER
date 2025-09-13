@@ -42,6 +42,7 @@ class NoteEditorActivity : AppCompatActivity() {
 
         noteId = intent.getLongExtra("noteId", 0L)
         focusLast = intent.getBooleanExtra("focusLast", false)
+        pendingFocusId = intent.getLongExtra("focusBlockId", -1L).takeIf { it > 0 }
 
         val adapter = BlocksAdapter(
             onTextCommit = { id, text ->
