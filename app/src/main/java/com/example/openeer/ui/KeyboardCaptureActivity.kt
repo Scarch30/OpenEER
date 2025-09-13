@@ -1,27 +1,29 @@
 package com.example.openeer.ui
 
-import android.content.Intent
 import android.os.Bundle
 import android.view.inputmethod.InputMethodManager
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
-import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
-import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityKeyboardCaptureBinding
-import com.example.openeer.ui.draw.SketchView
+import com.example.openeer.ui.sketch.SketchView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 
 class KeyboardCaptureActivity : AppCompatActivity() {
+
+    companion object {
+        const val EXTRA_NOTE_ID = "EXTRA_NOTE_ID"
+        const val EXTRA_BLOCK_ID = "EXTRA_BLOCK_ID"
+    }
+
     private lateinit var binding: ActivityKeyboardCaptureBinding
 
     private val repo: BlocksRepository by lazy {
@@ -29,115 +31,83 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         BlocksRepository(db.blockDao(), db.noteDao())
     }
 
-    private var mode: String = "INLINE"
-    private var noteId: Long? = null
-    private var focusLast: Boolean = false
+    private var noteId: Long = -1L
+    private var blockId: Long? = null
     private var imeVisible = false
+    private var currentShape = SketchView.Mode.RECT
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityKeyboardCaptureBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        mode = intent.getStringExtra("mode") ?: "INLINE"
-        noteId = intent.getLongExtra("noteId", -1L).takeIf { it > 0 }
-        focusLast = intent.getBooleanExtra("focusLast", false)
+        noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
+        blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
+
+        val edit = binding.editText
+        edit.post {
+            edit.requestFocus()
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
+        }
+
+        blockId?.let { id ->
+            lifecycleScope.launch {
+                val blocks = repo.observeBlocks(noteId).first()
+                blocks.firstOrNull { it.id == id }?.text?.let { text ->
+                    binding.editText.setText(text)
+                    binding.editText.setSelection(text.length)
+                }
+            }
+        }
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
-            val vis = insets.isVisible(WindowInsetsCompat.Type.ime())
-            binding.toolBar.isVisible = vis
-            if (imeVisible && !vis) {
-                setResult(RESULT_CANCELED)
-                finish()
-            }
-            imeVisible = vis
+            val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            binding.toolBar.translationY = -imeHeight.toFloat()
+            binding.toolBar.isVisible = imeHeight > 0
+            imeVisible = imeHeight > 0
             insets
         }
 
-        binding.btnPen.setOnClickListener { binding.sketchView.setTool(SketchView.Tool.PEN) }
-        binding.btnLine.setOnClickListener { binding.sketchView.setTool(SketchView.Tool.LINE) }
+        binding.btnPen.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.PEN) }
+        binding.btnLine.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.LINE) }
         binding.btnShape.setOnClickListener {
-            binding.sketchView.setTool(SketchView.Tool.SHAPE)
-            binding.sketchView.cycleShape()
+            currentShape = when (currentShape) {
+                SketchView.Mode.RECT -> SketchView.Mode.CIRCLE
+                SketchView.Mode.CIRCLE -> SketchView.Mode.ARROW
+                else -> SketchView.Mode.RECT
+            }
+            binding.sketchView.setMode(currentShape)
         }
-        binding.btnEraser.setOnClickListener { binding.sketchView.setTool(SketchView.Tool.ERASER) }
+        binding.btnEraser.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.ERASE) }
         binding.btnUndo.setOnClickListener { binding.sketchView.undo() }
-        binding.btnOk.setOnClickListener { validateAndFinish() }
-        binding.btnCancel.setOnClickListener { setResult(RESULT_CANCELED); finish() }
+        binding.btnOk.setOnClickListener { saveAndFinish() }
+        binding.btnCancel.setOnClickListener { finish() }
     }
 
-    override fun onResume() {
-        super.onResume()
-        binding.editText.requestFocus()
-        if (focusLast) {
-            binding.editText.setSelection(binding.editText.length())
+    override fun onBackPressed() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        if (imeVisible) {
+            imm.hideSoftInputFromWindow(binding.editText.windowToken, 0)
+        } else {
+            super.onBackPressed()
         }
-        val imm = getSystemService(InputMethodManager::class.java)
-        imm?.showSoftInput(binding.editText, InputMethodManager.SHOW_IMPLICIT)
     }
 
-    private fun validateAndFinish() {
-        val text = binding.editText.text?.toString()?.trim().orEmpty()
-        val hasSketch = !binding.sketchView.isEmpty()
-        if (text.isBlank() && !hasSketch) {
-            setResult(RESULT_CANCELED)
-            finish()
-            return
-        }
+    private fun saveAndFinish() {
+        val text = binding.editText.text.toString()
+        val hasSketch = binding.sketchView.hasContent()
         lifecycleScope.launch {
-            val nid = ensureNote()
-            val ids = mutableListOf<Long>()
-            val gid = if (text.isNotBlank() && hasSketch) generateGroupId() else null
-            val addedText = if (text.isNotBlank()) {
-                val id = withContext(Dispatchers.IO) { repo.appendText(nid, text, gid) }
-                ids += id
-                true
-            } else false
-            val addedSketch = if (hasSketch) {
-                val file = withContext(Dispatchers.IO) { saveSketchFile() }
-                val id = withContext(Dispatchers.IO) {
-                    repo.appendSketch(
-                        nid,
-                        file.absolutePath,
-                        binding.sketchView.width,
-                        binding.sketchView.height,
-                        groupId = gid
-                    )
+            withContext(Dispatchers.IO) {
+                if (text.isNotBlank()) {
+                    blockId?.let { repo.updateText(it, text) } ?: repo.appendText(noteId, text)
                 }
-                ids += id
-                true
-            } else false
-            if (addedText) {
-                Toast.makeText(this@KeyboardCaptureActivity, R.string.msg_block_text_added, Toast.LENGTH_SHORT).show()
+                if (hasSketch) {
+                    val uri = binding.sketchView.exportPngTo(File(filesDir, "sketches"))
+                    repo.appendSketch(noteId, uri.toString())
+                }
             }
-            if (addedSketch) {
-                Toast.makeText(this@KeyboardCaptureActivity, R.string.msg_sketch_added, Toast.LENGTH_SHORT).show()
-            }
-            val data = Intent().apply {
-                putExtra("blockIds", ids.toLongArray())
-                putExtra("noteId", nid)
-                putExtra("addedText", addedText)
-                putExtra("addedSketch", addedSketch)
-            }
-            setResult(RESULT_OK, data)
             finish()
         }
-    }
-
-    private suspend fun ensureNote(): Long {
-        return when (mode) {
-            "NEW" -> withContext(Dispatchers.IO) { repo.ensureNoteWithInitialText() }
-            else -> noteId ?: throw IllegalStateException("noteId required")
-        }
-    }
-
-    private fun saveSketchFile(): File {
-        val bmp = binding.sketchView.exportBitmap()
-        val dir = File(filesDir, "sketches").apply { mkdirs() }
-        val file = File(dir, "sketch_${System.currentTimeMillis()}.png")
-        FileOutputStream(file).use { out ->
-            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
-        }
-        return file
     }
 }
