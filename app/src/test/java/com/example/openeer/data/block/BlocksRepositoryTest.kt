@@ -92,4 +92,12 @@ class BlocksRepositoryTest {
         assertEquals(newOrder, blocks.map { it.id })
         assertEquals(listOf(0, 1, 2), blocks.map { it.position })
     }
+
+    @Test
+    fun updateTextUpdatesContent() = runBlocking {
+        val id = repo.appendText(noteId, "old")
+        repo.updateText(id, "new")
+        val block = db.blockDao().getById(id)
+        assertEquals("new", block?.text)
+    }
 }

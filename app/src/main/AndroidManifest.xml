@@ -47,6 +47,9 @@
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
 
+        <activity android:name=".ui.editor.NoteEditorActivity" android:exported="false"/>
+        <activity android:name=".ui.sketch.SketchEditorActivity" android:exported="false"/>
+
 
         <service
             android:name=".audio.RecorderService"
