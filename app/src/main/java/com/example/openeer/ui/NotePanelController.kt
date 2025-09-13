@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import android.content.Intent
+import com.example.openeer.ui.editor.NoteEditorActivity
 import java.io.File
 
 /**
@@ -35,7 +36,6 @@ import java.io.File
 class NotePanelController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
-    private val startKeyboard: (Long, Long?) -> Unit
 ) {
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(activity)
@@ -104,7 +104,12 @@ class NotePanelController(
             activity.lifecycleScope.launch {
                 val blocks = blocksRepo.observeBlocks(nid).first()
                 val block = blocks.firstOrNull { it.type == BlockType.TEXT }
-                block?.let { startKeyboard(nid, it.id) }
+                val i = Intent(activity, NoteEditorActivity::class.java).apply {
+                    putExtra("noteId", nid)
+                    putExtra("focusLast", false)
+                    block?.let { putExtra("focusBlockId", it.id) }
+                }
+                activity.startActivity(i)
             }
         }
     }

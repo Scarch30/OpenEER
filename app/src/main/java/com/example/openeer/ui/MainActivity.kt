@@ -171,9 +171,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Note panel controller (panneau "note ouverte")
-        notePanel = NotePanelController(this, b) { nid, blockId ->
-            launchKeyboardCapture(nid, blockId)
-        }
+        notePanel = NotePanelController(this, b)
 
         // Mic controller (push-to-talk + mains libres)
         micCtl = MicBarController(
@@ -234,15 +232,8 @@ class MainActivity : AppCompatActivity() {
         // Boutons bas
         b.btnKeyboard.setOnClickListener {
             lifecycleScope.launch {
-                if (notePanel.openNoteId == null) {
-                    val newId = withContext(Dispatchers.IO) { repo.createTextNote("") }
-                    notePanel.open(newId)
-                    launchKeyboardCapture(newId, null)
-                } else {
-                    val nid = notePanel.openNoteId!!
-                    val bid = withContext(Dispatchers.IO) { blocksRepo.createTextBlock(nid) }
-                    launchKeyboardCapture(nid, bid)
-                }
+                val nid = ensureOpenNote()
+                launchKeyboardCapture(nid, null)
             }
         }
         b.btnPhoto.setOnClickListener {
