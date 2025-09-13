@@ -161,11 +161,11 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
-    suspend fun ensureNoteWithInitialText(initial: String = ""): Long {
+    suspend fun ensureNoteWithInitialText(seed: String? = ""): Long {
         val dao = noteDao ?: throw IllegalStateException("noteDao required")
         val noteId = withContext(io) { dao.insert(Note()) }
-        if (initial.isNotEmpty()) {
-            appendText(noteId, initial)
+        if (!seed.isNullOrEmpty()) {
+            appendText(noteId, seed)
         }
         return noteId
     }

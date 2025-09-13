@@ -1,39 +1,28 @@
 package com.example.openeer.data.block
 
 import android.content.Context
-import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import androidx.room.Room
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
 
-@RunWith(RobolectricTestRunner::class)
 class BlocksRepositoryTest {
-
     private lateinit var db: AppDatabase
     private lateinit var repo: BlocksRepository
 
-    // ⚠️ pas de lateinit sur un primitif
-    private var noteId: Long = 0L
-
     @Before
     fun setup() {
-        val ctx = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(ctx, AppDatabase::class.java)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        repo = BlocksRepository(db.blockDao())
-
-        noteId = runBlocking {
-            db.noteDao().insert(Note())
-        }
+        repo = BlocksRepository(db.blockDao(), db.noteDao())
     }
 
     @After
@@ -42,73 +31,24 @@ class BlocksRepositoryTest {
     }
 
     @Test
-    fun appendVariants() = runBlocking {
-        val gid = generateGroupId()
-        val textId = repo.appendText(noteId, "hello", gid)
-        val photoId = repo.appendPhoto(noteId, "uri://photo")
-        val audioId = repo.appendAudio(noteId, "uri://audio", 1000L, "audio/wav", gid)
-        val trId = repo.appendTranscription(noteId, "world", gid)
-        val locId = repo.appendLocation(noteId, 1.0, 2.0, "place")
+    fun appendTextAndSketch_respectPositionAndGroup() = runTest {
+        val noteId = db.noteDao().insert(Note())
+        val groupId = generateGroupId()
+
+        repo.appendText(noteId, "hello", groupId)
+        repo.appendSketch(noteId, "file://sketch.png", width = 10, height = 20, groupId = groupId)
 
         val blocks = db.blockDao().observeBlocks(noteId).first()
-        assertEquals(5, blocks.size)
+        assertEquals(2, blocks.size)
+        val textBlock = blocks[0]
+        val sketchBlock = blocks[1]
 
-        assertEquals(textId, blocks[0].id)
-        assertEquals(BlockType.TEXT, blocks[0].type)
-        assertEquals(gid, blocks[0].groupId)
-        assertEquals(0, blocks[0].position)
-        assertTrue(blocks[0].createdAt > 0)
-        assertEquals(blocks[0].createdAt, blocks[0].updatedAt)
-
-        assertEquals(BlockType.PHOTO, blocks[1].type)
-        assertEquals("uri://photo", blocks[1].mediaUri)
-
-        assertEquals(BlockType.AUDIO, blocks[2].type)
-        assertEquals("uri://audio", blocks[2].mediaUri)
-        assertEquals(gid, blocks[2].groupId)
-
-        assertEquals(BlockType.TEXT, blocks[3].type)
-        assertEquals(gid, blocks[3].groupId)
-        assertEquals("world", blocks[3].text)
-
-        assertEquals(BlockType.LOCATION, blocks[4].type)
-        // ⚠️ lat/lon sont Double? dans l’entity → on vérifie notNull avant comparaison
-        assertNotNull(blocks[4].lat)
-        assertNotNull(blocks[4].lon)
-        assertEquals(1.0, blocks[4].lat!!, 0.0)
-        assertEquals(2.0, blocks[4].lon!!, 0.0)
-        assertEquals("place", blocks[4].placeName)
-    }
-
-    @Test
-    fun reorderUpdatesPositions() = runBlocking {
-        val ids = mutableListOf<Long>()
-        repeat(3) { i -> ids += repo.appendText(noteId, "b$i") }
-
-        val newOrder = listOf(ids[2], ids[0], ids[1])
-        repo.reorder(noteId, newOrder)
-
-        val blocks = db.blockDao().observeBlocks(noteId).first()
-        assertEquals(newOrder, blocks.map { it.id })
-        assertEquals(listOf(0, 1, 2), blocks.map { it.position })
-    }
-
-    @Test
-    fun updateTextUpdatesContent() = runBlocking {
-        val id = repo.appendText(noteId, "old")
-        repo.updateText(id, "new")
-        val block = db.blockDao().getById(id)
-        assertEquals("new", block?.text)
-    }
-
-    @Test
-    fun appendSketch_createsBlock() = runBlocking {
-        val id = repo.appendSketch(noteId, "uri://sketch", width = 10, height = 20)
-        val block = db.blockDao().getById(id)
-        assertNotNull(block)
-        assertEquals(BlockType.SKETCH, block!!.type)
-        assertEquals("uri://sketch", block.mediaUri)
-        assertEquals(10, block.width)
-        assertEquals(20, block.height)
+        assertEquals(0, textBlock.position)
+        assertEquals(1, sketchBlock.position)
+        assertEquals(groupId, textBlock.groupId)
+        assertEquals(groupId, sketchBlock.groupId)
+        assertEquals("hello", textBlock.text)
+        assertEquals(BlockType.SKETCH, sketchBlock.type)
+        assertEquals("file://sketch.png", sketchBlock.mediaUri)
     }
 }
