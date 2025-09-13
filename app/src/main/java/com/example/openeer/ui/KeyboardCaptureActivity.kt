@@ -1,16 +1,16 @@
 package com.example.openeer.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityKeyboardCaptureBinding
 import com.example.openeer.ui.sketch.SketchView
+import com.example.openeer.ui.util.ImeInsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -61,16 +61,16 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             }
         }
 
-        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
-            val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            binding.toolBar.translationY = -imeHeight.toFloat()
-            binding.toolBar.isVisible = imeHeight > 0
-            imeVisible = imeHeight > 0
-            insets
-        }
+        ImeInsets.apply(binding.root, binding.toolStrip) { visible -> imeVisible = visible }
 
-        binding.btnPen.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.PEN) }
-        binding.btnLine.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.LINE) }
+        binding.btnPen.setOnClickListener {
+            binding.sketchView.setMode(SketchView.Mode.PEN)
+            binding.sketchView.isVisible = true
+        }
+        binding.btnLine.setOnClickListener {
+            binding.sketchView.setMode(SketchView.Mode.LINE)
+            binding.sketchView.isVisible = true
+        }
         binding.btnShape.setOnClickListener {
             currentShape = when (currentShape) {
                 SketchView.Mode.RECT -> SketchView.Mode.CIRCLE
@@ -78,11 +78,14 @@ class KeyboardCaptureActivity : AppCompatActivity() {
                 else -> SketchView.Mode.RECT
             }
             binding.sketchView.setMode(currentShape)
+            binding.sketchView.isVisible = true
         }
-        binding.btnEraser.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.ERASE) }
+        binding.btnEraser.setOnClickListener {
+            binding.sketchView.setMode(SketchView.Mode.ERASE)
+            binding.sketchView.isVisible = true
+        }
         binding.btnUndo.setOnClickListener { binding.sketchView.undo() }
         binding.btnOk.setOnClickListener { saveAndFinish() }
-        binding.btnCancel.setOnClickListener { finish() }
     }
 
     override fun onBackPressed() {
@@ -98,15 +101,26 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         val text = binding.editText.text.toString()
         val hasSketch = binding.sketchView.hasContent()
         lifecycleScope.launch {
+            var nid = noteId
             withContext(Dispatchers.IO) {
+                if (nid == -1L) {
+                    nid = repo.ensureNoteWithInitialText()
+                    noteId = nid
+                }
                 if (text.isNotBlank()) {
-                    blockId?.let { repo.updateText(it, text) } ?: repo.appendText(noteId, text)
+                    blockId?.let { repo.updateText(it, text) } ?: repo.appendText(nid, text)
                 }
                 if (hasSketch) {
                     val uri = binding.sketchView.exportPngTo(File(filesDir, "sketches"))
-                    repo.appendSketch(noteId, uri.toString())
+                    repo.appendSketch(nid, uri.toString())
                 }
             }
+            val data = Intent().apply {
+                putExtra("noteId", nid)
+                putExtra("addedText", text.isNotBlank())
+                putExtra("addedSketch", hasSketch)
+            }
+            setResult(RESULT_OK, data)
             finish()
         }
     }
