@@ -173,10 +173,17 @@ class SketchView @JvmOverloads constructor(
         else -> Path()
     }
 
-    fun exportPngTo(dir: File): Uri {
+    /** Exporte le dessin actuel en Bitmap (utilisé par SketchEditorActivity) */
+    fun exportBitmap(): Bitmap {
         val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        draw(canvas)
+        val c = Canvas(bmp)
+        draw(c)
+        return bmp
+    }
+
+    /** Exporte et enregistre directement en PNG dans un dossier donné */
+    fun exportPngTo(dir: File): Uri {
+        val bmp = exportBitmap()
         dir.mkdirs()
         val file = File(dir, "sketch_${System.currentTimeMillis()}.png")
         FileOutputStream(file).use { out ->
