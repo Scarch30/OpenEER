@@ -49,6 +49,7 @@
 
         <activity android:name=".ui.editor.NoteEditorActivity" android:exported="false"/>
         <activity android:name=".ui.sketch.SketchEditorActivity" android:exported="false"/>
+        <activity android:name=".ui.keyboard.KeyboardCaptureActivity" android:exported="false"/>
 
 
         <service
