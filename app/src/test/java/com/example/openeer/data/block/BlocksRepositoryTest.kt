@@ -100,4 +100,15 @@ class BlocksRepositoryTest {
         val block = db.blockDao().getById(id)
         assertEquals("new", block?.text)
     }
+
+    @Test
+    fun appendSketch_createsBlock() = runBlocking {
+        val id = repo.appendSketch(noteId, "uri://sketch", width = 10, height = 20)
+        val block = db.blockDao().getById(id)
+        assertNotNull(block)
+        assertEquals(BlockType.SKETCH, block!!.type)
+        assertEquals("uri://sketch", block.mediaUri)
+        assertEquals(10, block.width)
+        assertEquals(20, block.height)
+    }
 }
