@@ -18,11 +18,13 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.BlockType
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.formatMeta
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import android.content.Intent
 import java.io.File
@@ -33,7 +35,7 @@ import java.io.File
 class NotePanelController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
-    private val startKeyboard: (String, Long?, Boolean) -> Unit
+    private val startKeyboard: (Long, Long?) -> Unit
 ) {
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(activity)
@@ -99,7 +101,11 @@ class NotePanelController(
         binding.btnPlayDetail.setOnClickListener { togglePlay() }
         binding.txtBodyDetail.setOnClickListener {
             val nid = openNoteId ?: return@setOnClickListener
-            startKeyboard("INLINE", nid, true)
+            activity.lifecycleScope.launch {
+                val blocks = blocksRepo.observeBlocks(nid).first()
+                val block = blocks.firstOrNull { it.type == BlockType.TEXT }
+                block?.let { startKeyboard(nid, it.id) }
+            }
         }
     }
 

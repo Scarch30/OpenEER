@@ -171,8 +171,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Note panel controller (panneau "note ouverte")
-        notePanel = NotePanelController(this, b) { mode, nid, focus ->
-            launchKeyboardCapture(mode, nid, focus)
+        notePanel = NotePanelController(this, b) { nid, blockId ->
+            launchKeyboardCapture(nid, blockId)
         }
 
         // Mic controller (push-to-talk + mains libres)
@@ -233,8 +233,17 @@ class MainActivity : AppCompatActivity() {
 
         // Boutons bas
         b.btnKeyboard.setOnClickListener {
-            val mode = if (notePanel.openNoteId == null) "NEW" else "SUB"
-            launchKeyboardCapture(mode, notePanel.openNoteId)
+            lifecycleScope.launch {
+                if (notePanel.openNoteId == null) {
+                    val newId = withContext(Dispatchers.IO) { repo.createTextNote("") }
+                    notePanel.open(newId)
+                    launchKeyboardCapture(newId, null)
+                } else {
+                    val nid = notePanel.openNoteId!!
+                    val bid = withContext(Dispatchers.IO) { blocksRepo.createTextBlock(nid) }
+                    launchKeyboardCapture(nid, bid)
+                }
+            }
         }
         b.btnPhoto.setOnClickListener {
             lifecycleScope.launch {
@@ -266,11 +275,10 @@ class MainActivity : AppCompatActivity() {
         return newId
     }
 
-    fun launchKeyboardCapture(mode: String, noteId: Long? = null, focusLast: Boolean = false) {
+    fun launchKeyboardCapture(noteId: Long, blockId: Long? = null) {
         val i = Intent(this, KeyboardCaptureActivity::class.java)
-        i.putExtra("mode", mode)
-        noteId?.let { i.putExtra("noteId", it) }
-        if (focusLast) i.putExtra("focusLast", true)
+        i.putExtra(KeyboardCaptureActivity.EXTRA_NOTE_ID, noteId)
+        blockId?.let { i.putExtra(KeyboardCaptureActivity.EXTRA_BLOCK_ID, it) }
         keyboardCaptureLauncher.launch(i)
     }
 
