@@ -5,6 +5,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updatePadding
 
 /**
  * Helper to keep a view above the IME and report visibility changes.
@@ -13,7 +14,7 @@ object ImeInsets {
     fun apply(root: View, target: View, onVisible: ((Boolean) -> Unit)? = null) {
         val update: (WindowInsetsCompat) -> Unit = { insets ->
             val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            target.translationY = -imeHeight.toFloat()
+            target.updatePadding(bottom = imeHeight)
             val visible = imeHeight > 0
             target.isVisible = visible
             onVisible?.invoke(visible)
