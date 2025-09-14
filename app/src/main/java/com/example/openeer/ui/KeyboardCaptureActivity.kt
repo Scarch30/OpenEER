@@ -2,20 +2,27 @@ package com.example.openeer.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.Gravity
 import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsAnimationCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
-import androidx.lifecycle.lifecycleScope
+import androidx.core.view.updateLayoutParams
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityKeyboardCaptureBinding
 import com.example.openeer.ui.sketch.SketchView
-import com.example.openeer.ui.util.ImeInsets
 import kotlinx.coroutines.Dispatchers
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.example.openeer.ui.util.ImeInsets
+
 
 class KeyboardCaptureActivity : AppCompatActivity() {
 
@@ -41,9 +48,21 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         binding = ActivityKeyboardCaptureBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        ImeInsets.apply(binding.root, binding.drawToolbar) { visible ->
+            imeVisible = visible
+        }
+
+
+        // Récup paramètres
         noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
         blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
 
+        // Force la toolbar en bas (gravity), quel que soit le layout
+        binding.drawToolbar.updateLayoutParams<FrameLayout.LayoutParams> {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        }
+
+        // Focus + ouverture IME
         val edit = binding.editText
         edit.post {
             edit.requestFocus()
@@ -51,18 +70,49 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
         }
 
+        // Pré-remplissage si on édite un bloc existant
         blockId?.let { id ->
             lifecycleScope.launch {
                 val blocks = repo.observeBlocks(noteId).first()
-                blocks.firstOrNull { it.id == id }?.text?.let { text ->
-                    binding.editText.setText(text)
-                    binding.editText.setSelection(text.length)
+                blocks.firstOrNull { it.id == id }?.text?.let { txt ->
+                    binding.editText.setText(txt)
+                    binding.editText.setSelection(txt.length)
                 }
             }
         }
 
-        ImeInsets.apply(binding.root, binding.drawToolbar) { visible -> imeVisible = visible }
+        // Écoute et animation des Insets IME : marge basse = hauteur clavier
+        val applyIme: (WindowInsetsCompat) -> Unit = { insets ->
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val visible = imeBottom > 0
+            imeVisible = visible
+            binding.drawToolbar.isVisible = visible
+            binding.drawToolbar.updateLayoutParams<FrameLayout.LayoutParams> {
+                bottomMargin = imeBottom
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            }
+        }
 
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            applyIme(insets)
+            insets
+        }
+        ViewCompat.setWindowInsetsAnimationCallback(
+            binding.root,
+            object : WindowInsetsAnimationCompat.Callback(
+                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE
+            ) {
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
+                ): WindowInsetsCompat {
+                    applyIme(insets)
+                    return insets
+                }
+            }
+        )
+
+        // Outils de dessin
         binding.btnToolPen.setOnClickListener {
             binding.sketchView.setMode(SketchView.Mode.PEN)
             binding.sketchView.isVisible = true
