@@ -1,0 +1,61 @@
+Structure du dossier pour le volume OS
+Le numéro de série du volume est B84C-81C8
+C:.
+¦   arborescence.txt
+¦   
++---audio
+¦       PcmRecorder.kt
+¦       RecorderService.kt
+¦       
++---core
+¦       LocationUtils.kt
+¦       RecordingState.kt
+¦       
++---data
+¦   ¦   AppDatabase.kt
+¦   ¦   Attachment.kt
+¦   ¦   AttachmentDao.kt
+¦   ¦   Note.kt
+¦   ¦   NoteDao.kt
+¦   ¦   NoteRepository.kt
+¦   ¦   
+¦   +---block
+¦   ¦       BlockDao.kt
+¦   ¦       BlockEntity.kt
+¦   ¦       BlocksRepository.kt
+¦   ¦       BlockType.kt
+¦   ¦       NoteWithBlocks.kt
+¦   ¦       
+¦   +---db
+¦           Converters.kt
+¦           
++---stt
+¦       AacEncoder.kt
+¦       MicRecorder.kt
+¦       VoskTranscriber.kt
+¦       WavUtil.kt
+¦       WavWriter.kt
+¦       
++---ui
+    ¦   KeyboardCaptureActivity.kt
+    ¦   LiveTranscriber.kt
+    ¦   MainActivity.kt
+    ¦   MicBarController.kt
+    ¦   NotePanelController.kt
+    ¦   NotesAdapter.kt
+    ¦   NotesStubAdapter.kt
+    ¦   NoteUiFormat.kt
+    ¦   OnboardingActivity.kt
+    ¦   PhotoViewerActivity.kt
+    ¦   
+    +---editor
+    ¦       BlocksAdapter.kt
+    ¦       NoteEditorActivity.kt
+    ¦       
+    +---sketch
+    ¦       SketchEditorActivity.kt
+    ¦       SketchView.kt
+    ¦       
+    +---util
+            ImeInsets.kt
+            

@@ -41,7 +41,6 @@
         </activity>
 
         <activity android:name=".ui.MainActivity" android:exported="false"/>
-        <activity android:name=".ui.NoteDetailActivity" android:exported="false"/>
 
         <activity
             android:name=".ui.PhotoViewerActivity"
@@ -56,7 +55,7 @@
             android:name=".ui.KeyboardCaptureActivity"
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar"
-            android:windowSoftInputMode="adjustResize"/>
+            android:windowSoftInputMode="stateVisible|adjustResize"/>
 
         <service
             android:name=".audio.RecorderService"

@@ -1,9 +1,10 @@
 package com.example.openeer.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Bundle
 import android.net.Uri
+import android.os.Bundle
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.widget.ArrayAdapter
@@ -22,23 +23,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.openeer.R
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
-import com.example.openeer.R
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import android.content.Intent
-import com.example.openeer.ui.KeyboardCaptureActivity
 
 class MainActivity : AppCompatActivity() {
+
     private lateinit var b: ActivityMainBinding
 
     // VM / liste
@@ -57,12 +57,11 @@ class MainActivity : AppCompatActivity() {
         onLongClick = { note -> promptTitle(note) }
     )
 
-    // Repo partagé
+    // Repo partagés
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(this)
         NoteRepository(db.noteDao(), db.attachmentDao())
     }
-
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(this)
         BlocksRepository(db.blockDao(), db.noteDao())
@@ -151,15 +150,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ❌ on ne nettoie plus le cache des images ici — sinon les photos “disparaissent”
-        // if (savedInstanceState == null) {
-        //     File(cacheDir, "images").listFiles()?.forEach { it.delete() }
-        // } else {
-        //     tempPhotoPath = savedInstanceState.getString("tempPhotoPath")
-        // }
         tempPhotoPath = savedInstanceState?.getString("tempPhotoPath")
-
         WindowCompat.setDecorFitsSystemWindows(window, true)
+
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
 
@@ -195,11 +188,11 @@ class MainActivity : AppCompatActivity() {
                     if (notePanel.openNoteId == null) {
                         lifecycleScope.launch {
                             val newId = withContext(Dispatchers.IO) {
-                                repo.createTextNote(body = "(transcription en cours…)")
+                                // ✅ corps vide (plus de placeholder persistant)
+                                repo.createTextNote(body = "")
                             }
                             Toast.makeText(this@MainActivity, "Note créée (#$newId)", Toast.LENGTH_SHORT).show()
                             notePanel.open(newId)
-
                             // 🌍 enrichissement lieu en arrière-plan
                             lifecycleScope.launch(Dispatchers.IO) {
                                 val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
@@ -214,15 +207,14 @@ class MainActivity : AppCompatActivity() {
                                     blocksRepo.appendLocation(newId, place.lat, place.lon, place.label)
                                 }
                             }
-
                             // Laisse le touch continuer vers le MicBarController
                             micCtl.beginPress(initialX = ev.x)
                         }
                         return@setOnTouchListener true
-                        } else {
-                            micCtl.beginPress(initialX = ev.x)
-                            return@setOnTouchListener true
-                        }
+                    } else {
+                        micCtl.beginPress(initialX = ev.x)
+                        return@setOnTouchListener true
+                    }
                 }
             }
             micCtl.onTouch(ev)
@@ -246,10 +238,12 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun ensureOpenNote(): Long {
         notePanel.openNoteId?.let { return it }
-        val newId = withContext(Dispatchers.IO) { repo.createTextNote("(transcription en cours…)") }
+        val newId = withContext(Dispatchers.IO) {
+            // ✅ corps vide (plus de placeholder persistant)
+            repo.createTextNote("")
+        }
         Toast.makeText(this@MainActivity, "Note créée (#$newId)", Toast.LENGTH_SHORT).show()
         notePanel.open(newId)
-
         lifecycleScope.launch(Dispatchers.IO) {
             val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
             if (place != null) {
