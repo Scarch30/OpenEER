@@ -3,19 +3,22 @@ package com.example.openeer.ui
 import android.content.Intent
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.OnApplyWindowInsetsListener
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
+import androidx.lifecycle.lifecycleScope
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityKeyboardCaptureBinding
 import com.example.openeer.ui.sketch.SketchView
 import kotlinx.coroutines.Dispatchers
-import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,25 +40,24 @@ class KeyboardCaptureActivity : AppCompatActivity() {
 
     private var noteId: Long = -1L
     private var blockId: Long? = null
-    private var imeVisible = false
-    private var currentShape = SketchView.Mode.RECT
+    private var imeVisible: Boolean = false
+    private var currentShape: SketchView.Mode = SketchView.Mode.RECT
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityKeyboardCaptureBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Paramètres d’entrée
+        // ----- Paramètres de navigation -----
         noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
         blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
 
-        // Force la toolbar collée en bas (sans KTX pour éviter le bug du runner)
-        (binding.drawToolbar.layoutParams as FrameLayout.LayoutParams).apply {
+        // La barre doit toujours être en bas et centrée
+        binding.drawToolbar.updateLayoutParams<FrameLayout.LayoutParams> {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            bottomMargin = 0
-        }.also { binding.drawToolbar.layoutParams = it }
+        }
 
-        // Ouverture du clavier
+        // Focus sur l'EditText + ouverture clavier
         val edit = binding.editText
         edit.post {
             edit.requestFocus()
@@ -74,31 +76,25 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             }
         }
 
-        // Gère la hauteur du clavier (IME) et place la barre d’outils juste au-dessus
-        val applyIme: (WindowInsetsCompat) -> Unit = { insets ->
-            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            val visible = imeBottom > 0
+        // ----- Gestion IME : toolbar collée au-dessus du clavier -----
+        val applyIme: (WindowInsetsCompat) -> Unit = { insets: WindowInsetsCompat ->
+            val imeBottom: Int = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val visible: Boolean = imeBottom > 0
             imeVisible = visible
             binding.drawToolbar.isVisible = visible
-
-            (binding.drawToolbar.layoutParams as FrameLayout.LayoutParams).apply {
+            binding.drawToolbar.updateLayoutParams<FrameLayout.LayoutParams> {
                 bottomMargin = imeBottom
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            }.also { binding.drawToolbar.layoutParams = it }
+            }
         }
 
-        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
-            applyIme(insets)
-            insets
-        }
-        ViewCompat.setWindowInsetsAnimationCallback(
+        // Pas de lambda ici : on utilise l’interface explicite (évite la mauvaise surcharge)
+        ViewCompat.setOnApplyWindowInsetsListener(
             binding.root,
-            object : WindowInsetsAnimationCompat.Callback(
-                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE
-            ) {
-                override fun onProgress(
-                    insets: WindowInsetsCompat,
-                    running: MutableList<WindowInsetsAnimationCompat>
+            object : OnApplyWindowInsetsListener {
+                override fun onApplyWindowInsets(
+                    v: View,
+                    insets: WindowInsetsCompat
                 ): WindowInsetsCompat {
                     applyIme(insets)
                     return insets
@@ -106,7 +102,22 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             }
         )
 
-        // Boutons dessin
+        ViewCompat.setWindowInsetsAnimationCallback(
+            binding.root,
+            object : WindowInsetsAnimationCompat.Callback(
+                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE
+            ) {
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
+                ): WindowInsetsCompat {
+                    applyIme(insets)
+                    return insets
+                }
+            }
+        )
+
+        // ----- Outils de dessin -----
         binding.btnToolPen.setOnClickListener {
             binding.sketchView.setMode(SketchView.Mode.PEN)
             binding.sketchView.isVisible = true
