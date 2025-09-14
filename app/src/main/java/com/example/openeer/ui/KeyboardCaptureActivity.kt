@@ -10,7 +10,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
-import androidx.core.view.updateLayoutParams
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityKeyboardCaptureBinding
@@ -46,18 +45,17 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         binding = ActivityKeyboardCaptureBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // ❌ SUPPRIMÉ : ImeInsets.apply(...) qui entrait en conflit de signature
-
-        // Récup paramètres
+        // Paramètres d’entrée
         noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
         blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
 
-        // Force la toolbar en bas (gravity), quel que soit le layout
-        binding.drawToolbar.updateLayoutParams<FrameLayout.LayoutParams> {
+        // Force la toolbar collée en bas (sans KTX pour éviter le bug du runner)
+        (binding.drawToolbar.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        }
+            bottomMargin = 0
+        }.also { binding.drawToolbar.layoutParams = it }
 
-        // Focus + ouverture IME
+        // Ouverture du clavier
         val edit = binding.editText
         edit.post {
             edit.requestFocus()
@@ -76,23 +74,23 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             }
         }
 
-        // Écoute et animation des Insets IME : marge basse = hauteur clavier
+        // Gère la hauteur du clavier (IME) et place la barre d’outils juste au-dessus
         val applyIme: (WindowInsetsCompat) -> Unit = { insets ->
             val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             val visible = imeBottom > 0
             imeVisible = visible
             binding.drawToolbar.isVisible = visible
-            binding.drawToolbar.updateLayoutParams<FrameLayout.LayoutParams> {
+
+            (binding.drawToolbar.layoutParams as FrameLayout.LayoutParams).apply {
                 bottomMargin = imeBottom
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            }
+            }.also { binding.drawToolbar.layoutParams = it }
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
             applyIme(insets)
             insets
         }
-
         ViewCompat.setWindowInsetsAnimationCallback(
             binding.root,
             object : WindowInsetsAnimationCompat.Callback(
@@ -100,7 +98,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             ) {
                 override fun onProgress(
                     insets: WindowInsetsCompat,
-                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
+                    running: MutableList<WindowInsetsAnimationCompat>
                 ): WindowInsetsCompat {
                     applyIme(insets)
                     return insets
@@ -108,7 +106,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             }
         )
 
-        // Outils de dessin
+        // Boutons dessin
         binding.btnToolPen.setOnClickListener {
             binding.sketchView.setMode(SketchView.Mode.PEN)
             binding.sketchView.isVisible = true
