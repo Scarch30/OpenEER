@@ -6,26 +6,37 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+
 import androidx.core.view.updateLayoutParams
 
 /**
- * Helper to keep a view above the IME and report visibility changes.
+ * Place une vue *au-dessus* de l’IME :
+ * - applique une marge basse = hauteur IME
+ * - bascule la visibilité selon l’IME
  */
 object ImeInsets {
     fun apply(root: View, target: View, onVisible: ((Boolean) -> Unit)? = null) {
-        val update: (WindowInsetsCompat) -> Unit = { insets ->
+        fun update(insets: WindowInsetsCompat) {
             val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+
             target.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 bottomMargin = imeHeight
+              
+            // Marge basse = hauteur IME pour survoler le clavier
+            (target.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
+                lp.bottomMargin = imeHeight
+                target.layoutParams = lp
             }
             val visible = imeHeight > 0
             target.isVisible = visible
             onVisible?.invoke(visible)
         }
+
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             update(insets)
             insets
         }
+
         ViewCompat.setWindowInsetsAnimationCallback(
             root,
             object : WindowInsetsAnimationCompat.Callback(
