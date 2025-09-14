@@ -21,8 +21,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import com.example.openeer.ui.util.ImeInsets
-
 
 class KeyboardCaptureActivity : AppCompatActivity() {
 
@@ -48,10 +46,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         binding = ActivityKeyboardCaptureBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        ImeInsets.apply(binding.root, binding.drawToolbar) { visible ->
-            imeVisible = visible
-        }
-
+        // ❌ SUPPRIMÉ : ImeInsets.apply(...) qui entrait en conflit de signature
 
         // Récup paramètres
         noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
@@ -97,6 +92,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             applyIme(insets)
             insets
         }
+
         ViewCompat.setWindowInsetsAnimationCallback(
             binding.root,
             object : WindowInsetsAnimationCompat.Callback(
@@ -135,6 +131,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         binding.btnClose.setOnClickListener { finish() }
     }
 
+    @Deprecated("Use OnBackPressedDispatcher")
     override fun onBackPressed() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         if (imeVisible) {
