@@ -1,12 +1,17 @@
 package com.example.openeer.data.block
 
+import com.example.openeer.data.Note
+import com.example.openeer.data.NoteDao
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.util.UUID
-import com.example.openeer.data.Note
-import com.example.openeer.data.NoteDao
+
+// (Redondants si on est déjà dans le même package, mais ça ne gêne pas)
+import com.example.openeer.data.block.BlockEntity
+import com.example.openeer.data.block.BlockType
+import com.example.openeer.data.block.BlockDao
 
 fun generateGroupId(): String = UUID.randomUUID().toString()
 
@@ -15,6 +20,7 @@ class BlocksRepository(
     private val noteDao: NoteDao? = null,
     private val io: CoroutineDispatcher = Dispatchers.IO
 ) {
+
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
 
     private suspend fun insert(noteId: Long, template: BlockEntity): Long =
@@ -35,7 +41,10 @@ class BlocksRepository(
             createdAt = now,
             updatedAt = now
         )
-        return insert(noteId, block)
+        val id = insert(noteId, block)
+        // Met à jour un aperçu dans Note.body pour la liste (facultatif)
+        noteDao?.updateBody(noteId, text.take(300), now)
+        return id
     }
 
     suspend fun createTextBlock(noteId: Long): Long {
@@ -112,7 +121,9 @@ class BlocksRepository(
             createdAt = now,
             updatedAt = now
         )
-        return insert(noteId, block)
+        val id = insert(noteId, block)
+        noteDao?.updateBody(noteId, text.take(300), now)
+        return id
     }
 
     suspend fun appendLocation(
@@ -135,7 +146,6 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
-    // ⚠️ FIX: on délègue au DAO (double passe avec positions temporaires uniques)
     suspend fun reorder(noteId: Long, orderedBlockIds: List<Long>) {
         withContext(io) {
             blockDao.reorder(noteId, orderedBlockIds)
@@ -171,7 +181,14 @@ class BlocksRepository(
             createdAt = now,
             updatedAt = now
         )
-        return insert(noteId, block)
+        val id = insert(noteId, block)
+        noteDao?.let { dao ->
+            val current = dao.getByIdOnce(noteId)
+            if (current != null && current.body.isBlank()) {
+                dao.updateBody(noteId, "[Croquis]", now)
+            }
+        }
+        return id
     }
 
     suspend fun ensureNoteWithInitialText(initial: String = ""): Long {

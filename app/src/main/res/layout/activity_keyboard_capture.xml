@@ -3,16 +3,10 @@
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#333333">
+    android:background="#333333"
+    android:clipToPadding="false">
 
-    <!-- Zone de dessin, cachée tant qu’on ne touche pas aux outils -->
-    <com.example.openeer.ui.sketch.SketchView
-        android:id="@+id/sketchView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@android:color/transparent"
-        android:visibility="gone" />
-
+    
     <!-- Saisie texte : occupe tout l’écran, reste visible pendant le dessin -->
     <EditText
         android:id="@+id/editText"
@@ -26,18 +20,26 @@
         android:textColor="@android:color/white"
         android:textSize="18sp" />
 
-    <!-- Barre d’outils dessin : ancrée en bas ; la logique ImeInsets la rend visible
-         quand le clavier s’affiche et ajoute le padding pour passer au-dessus de l’IME -->
+<!-- Zone de dessin, cachée tant qu’on ne touche pas aux outils -->
+    <com.example.openeer.ui.sketch.SketchView
+        android:id="@+id/sketchView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:visibility="gone" />
+
+    <!-- Barre d’outils dessin : ancrée en bas ; visible seulement quand l’IME est ouvert -->
+    <!-- Couleur de debug pour la repérer (#CC9C27FF). Tu pourras l'enlever plus tard. -->
     <LinearLayout
         android:id="@+id/drawToolbar"
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:layout_gravity="bottom"
-        android:layout_marginBottom="0dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
+        android:elevation="12dp"
         android:background="#CC9C27FF"
         android:visibility="gone">
 

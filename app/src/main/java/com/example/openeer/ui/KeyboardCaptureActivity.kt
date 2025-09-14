@@ -1,16 +1,13 @@
 package com.example.openeer.ui
 
 import android.content.Intent
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.Gravity
-import android.view.View
+import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.OnApplyWindowInsetsListener
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsAnimationCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.lifecycleScope
@@ -43,6 +40,21 @@ class KeyboardCaptureActivity : AppCompatActivity() {
     private var imeVisible: Boolean = false
     private var currentShape: SketchView.Mode = SketchView.Mode.RECT
 
+    // Listener global pour détecter l’ouverture/fermeture du clavier de façon fiable
+    private val globalLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+        val root = binding.root
+        val r = Rect()
+        root.getWindowVisibleDisplayFrame(r)
+        val heightDiff = root.rootView.height - r.height()
+        // seuil ≈15% de l’écran : si on perd plus, c’est que l’IME est visible
+        val threshold = (root.rootView.height * 0.15f).toInt()
+        val visible = heightDiff > threshold
+        if (visible != imeVisible) {
+            imeVisible = visible
+            binding.drawToolbar.isVisible = visible
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityKeyboardCaptureBinding.inflate(layoutInflater)
@@ -52,12 +64,14 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
         blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
 
-        // La barre doit toujours être en bas et centrée
+        // Barre d’outils : toujours en bas, au-dessus des autres vues
         binding.drawToolbar.updateLayoutParams<FrameLayout.LayoutParams> {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
         }
+        binding.drawToolbar.bringToFront()
+        binding.drawToolbar.isVisible = false // au départ, cachée
 
-        // Focus sur l'EditText + ouverture clavier
+        // Focus + ouverture clavier
         val edit = binding.editText
         edit.post {
             edit.requestFocus()
@@ -76,46 +90,8 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             }
         }
 
-        // ----- Gestion IME : toolbar collée au-dessus du clavier -----
-        val applyIme: (WindowInsetsCompat) -> Unit = { insets: WindowInsetsCompat ->
-            val imeBottom: Int = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            val visible: Boolean = imeBottom > 0
-            imeVisible = visible
-            binding.drawToolbar.isVisible = visible
-            binding.drawToolbar.updateLayoutParams<FrameLayout.LayoutParams> {
-                bottomMargin = imeBottom
-                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            }
-        }
-
-        // Pas de lambda ici : on utilise l’interface explicite (évite la mauvaise surcharge)
-        ViewCompat.setOnApplyWindowInsetsListener(
-            binding.root,
-            object : OnApplyWindowInsetsListener {
-                override fun onApplyWindowInsets(
-                    v: View,
-                    insets: WindowInsetsCompat
-                ): WindowInsetsCompat {
-                    applyIme(insets)
-                    return insets
-                }
-            }
-        )
-
-        ViewCompat.setWindowInsetsAnimationCallback(
-            binding.root,
-            object : WindowInsetsAnimationCompat.Callback(
-                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE
-            ) {
-                override fun onProgress(
-                    insets: WindowInsetsCompat,
-                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
-                ): WindowInsetsCompat {
-                    applyIme(insets)
-                    return insets
-                }
-            }
-        )
+        // ✅ Détection clavier universelle (pas d’insets, pas d’edge-to-edge)
+        binding.root.viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
 
         // ----- Outils de dessin -----
         binding.btnToolPen.setOnClickListener {
@@ -138,6 +114,12 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         binding.btnToolUndo.setOnClickListener { binding.sketchView.undo() }
         binding.btnValidate.setOnClickListener { saveAndFinish() }
         binding.btnClose.setOnClickListener { finish() }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Nettoyage du listener
+        binding.root.viewTreeObserver.removeOnGlobalLayoutListener(globalLayoutListener)
     }
 
     @Deprecated("Use OnBackPressedDispatcher")
