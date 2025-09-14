@@ -6,6 +6,13 @@
     android:background="#333333"
     android:fitsSystemWindows="false">
 
+    <com.example.openeer.ui.sketch.SketchView
+        android:id="@+id/sketchView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:visibility="gone" />
+
     <EditText
         android:id="@+id/editText"
         android:layout_width="match_parent"
@@ -17,15 +24,8 @@
         android:textColor="#FFFFFF"
         android:padding="8dp" />
 
-    <com.example.openeer.ui.sketch.SketchView
-        android:id="@+id/sketchView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@android:color/transparent"
-        android:visibility="gone" />
-
     <LinearLayout
-        android:id="@+id/toolStrip"
+        android:id="@+id/drawToolbar"
         android:layout_width="match_parent"
         android:layout_height="48dp"
         android:layout_gravity="bottom"
@@ -34,7 +34,7 @@
         android:visibility="gone">
 
         <ImageButton
-            android:id="@+id/btnPen"
+            android:id="@+id/btnToolPen"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
@@ -42,15 +42,7 @@
             android:src="@drawable/ic_tool_pen" />
 
         <ImageButton
-            android:id="@+id/btnLine"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Line"
-            android:src="@drawable/ic_tool_line" />
-
-        <ImageButton
-            android:id="@+id/btnShape"
+            android:id="@+id/btnToolShape"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
@@ -58,7 +50,7 @@
             android:src="@drawable/ic_tool_shapes" />
 
         <ImageButton
-            android:id="@+id/btnEraser"
+            android:id="@+id/btnToolEraser"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
@@ -66,7 +58,7 @@
             android:src="@drawable/ic_tool_eraser" />
 
         <ImageButton
-            android:id="@+id/btnUndo"
+            android:id="@+id/btnToolUndo"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
@@ -74,12 +66,20 @@
             android:src="@drawable/ic_tool_undo" />
 
         <ImageButton
-            android:id="@+id/btnOk"
+            android:id="@+id/btnValidate"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
             android:contentDescription="@string/action_validate"
             android:src="@drawable/ic_check" />
+
+        <ImageButton
+            android:id="@+id/btnClose"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Close"
+            android:src="@drawable/ic_close" />
 
     </LinearLayout>
 
