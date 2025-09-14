@@ -1,4 +1,5 @@
-<manifest package="com.example.openeer" xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest package="com.example.openeer"
+    xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Micro + caméra -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
@@ -22,7 +23,6 @@
 
     <uses-permission android:name="android.permission.INTERNET"/>
 
-
     <application
         android:allowBackup="true"
         android:label="OpenEER"
@@ -31,7 +31,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar">
 
-        <activity android:name=".ui.OnboardingActivity" android:exported="true">
+        <activity
+            android:name=".ui.OnboardingActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -39,7 +41,6 @@
         </activity>
 
         <activity android:name=".ui.MainActivity" android:exported="false"/>
-
         <activity android:name=".ui.NoteDetailActivity" android:exported="false"/>
 
         <activity
@@ -49,13 +50,13 @@
 
         <activity android:name=".ui.editor.NoteEditorActivity" android:exported="false"/>
         <activity android:name=".ui.sketch.SketchEditorActivity" android:exported="false"/>
+
+        <!-- IMPORTANT : ajuste la vue quand le clavier s’affiche -->
         <activity
             android:name=".ui.KeyboardCaptureActivity"
             android:exported="false"
-            android:screenOrientation="portrait"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar"
             android:windowSoftInputMode="adjustResize"/>
-
 
         <service
             android:name=".audio.RecorderService"
