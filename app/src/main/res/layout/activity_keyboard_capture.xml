@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#333333"
-    android:fitsSystemWindows="false">
+    android:background="#333333">
 
+    <!-- Zone de dessin, cachée tant qu’on ne touche pas aux outils -->
     <com.example.openeer.ui.sketch.SketchView
         android:id="@+id/sketchView"
         android:layout_width="match_parent"
@@ -13,24 +13,31 @@
         android:background="@android:color/transparent"
         android:visibility="gone" />
 
+    <!-- Saisie texte : occupe tout l’écran, reste visible pendant le dessin -->
     <EditText
         android:id="@+id/editText"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:imeOptions="actionDone"
-        android:inputType="textMultiLine"
-        android:gravity="top|start"
         android:background="@android:color/transparent"
-        android:textColor="#FFFFFF"
-        android:padding="8dp" />
+        android:gravity="top|start"
+        android:inputType="textMultiLine|textCapSentences"
+        android:imeOptions="flagNoExtractUi|actionDone"
+        android:padding="12dp"
+        android:textColor="@android:color/white"
+        android:textSize="18sp" />
 
+    <!-- Barre d’outils dessin : ancrée en bas ; la logique ImeInsets la rend visible
+         quand le clavier s’affiche et ajoute le padding pour passer au-dessus de l’IME -->
     <LinearLayout
         android:id="@+id/drawToolbar"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="56dp"
         android:layout_gravity="bottom"
         android:orientation="horizontal"
-        android:gravity="center"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:background="#CC9C27FF"
         android:visibility="gone">
 
         <ImageButton
@@ -38,7 +45,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
-            android:contentDescription="Pen"
+            android:contentDescription="Stylo"
             android:src="@drawable/ic_tool_pen" />
 
         <ImageButton
@@ -46,7 +53,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
-            android:contentDescription="Shape"
+            android:contentDescription="Formes"
             android:src="@drawable/ic_tool_shapes" />
 
         <ImageButton
@@ -54,7 +61,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
-            android:contentDescription="Eraser"
+            android:contentDescription="Gomme"
             android:src="@drawable/ic_tool_eraser" />
 
         <ImageButton
@@ -62,15 +69,20 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
-            android:contentDescription="Undo"
+            android:contentDescription="Annuler"
             android:src="@drawable/ic_tool_undo" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
         <ImageButton
             android:id="@+id/btnValidate"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
-            android:contentDescription="@string/action_validate"
+            android:contentDescription="Valider"
             android:src="@drawable/ic_check" />
 
         <ImageButton
@@ -78,7 +90,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
-            android:contentDescription="Close"
+            android:contentDescription="Fermer"
             android:src="@drawable/ic_close" />
 
     </LinearLayout>
