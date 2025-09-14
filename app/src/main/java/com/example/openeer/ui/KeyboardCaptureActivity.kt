@@ -61,17 +61,13 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             }
         }
 
-        ImeInsets.apply(binding.root, binding.toolStrip) { visible -> imeVisible = visible }
+        ImeInsets.apply(binding.root, binding.drawToolbar) { visible -> imeVisible = visible }
 
-        binding.btnPen.setOnClickListener {
+        binding.btnToolPen.setOnClickListener {
             binding.sketchView.setMode(SketchView.Mode.PEN)
             binding.sketchView.isVisible = true
         }
-        binding.btnLine.setOnClickListener {
-            binding.sketchView.setMode(SketchView.Mode.LINE)
-            binding.sketchView.isVisible = true
-        }
-        binding.btnShape.setOnClickListener {
+        binding.btnToolShape.setOnClickListener {
             currentShape = when (currentShape) {
                 SketchView.Mode.RECT -> SketchView.Mode.CIRCLE
                 SketchView.Mode.CIRCLE -> SketchView.Mode.ARROW
@@ -80,12 +76,13 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             binding.sketchView.setMode(currentShape)
             binding.sketchView.isVisible = true
         }
-        binding.btnEraser.setOnClickListener {
+        binding.btnToolEraser.setOnClickListener {
             binding.sketchView.setMode(SketchView.Mode.ERASE)
             binding.sketchView.isVisible = true
         }
-        binding.btnUndo.setOnClickListener { binding.sketchView.undo() }
-        binding.btnOk.setOnClickListener { saveAndFinish() }
+        binding.btnToolUndo.setOnClickListener { binding.sketchView.undo() }
+        binding.btnValidate.setOnClickListener { saveAndFinish() }
+        binding.btnClose.setOnClickListener { finish() }
     }
 
     override fun onBackPressed() {
