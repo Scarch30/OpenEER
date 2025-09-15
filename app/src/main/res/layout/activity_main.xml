@@ -28,7 +28,6 @@
         android:elevation="4dp"
         android:padding="8dp"
         android:visibility="gone">
-
         <TextView
             android:id="@+id/liveTranscriptionText"
             android:layout_width="match_parent"
@@ -38,7 +37,7 @@
             android:ellipsize="end" />
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Panneau NOTE OUVERTE (masqué par défaut) -->
+    <!-- Panneau NOTE OUVERTE -->
     <LinearLayout
         android:id="@+id/notePanel"
         android:orientation="vertical"
@@ -53,7 +52,6 @@
             android:orientation="horizontal"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
-
             <ImageView
                 android:id="@+id/btnBack"
                 android:src="@android:drawable/ic_media_previous"
@@ -61,7 +59,6 @@
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:padding="4dp" />
-
             <TextView
                 android:id="@+id/txtTitleDetail"
                 android:text="Sans titre"
@@ -76,20 +73,46 @@
                 android:focusable="true" />
         </LinearLayout>
 
-        <!-- Corps défilant -->
+        <!-- Corps défilant avec superposition texte + dessin -->
         <ScrollView
+            android:id="@+id/scrollBody"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:fillViewport="true">
 
-            <TextView
-                android:id="@+id/txtBodyDetail"
-                android:text="(transcription en cours…)"
-                android:textSize="16sp"
+            <FrameLayout
+                android:id="@+id/noteBodyContainer"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content">
+
+                <!-- Texte de la note -->
+                <TextView
+                    android:id="@+id/txtBodyDetail"
+                    android:text="(transcription en cours…)"
+                    android:textSize="16sp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="8dp" />
+
+                <!-- Calque dessin -->
+                <com.example.openeer.ui.sketch.SketchView
+    android:id="@+id/sketchOverlay"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@android:color/transparent"
+    android:clickable="true"
+    android:minHeight="48dp"
+    android:focusable="false" />
+
+            </FrameLayout>
         </ScrollView>
+
+        <!-- ⬇️ barre d’outils dessin (inclus, masquée par défaut dans son propre layout) -->
+        <include
+            layout="@layout/view_sketch_toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
 
         <!-- Bouton Lecture audio -->
         <Button
@@ -120,14 +143,14 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <!-- Liste des notes (affichée quand aucune note n'est ouverte) -->
+    <!-- Liste des notes -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
 
-    <!-- GROS bouton / barre d’enregistrement pleine largeur -->
+    <!-- GROS bouton / barre d’enregistrement -->
     <LinearLayout
         android:id="@+id/btnMicBar"
         android:layout_width="match_parent"
@@ -138,14 +161,12 @@
         android:gravity="center"
         android:clickable="true"
         android:focusable="true">
-
         <ImageView
             android:id="@+id/iconMic"
             android:layout_width="28dp"
             android:layout_height="28dp"
             android:src="@android:drawable/ic_btn_speak_now"
             android:contentDescription="Micro" />
-
         <TextView
             android:id="@+id/labelMic"
             android:text="Appuyez pour parler"
@@ -156,7 +177,7 @@
             android:layout_height="wrap_content" />
     </LinearLayout>
 
-    <!-- Barre d’actions large (icônes + labels) -->
+    <!-- Barre d’actions -->
     <LinearLayout
         android:id="@+id/bottomBar"
         android:orientation="horizontal"
@@ -167,8 +188,6 @@
         android:gravity="center"
         android:layout_width="match_parent"
         android:layout_height="72dp">
-
-        <!-- Clavier -->
         <LinearLayout
             android:id="@+id/btnKeyboard"
             android:orientation="vertical"
@@ -176,13 +195,11 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="match_parent">
-
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:src="@android:drawable/ic_menu_edit"
                 android:contentDescription="Clavier" />
-
             <TextView
                 android:text="Clavier"
                 android:textSize="12sp"
@@ -190,8 +207,6 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
         </LinearLayout>
-
-        <!-- Photo -->
         <LinearLayout
             android:id="@+id/btnPhoto"
             android:orientation="vertical"
@@ -199,13 +214,11 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="match_parent">
-
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:src="@android:drawable/ic_menu_camera"
                 android:contentDescription="Photo" />
-
             <TextView
                 android:text="Photo"
                 android:textSize="12sp"
@@ -213,8 +226,6 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
         </LinearLayout>
-
-        <!-- Bibliothèque -->
         <LinearLayout
             android:id="@+id/btnLibrary"
             android:orientation="vertical"
@@ -222,13 +233,11 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="match_parent">
-
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:src="@android:drawable/ic_menu_agenda"
                 android:contentDescription="Bibliothèque" />
-
             <TextView
                 android:text="Bibliothèque"
                 android:textSize="12sp"
@@ -236,8 +245,6 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
         </LinearLayout>
-
-        <!-- Menu -->
         <LinearLayout
             android:id="@+id/btnMenu"
             android:orientation="vertical"
@@ -245,13 +252,11 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="match_parent">
-
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:src="@android:drawable/ic_menu_manage"
                 android:contentDescription="Menu" />
-
             <TextView
                 android:text="Menu"
                 android:textSize="12sp"

@@ -1,5 +1,6 @@
 package com.example.openeer.ui
 
+import android.content.Intent
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.Toast
@@ -13,47 +14,44 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
-import com.google.android.material.card.MaterialCardView
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
-import com.example.openeer.data.block.BlocksRepository
-import com.example.openeer.data.block.BlockType
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.formatMeta
+import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import android.content.Intent
-import com.example.openeer.ui.editor.NoteEditorActivity
 import java.io.File
 
 /**
- * Contrôle l'affichage/édition de la "note ouverte" dans MainActivity (notePanel).
+ * Contrôle l'affichage de la "note ouverte" dans MainActivity (panel en haut de la liste).
+ * - Observe la note + pièces jointes
+ * - Met à jour le titre, corps, méta, bouton lecture
+ * - Expose open()/close()
+ *
+ * L’édition inline (clavier + dessin) est gérée par MainActivity.
  */
 class NotePanelController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
 ) {
+
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(activity)
         NoteRepository(db.noteDao(), db.attachmentDao())
-    }
-
-    private val blocksRepo: BlocksRepository by lazy {
-        val db = AppDatabase.get(activity)
-        BlocksRepository(db.blockDao(), db.noteDao())
     }
 
     /** id de la note actuellement ouverte (ou null si aucune) */
     var openNoteId: Long? = null
         private set
 
-    /** Dernière note reçue du flux (pour rendre l'UI rapidement) */
+    /** Dernière note rendue (pour lecture audio, etc.) */
     private var currentNote: Note? = null
 
+    // Bandeau de pièces jointes
     private val attachmentAdapter = AttachmentsAdapter(
         onClick = { path ->
             val i = Intent(activity, PhotoViewerActivity::class.java)
@@ -62,23 +60,22 @@ class NotePanelController(
         }
     )
 
-    /**
-     * Ouvre visuellement le panneau et commence à observer une note.
-     */
+    /** Ouvre visuellement le panneau et commence à observer une note. */
     fun open(noteId: Long) {
         openNoteId = noteId
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
 
+        // Bandeau PJ horizontales
         binding.attachmentsStrip.layoutManager =
             LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
         binding.attachmentsStrip.adapter = attachmentAdapter
 
-        // Flux des pièces jointes (filtre les fichiers manquants pour éviter vignettes mortes)
+        // Observe PJ (on filtre les fichiers manquants pour éviter les miniatures cassées)
         activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 repo.attachments(noteId).collectLatest { list ->
-                    val existing = list.filter { File(it.path).exists() && it.type == "photo" }
+                    val existing = list.filter { it.type == "photo" && File(it.path).exists() }
                     attachmentAdapter.submit(existing.map { it.path })
                     binding.attachmentsStrip.isGone = existing.isEmpty()
                 }
@@ -95,23 +92,11 @@ class NotePanelController(
             }
         }
 
-        // Interactions
+        // Interactions locales
         binding.btnBack.setOnClickListener { close() }
         binding.txtTitleDetail.setOnClickListener { promptEditTitle() }
         binding.btnPlayDetail.setOnClickListener { togglePlay() }
-        binding.txtBodyDetail.setOnClickListener {
-            val nid = openNoteId ?: return@setOnClickListener
-            activity.lifecycleScope.launch {
-                val blocks = blocksRepo.observeBlocks(nid).first()
-                val block = blocks.firstOrNull { it.type == BlockType.TEXT }
-                val i = Intent(activity, NoteEditorActivity::class.java).apply {
-                    putExtra("noteId", nid)
-                    putExtra("focusLast", false)
-                    block?.let { putExtra("focusBlockId", it.id) }
-                }
-                activity.startActivity(i)
-            }
-        }
+        // ⚠️ L’édition du corps (tap sur txtBodyDetail) est gérée dans MainActivity (inline edit).
     }
 
     /** Ferme le panneau et revient à la liste. */
@@ -120,42 +105,45 @@ class NotePanelController(
         currentNote = null
         binding.notePanel.isGone = true
         binding.recycler.isVisible = true
+        // Option : arrêter lecture si en cours
+        SimplePlayer.stop {
+            binding.btnPlayDetail.text = "Lecture"
+        }
     }
 
-    /* Affiche le texte partiel (live) – **aucune écriture DB ici*. */
+    /** Affiche du texte "live" (transcription en cours) — pas d’écriture DB ici. */
     fun onAppendLive(displayBody: String) {
         binding.txtBodyDetail.text = displayBody
     }
 
-    /**
-     * Reçoit du texte final.
-     * Si addNewline = true, on ajoute juste un '\n' *au texte fourni* puis on remplace.
-     * Ici on met à jour l'UI *et* la base (avec updatedAt géré par le repo).
-     */
+    /** Remplace le corps par le texte final et persiste. */
     fun onReplaceFinal(finalBody: String, addNewline: Boolean) {
-        val toAppend = if (addNewline) finalBody + "\n" else finalBody
         val current = binding.txtBodyDetail.text?.toString().orEmpty()
+        val toAppend = if (addNewline) finalBody + "\n" else finalBody
         val newText = current + toAppend
         binding.txtBodyDetail.text = newText
         val nid = openNoteId ?: return
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(nid, newText) // le repo met à jour updatedAt
+            repo.setBody(nid, newText)
         }
     }
 
     // ---- Internes ----
-    private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
 
-    fun observeBlocks(noteId: Long) = blocksRepo.observeBlocks(noteId)
+    private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
 
     private fun render(note: Note?) {
         if (note == null) return
+
+        // Titre
         val title = note.title?.takeIf { it.isNotBlank() } ?: "Sans titre"
         binding.txtTitleDetail.text = title
 
+        // Corps
         val bodyShown = note.body.ifBlank { "(transcription en cours…)" }
         binding.txtBodyDetail.text = bodyShown
 
+        // Méta
         val meta = note.formatMeta()
         if (meta.isBlank()) {
             binding.noteMetaFooter.isGone = true
@@ -164,10 +152,11 @@ class NotePanelController(
             binding.noteMetaFooter.text = meta
         }
 
+        // Bouton Lecture
         val path = note.audioPath
         val playable = !path.isNullOrBlank() && File(path).exists()
         binding.btnPlayDetail.isEnabled = playable
-        binding.btnPlayDetail.text = if (playable) "Lecture" else "Lecture"
+        binding.btnPlayDetail.text = "Lecture"
     }
 
     private fun togglePlay() {
@@ -216,7 +205,7 @@ class NotePanelController(
     }
 }
 
-    /** Liste horizontale de vignettes. */
+/** Liste horizontale de vignettes (photos). */
 private class AttachmentsAdapter(
     private val onClick: (String) -> Unit
 ) : RecyclerView.Adapter<AttachmentsAdapter.VH>() {
@@ -250,7 +239,7 @@ private class AttachmentsAdapter(
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val path = items[position]
-        // 🔑 évite la miniature « collée »
+        // éviter les miniatures fantômes
         holder.img.setImageDrawable(null)
         Glide.with(holder.img).clear(holder.img)
         Glide.with(holder.img)
@@ -265,44 +254,5 @@ private class AttachmentsAdapter(
         items.clear()
         items.addAll(list)
         notifyDataSetChanged()
-    }
-}
-
-/** Lecteur audio minimaliste. */
-private object SimplePlayer {
-    private var mp: android.media.MediaPlayer? = null
-    private var playingFlag: Boolean = false
-
-    fun play(
-        ctx: android.content.Context,
-        path: String,
-        onStart: () -> Unit,
-        onStop: () -> Unit,
-        onError: (Throwable) -> Unit
-    ) {
-        try {
-            if (playingFlag) stopSilently()
-            mp = android.media.MediaPlayer().apply {
-                setDataSource(path)
-                setOnCompletionListener {
-                    playingFlag = false
-                    onStop()
-                }
-                prepare()
-                start()
-            }
-            playingFlag = true
-            onStart()
-        } catch (t: Throwable) {
-            playingFlag = false
-            stopSilently()
-            onError(t)
-        }
-    }
-
-    private fun stopSilently() {
-        try { mp?.stop() } catch (_: Throwable) {}
-        try { mp?.release() } catch (_: Throwable) {}
-        mp = null
     }
 }
