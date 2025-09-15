@@ -1,0 +1,383 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Barre d’outils dessin réutilisable. À inclure tout en bas du layout. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/sketchToolbar"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
+    android:gravity="center_vertical"
+    android:background="#F2F2F2"
+    android:elevation="6dp"
+    android:visibility="gone">
+
+    <!-- Groupe gauche (outils) -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <!-- Rangée d’icônes principales (boutons qui ouvrent les sous-menus) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- Stylo : bouton déclencheur du menu stylo -->
+            <ImageButton
+                android:id="@+id/btnPenMenu"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:padding="8dp"
+                android:contentDescription="Stylo"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_edit" />
+
+            <!-- Formes : bouton déclencheur du menu formes -->
+            <ImageButton
+                android:id="@+id/btnShapeMenu"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:padding="8dp"
+                android:contentDescription="Formes"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_crop" />
+
+            <!-- Gomme libre -->
+            <ImageButton
+                android:id="@+id/btnErase"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:padding="8dp"
+                android:contentDescription="Gomme"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_delete" />
+
+            <!-- Undo -->
+            <ImageButton
+                android:id="@+id/btnUndo"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:padding="8dp"
+                android:contentDescription="Annuler"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_revert" />
+
+            <!-- Redo -->
+            <ImageButton
+                android:id="@+id/btnRedo"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:padding="8dp"
+                android:contentDescription="Rétablir"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_media_next" />
+        </LinearLayout>
+
+        <!-- Sous-menu STYLO (replié par défaut) -->
+        <LinearLayout
+            android:id="@+id/penMenuPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone">
+
+            <!-- Mode stylo : main levée / ligne droite -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Stylo :"
+                    android:textSize="13sp"
+                    android:paddingEnd="6dp" />
+
+                <ImageButton
+                    android:id="@+id/btnPenFreehand"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:padding="6dp"
+                    android:contentDescription="Main levée"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@android:drawable/ic_menu_edit" />
+
+                <ImageButton
+                    android:id="@+id/btnPenLine"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:padding="6dp"
+                    android:contentDescription="Ligne droite"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@android:drawable/ic_menu_more" />
+            </LinearLayout>
+
+            <!-- Épaisseur du trait -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingTop="4dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Épaisseur :"
+                    android:textSize="13sp"
+                    android:paddingEnd="6dp" />
+
+                <SeekBar
+                    android:id="@+id/penThickness"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:max="30"
+                    android:progress="5" />
+            </LinearLayout>
+
+            <!-- Couleurs stylo (palette simple) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingTop="4dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Couleur :"
+                    android:textSize="13sp"
+                    android:paddingEnd="6dp" />
+
+                <ImageButton
+                    android:id="@+id/btnPenColorBlack"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:background="#000000"
+                    android:contentDescription="Noir" />
+
+                <Space android:layout_width="6dp" android:layout_height="1dp" />
+
+                <ImageButton
+                    android:id="@+id/btnPenColorRed"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:background="#D32F2F"
+                    android:contentDescription="Rouge" />
+
+                <Space android:layout_width="6dp" android:layout_height="1dp" />
+
+                <ImageButton
+                    android:id="@+id/btnPenColorBlue"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:background="#1976D2"
+                    android:contentDescription="Bleu" />
+
+                <Space android:layout_width="6dp" android:layout_height="1dp" />
+
+                <ImageButton
+                    android:id="@+id/btnPenColorGreen"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:background="#388E3C"
+                    android:contentDescription="Vert" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Sous-menu FORMES (replié par défaut) -->
+        <LinearLayout
+            android:id="@+id/shapeMenuPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone">
+
+            <!-- Choix de forme -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingTop="2dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Forme :"
+                    android:textSize="13sp"
+                    android:paddingEnd="6dp" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeRect"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Rectangle"
+                    android:src="@android:drawable/ic_menu_crop" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeRoundRect"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Rectangle arrondi"
+                    android:src="@android:drawable/ic_menu_crop" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeCircle"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Cercle"
+                    android:src="@android:drawable/ic_input_get" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeEllipse"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Ellipse"
+                    android:src="@android:drawable/ic_menu_gallery" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeTriangle"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Triangle"
+                    android:src="@android:drawable/ic_menu_sort_by_size" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeArrow"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Flèche"
+                    android:src="@android:drawable/ic_media_play" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeStar"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Étoile"
+                    android:src="@android:drawable/btn_star_big_on" />
+            </LinearLayout>
+
+            <!-- Remplissage (forme pleine) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingTop="4dp">
+
+                <CheckBox
+                    android:id="@+id/chkShapeFilled"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Forme remplie" />
+            </LinearLayout>
+
+            <!-- Couleurs formes (palette simple) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingTop="4dp"
+                android:paddingBottom="2dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Couleur :"
+                    android:textSize="13sp"
+                    android:paddingEnd="6dp" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeColorBlack"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:background="#000000"
+                    android:contentDescription="Noir" />
+
+                <Space android:layout_width="6dp" android:layout_height="1dp" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeColorRed"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:background="#D32F2F"
+                    android:contentDescription="Rouge" />
+
+                <Space android:layout_width="6dp" android:layout_height="1dp" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeColorBlue"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:background="#1976D2"
+                    android:contentDescription="Bleu" />
+
+                <Space android:layout_width="6dp" android:layout_height="1dp" />
+
+                <ImageButton
+                    android:id="@+id/btnShapeColorGreen"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:background="#388E3C"
+                    android:contentDescription="Vert" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Espace flexible au centre -->
+    <Space
+        android:layout_width="8dp"
+        android:layout_height="1dp" />
+
+    <!-- Groupe droit (validation) -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- Valider -->
+        <ImageButton
+            android:id="@+id/btnValidate"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="8dp"
+            android:contentDescription="Valider"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/checkbox_on_background" />
+
+        <!-- Annuler -->
+        <ImageButton
+            android:id="@+id/btnCancel"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="8dp"
+            android:contentDescription="Annuler"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_close_clear_cancel" />
+    </LinearLayout>
+
+</LinearLayout>

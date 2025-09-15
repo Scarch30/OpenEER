@@ -30,13 +30,13 @@ class NotesAdapter(
 
     override fun onBindViewHolder(h: VH, pos: Int) {
         val n = getItem(pos)
-
         h.b.titleOrBody.text =
-            n.title?.takeIf { it.isNotBlank() } ?: (n.body.ifBlank { "(audio)" }.take(80))
+            n.title?.takeIf { it.isNotBlank() }
+                ?: n.body.ifBlank { "(vide)" }.take(80)
 
         h.b.meta.text = n.formatMeta()
-
         h.b.iconReminder.visibility = View.GONE
+
         h.b.root.setOnClickListener { onClick(n) }
         h.b.root.setOnLongClickListener { onLongClick(n); true }
     }

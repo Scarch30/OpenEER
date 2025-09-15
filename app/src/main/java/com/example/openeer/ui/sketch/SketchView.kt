@@ -1,23 +1,17 @@
 package com.example.openeer.ui.sketch
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
-import android.graphics.RectF
-import android.net.Uri
+import android.graphics.*
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import java.io.File
-import java.io.FileOutputStream
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 
 class SketchView @JvmOverloads constructor(
@@ -25,170 +19,277 @@ class SketchView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    enum class Mode { PEN, LINE, RECT, CIRCLE, ARROW, ERASE }
+    enum class Mode { PEN, LINE, RECT, ROUND_RECT, CIRCLE, ELLIPSE, TRIANGLE, ARROW, STAR, ERASE }
 
     private var mode: Mode = Mode.PEN
-    private val actions = mutableListOf<Pair<Path, Paint>>()
-    private var tempPath: Path? = null
+    private var drawColor: Int = Color.BLACK
+    private var drawStroke: Float = 5f
+    private var fillShapes: Boolean = false
+
+    private data class Stroke(
+        val type: Mode,
+        val color: Int,
+        val width: Float,
+        val filled: Boolean = false,
+        val points: MutableList<PointF>? = null,
+        val sx: Float? = null,
+        val sy: Float? = null,
+        val ex: Float? = null,
+        val ey: Float? = null
+    )
+
+    private val strokes: MutableList<Stroke> = mutableListOf()
+    private val redoStack: MutableList<Stroke> = mutableListOf()
+    private var tempStroke: Stroke? = null
     private var startX = 0f
     private var startY = 0f
 
-    private val drawPaint = Paint().apply {
-        color = Color.BLACK
+    private val basePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5f
-        isAntiAlias = true
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
     }
-
-    private val erasePaint = Paint().apply {
+    private val erasePaintTemplate = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.TRANSPARENT
         style = Paint.Style.STROKE
-        strokeWidth = 20f
-        isAntiAlias = true
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
         xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
 
-    fun setMode(m: Mode) { mode = m }
+    fun setMode(m: Mode) { mode = m; invalidate() }
+    fun getMode(): Mode = mode
+    fun setColor(color: Int) { drawColor = color; invalidate() }
+    fun setStrokeWidth(px: Float) { drawStroke = max(1f, px); invalidate() }
+    fun setFilledShapes(filled: Boolean) { fillShapes = filled; invalidate() }
 
-    fun undo() {
-        if (actions.isNotEmpty()) {
-            actions.removeLast()
-            invalidate()
-        }
-    }
-
-    fun hasContent(): Boolean = actions.isNotEmpty()
+    fun undo() { if (strokes.isNotEmpty()) { redoStack.add(strokes.removeLast()); invalidate() } }
+    fun redo() { if (redoStack.isNotEmpty()) { strokes.add(redoStack.removeLast()); invalidate() } }
+    fun clear() { strokes.clear(); redoStack.clear(); tempStroke = null; invalidate() }
+    fun hasContent(): Boolean = strokes.isNotEmpty()
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        actions.forEach { (p, paint) -> canvas.drawPath(p, paint) }
-        tempPath?.let { path ->
-            val paint = if (mode == Mode.ERASE) erasePaint else drawPaint
-            canvas.drawPath(path, paint)
+        val checkpoint = canvas.saveLayer(0f, 0f, width.toFloat(), height.toFloat(), null)
+        try {
+            for (s in strokes) drawStroke(canvas, s)
+            tempStroke?.let { drawStroke(canvas, it, preview = true) }
+        } finally {
+            canvas.restoreToCount(checkpoint)
+        }
+    }
+
+    private fun drawStroke(canvas: Canvas, s: Stroke, preview: Boolean = false) {
+        val paint = when (s.type) {
+            Mode.ERASE -> erasePaintTemplate.apply { strokeWidth = s.width }
+            else -> Paint(basePaint).apply {
+                color = s.color
+                strokeWidth = s.width
+                style = if (isShapeMode(s.type) && s.filled) Paint.Style.FILL_AND_STROKE else Paint.Style.STROKE
+            }
+        }
+        val path = buildPathFromStroke(s)
+        canvas.drawPath(path, paint)
+    }
+
+    private fun buildPathFromStroke(s: Stroke): Path = when (s.type) {
+        Mode.PEN, Mode.ERASE -> Path().apply {
+            val pts = s.points
+            if (!pts.isNullOrEmpty()) {
+                moveTo(pts.first().x, pts.first().y)
+                for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+            }
+        }
+        Mode.LINE -> Path().apply {
+            moveTo(s.sx ?: 0f, s.sy ?: 0f); lineTo(s.ex ?: 0f, s.ey ?: 0f)
+        }
+        Mode.RECT, Mode.ROUND_RECT, Mode.CIRCLE, Mode.ELLIPSE, Mode.TRIANGLE, Mode.ARROW, Mode.STAR -> {
+            buildShapePath(s.type, s.sx ?: 0f, s.sy ?: 0f, s.ex ?: 0f, s.ey ?: 0f)
         }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // 🔒 empêcher TOUT ancêtre (dont le ScrollView) d’intercepter
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) disallowAllIntercepts()
+
         when (mode) {
-            Mode.PEN -> handlePen(event)
-            Mode.LINE -> handleLine(event)
-            Mode.RECT, Mode.CIRCLE, Mode.ARROW -> handleShape(event)
-            Mode.ERASE -> handleEraser(event)
+            Mode.PEN      -> handleFreehand(event, erase = false)
+            Mode.ERASE    -> handleFreehand(event, erase = true)
+            Mode.LINE     -> handleLine(event)
+            Mode.RECT, Mode.ROUND_RECT, Mode.CIRCLE, Mode.ELLIPSE, Mode.TRIANGLE, Mode.ARROW, Mode.STAR ->
+                handleShape(event)
         }
+
+        // re-sécuriser en fin de traitement (si le parent a relâché entre-temps)
+        disallowAllIntercepts()
         return true
     }
 
-    private fun handlePen(ev: MotionEvent) {
-        when (ev.action) {
-            MotionEvent.ACTION_DOWN -> {
-                tempPath = Path().apply { moveTo(ev.x, ev.y) }
-            }
-            MotionEvent.ACTION_MOVE -> tempPath?.lineTo(ev.x, ev.y)
-            MotionEvent.ACTION_UP -> {
-                tempPath?.lineTo(ev.x, ev.y)
-                tempPath?.let { actions += it to Paint(drawPaint) }
-                tempPath = null
-            }
+    /** Remonte toute la hiérarchie pour interdire l’interception (ScrollView, etc.). */
+    private fun disallowAllIntercepts() {
+        var p = parent
+        while (p != null) {
+            p.requestDisallowInterceptTouchEvent(true)
+            p = p.parent
         }
-        invalidate()
     }
 
-    private fun handleEraser(ev: MotionEvent) {
-        when (ev.action) {
+    private fun handleFreehand(ev: MotionEvent, erase: Boolean) {
+        when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                tempPath = Path().apply { moveTo(ev.x, ev.y) }
+                redoStack.clear()
+                tempStroke = Stroke(
+                    type = if (erase) Mode.ERASE else Mode.PEN,
+                    color = drawColor,
+                    width = if (erase) 20f else drawStroke,
+                    points = mutableListOf(PointF(ev.x, ev.y))
+                )
             }
-            MotionEvent.ACTION_MOVE -> tempPath?.lineTo(ev.x, ev.y)
-            MotionEvent.ACTION_UP -> {
-                tempPath?.lineTo(ev.x, ev.y)
-                tempPath?.let { actions += it to Paint(erasePaint) }
-                tempPath = null
+            MotionEvent.ACTION_MOVE -> tempStroke?.points?.add(PointF(ev.x, ev.y))
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                tempStroke?.points?.add(PointF(ev.x, ev.y))
+                tempStroke?.let { strokes += it }
+                tempStroke = null
             }
         }
         invalidate()
     }
 
     private fun handleLine(ev: MotionEvent) {
-        when (ev.action) {
+        when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                startX = ev.x
-                startY = ev.y
-                tempPath = Path().apply { moveTo(startX, startY) }
+                redoStack.clear()
+                startX = ev.x; startY = ev.y
+                tempStroke = Stroke(Mode.LINE, drawColor, drawStroke, sx = startX, sy = startY, ex = startX, ey = startY)
             }
-            MotionEvent.ACTION_MOVE -> {
-                tempPath = Path().apply {
-                    moveTo(startX, startY)
-                    lineTo(ev.x, ev.y)
-                }
-            }
-            MotionEvent.ACTION_UP -> {
-                tempPath = Path().apply {
-                    moveTo(startX, startY)
-                    lineTo(ev.x, ev.y)
-                }
-                tempPath?.let { actions += it to Paint(drawPaint) }
-                tempPath = null
+            MotionEvent.ACTION_MOVE -> tempStroke = tempStroke?.copy(ex = ev.x, ey = ev.y)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                tempStroke = tempStroke?.copy(ex = ev.x, ey = ev.y)
+                tempStroke?.let { strokes += it }
+                tempStroke = null
             }
         }
         invalidate()
     }
 
     private fun handleShape(ev: MotionEvent) {
-        when (ev.action) {
+        when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                startX = ev.x
-                startY = ev.y
-                tempPath = Path()
+                redoStack.clear()
+                startX = ev.x; startY = ev.y
+                tempStroke = Stroke(mode, drawColor, drawStroke, filled = fillShapes, sx = startX, sy = startY, ex = startX, ey = startY)
             }
-            MotionEvent.ACTION_MOVE -> {
-                tempPath = buildShapePath(startX, startY, ev.x, ev.y)
-            }
-            MotionEvent.ACTION_UP -> {
-                tempPath = buildShapePath(startX, startY, ev.x, ev.y)
-                tempPath?.let { actions += it to Paint(drawPaint) }
-                tempPath = null
+            MotionEvent.ACTION_MOVE -> tempStroke = tempStroke?.copy(ex = ev.x, ey = ev.y, filled = fillShapes)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                tempStroke = tempStroke?.copy(ex = ev.x, ey = ev.y, filled = fillShapes)
+                tempStroke?.let { strokes += it }
+                tempStroke = null
             }
         }
         invalidate()
     }
 
-    private fun buildShapePath(sx: Float, sy: Float, ex: Float, ey: Float): Path = when (mode) {
-        Mode.RECT -> Path().apply { addRect(sx, sy, ex, ey, Path.Direction.CW) }
-        Mode.CIRCLE -> Path().apply { addOval(RectF(sx, sy, ex, ey), Path.Direction.CW) }
-        Mode.ARROW -> Path().apply {
-            moveTo(sx, sy)
-            lineTo(ex, ey)
-            val angle = atan2((ey - sy), (ex - sx))
-            val len = 40f
-            lineTo(
-                (ex - len * cos(angle - PI / 6)).toFloat(),
-                (ey - len * sin(angle - PI / 6)).toFloat()
-            )
-            moveTo(ex, ey)
-            lineTo(
-                (ex - len * cos(angle + PI / 6)).toFloat(),
-                (ey - len * sin(angle + PI / 6)).toFloat()
-            )
-        }
-        else -> Path()
+    private fun isShapeMode(m: Mode): Boolean = when (m) {
+        Mode.RECT, Mode.ROUND_RECT, Mode.CIRCLE, Mode.ELLIPSE, Mode.TRIANGLE, Mode.ARROW, Mode.STAR -> true
+        else -> false
     }
 
-    /** Exporte le dessin actuel en Bitmap (utilisé par SketchEditorActivity) */
-    fun exportBitmap(): Bitmap {
-        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        draw(c)
-        return bmp
+    private fun buildShapePath(type: Mode, sx: Float, sy: Float, ex: Float, ey: Float): Path {
+        val left = min(sx, ex); val right = max(sx, ex)
+        val top = min(sy, ey);  val bottom = max(sy, ey)
+        val w = right - left;   val h = bottom - top
+        val rect = RectF(left, top, right, bottom)
+
+        return when (type) {
+            Mode.RECT -> Path().apply { addRect(rect, Path.Direction.CW) }
+            Mode.ROUND_RECT -> Path().apply { addRoundRect(rect, min(w, h) * 0.2f, min(w, h) * 0.2f, Path.Direction.CW) }
+            Mode.CIRCLE, Mode.ELLIPSE -> Path().apply { addOval(rect, Path.Direction.CW) }
+            Mode.TRIANGLE -> Path().apply {
+                moveTo((left + right) / 2f, top); lineTo(right, bottom); lineTo(left, bottom); close()
+            }
+            Mode.ARROW -> Path().apply {
+                moveTo(sx, sy); lineTo(ex, ey)
+                val angle = atan2((ey - sy), (ex - sx))
+                val len = 40f
+                val x1 = (ex - len * cos(angle - PI / 6)).toFloat()
+                val y1 = (ey - len * sin(angle - PI / 6)).toFloat()
+                val x2 = (ex - len * cos(angle + PI / 6)).toFloat()
+                val y2 = (ey - len * sin(angle + PI / 6)).toFloat()
+                moveTo(ex, ey); lineTo(x1, y1)
+                moveTo(ex, ey); lineTo(x2, y2)
+            }
+            Mode.STAR -> buildStarPath(rect)
+            else -> Path()
+        }
     }
 
-    /** Exporte et enregistre directement en PNG dans un dossier donné */
-    fun exportPngTo(dir: File): Uri {
-        val bmp = exportBitmap()
-        dir.mkdirs()
-        val file = File(dir, "sketch_${System.currentTimeMillis()}.png")
-        FileOutputStream(file).use { out ->
-            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+    private fun buildStarPath(rect: RectF): Path {
+        val cx = rect.centerX()
+        val cy = rect.centerY()
+        val outerR = min(rect.width(), rect.height()) / 2f
+        val innerR = outerR * 0.5f
+        val path = Path()
+        var angle = -PI / 2
+        val step = PI / 5
+        for (i in 0 until 10) {
+            val r = if (i % 2 == 0) outerR else innerR
+            val x = (cx + r * cos(angle)).toFloat()
+            val y = (cy + r * sin(angle)).toFloat()
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            angle += step
         }
-        return Uri.fromFile(file)
+        path.close()
+        return path
+    }
+
+    // ---- Persistance JSON (inchangé) ----
+    fun getStrokesJson(): String {
+        val arr = JSONArray()
+        for (s in strokes) {
+            val o = JSONObject()
+                .put("type", s.type.name)
+                .put("color", s.color)
+                .put("width", s.width)
+                .put("filled", s.filled)
+            if (s.points != null) {
+                val pts = JSONArray()
+                s.points.forEach { p -> pts.put(JSONObject().put("x", p.x).put("y", p.y)) }
+                o.put("points", pts)
+            } else {
+                o.put("sx", s.sx ?: 0f).put("sy", s.sy ?: 0f).put("ex", s.ex ?: 0f).put("ey", s.ey ?: 0f)
+            }
+            arr.put(o)
+        }
+        return arr.toString()
+    }
+
+    fun setStrokesJson(json: String) {
+        strokes.clear(); redoStack.clear(); tempStroke = null
+        try {
+            val arr = JSONArray(json)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val type = Mode.valueOf(o.getString("type"))
+                val color = o.optInt("color", Color.BLACK)
+                val width = o.optDouble("width", 5.0).toFloat()
+                val filled = o.optBoolean("filled", false)
+                if (o.has("points")) {
+                    val ptsArr = o.getJSONArray("points")
+                    val pts = mutableListOf<PointF>()
+                    for (j in 0 until ptsArr.length()) {
+                        val pj = ptsArr.getJSONObject(j)
+                        pts.add(PointF(pj.getDouble("x").toFloat(), pj.getDouble("y").toFloat()))
+                    }
+                    strokes.add(Stroke(type, color, width, false, pts))
+                } else {
+                    val sx = o.optDouble("sx", 0.0).toFloat()
+                    val sy = o.optDouble("sy", 0.0).toFloat()
+                    val ex = o.optDouble("ex", 0.0).toFloat()
+                    val ey = o.optDouble("ey", 0.0).toFloat()
+                    strokes.add(Stroke(type, color, width, filled, null, sx, sy, ex, ey))
+                }
+            }
+        } catch (_: Throwable) { /* ignore JSON invalide */ }
+        invalidate()
     }
 }

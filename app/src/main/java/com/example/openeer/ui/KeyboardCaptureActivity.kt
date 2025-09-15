@@ -19,7 +19,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 class KeyboardCaptureActivity : AppCompatActivity() {
 
@@ -90,7 +89,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
             }
         }
 
-        // ✅ Détection clavier universelle (pas d’insets, pas d’edge-to-edge)
+        // ✅ Détection clavier universelle
         binding.root.viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
 
         // ----- Outils de dessin -----
@@ -134,7 +133,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
 
     private fun saveAndFinish() {
         val text = binding.editText.text.toString()
-        val hasSketch = binding.sketchView.hasContent()
+
         lifecycleScope.launch {
             var nid = noteId
             withContext(Dispatchers.IO) {
@@ -145,15 +144,15 @@ class KeyboardCaptureActivity : AppCompatActivity() {
                 if (text.isNotBlank()) {
                     blockId?.let { repo.updateText(it, text) } ?: repo.appendText(nid, text)
                 }
-                if (hasSketch) {
-                    val uri = binding.sketchView.exportPngTo(File(filesDir, "sketches"))
-                    repo.appendSketch(nid, uri.toString())
-                }
+
+                // ⛔️ Pas d’export PNG ici. Le calque dessin sera géré en vectoriel (strokes)
+                // et persistant plus tard côté MainActivity/NotePanel via SketchView JSON.
             }
             val data = Intent().apply {
                 putExtra("noteId", nid)
                 putExtra("addedText", text.isNotBlank())
-                putExtra("addedSketch", hasSketch)
+                // On ne renvoie pas de croquis ajouté tant que la persistance n’est pas branchée ici.
+                putExtra("addedSketch", false)
             }
             setResult(RESULT_OK, data)
             finish()
