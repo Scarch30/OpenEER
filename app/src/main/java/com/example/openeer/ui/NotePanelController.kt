@@ -1,8 +1,12 @@
 package com.example.openeer.ui
 
 import android.content.Intent
+import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -17,10 +21,14 @@ import com.bumptech.glide.Glide
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.block.BlockEntity
+import com.example.openeer.data.block.BlockType
+import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.formatMeta
 import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -51,6 +59,15 @@ class NotePanelController(
     /** Dernière note rendue (pour lecture audio, etc.) */
     private var currentNote: Note? = null
 
+    private val blocksRepo: BlocksRepository by lazy {
+        val db = AppDatabase.get(activity)
+        BlocksRepository(db.blockDao(), db.noteDao())
+    }
+
+    private var blocksJob: Job? = null
+    private val blockViews = mutableMapOf<Long, View>()
+    private var pendingHighlightBlockId: Long? = null
+
     // Bandeau de pièces jointes
     private val attachmentAdapter = AttachmentsAdapter(
         onClick = { path ->
@@ -65,6 +82,11 @@ class NotePanelController(
         openNoteId = noteId
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
+
+        binding.childBlocksContainer.removeAllViews()
+        binding.childBlocksContainer.isGone = true
+        blockViews.clear()
+        pendingHighlightBlockId = null
 
         // Bandeau PJ horizontales
         binding.attachmentsStrip.layoutManager =
@@ -92,6 +114,15 @@ class NotePanelController(
             }
         }
 
+        blocksJob?.cancel()
+        blocksJob = activity.lifecycleScope.launch {
+            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                blocksRepo.observeBlocks(noteId).collectLatest { blocks ->
+                    renderBlocks(blocks)
+                }
+            }
+        }
+
         // Interactions locales
         binding.btnBack.setOnClickListener { close() }
         binding.txtTitleDetail.setOnClickListener { promptEditTitle() }
@@ -105,6 +136,12 @@ class NotePanelController(
         currentNote = null
         binding.notePanel.isGone = true
         binding.recycler.isVisible = true
+        blocksJob?.cancel()
+        blocksJob = null
+        blockViews.clear()
+        pendingHighlightBlockId = null
+        binding.childBlocksContainer.removeAllViews()
+        binding.childBlocksContainer.isGone = true
         // Option : arrêter lecture si en cours
         SimplePlayer.stop {
             binding.btnPlayDetail.text = "Lecture"
@@ -126,6 +163,139 @@ class NotePanelController(
         activity.lifecycleScope.launch(Dispatchers.IO) {
             repo.setBody(nid, newText)
         }
+    }
+
+    fun highlightBlock(blockId: Long) {
+        if (openNoteId == null) return
+        pendingHighlightBlockId = blockId
+        if (!tryHighlightBlock(blockId)) {
+            // Le bloc sera mis en évidence lors du prochain rendu des enfants.
+        }
+    }
+
+    private fun renderBlocks(blocks: List<BlockEntity>) {
+        val container = binding.childBlocksContainer
+        if (blocks.isEmpty()) {
+            container.isGone = true
+            container.removeAllViews()
+            blockViews.clear()
+            return
+        }
+
+        container.isVisible = true
+        container.removeAllViews()
+        blockViews.clear()
+        val margin = (8 * container.resources.displayMetrics.density).toInt()
+
+        blocks.forEach { block ->
+            val view = when (block.type) {
+                BlockType.TEXT -> createTextBlockView(block, margin)
+                BlockType.SKETCH, BlockType.PHOTO -> createImageBlockView(block, margin)
+                else -> createUnsupportedBlockView(block, margin)
+            }
+            container.addView(view)
+            blockViews[block.id] = view
+        }
+
+        pendingHighlightBlockId?.let { tryHighlightBlock(it) }
+    }
+
+    private fun createTextBlockView(block: BlockEntity, margin: Int): View {
+        val ctx = binding.root.context
+        val padding = (16 * ctx.resources.displayMetrics.density).toInt()
+        return MaterialCardView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, margin, 0, margin) }
+            radius = 20f
+            cardElevation = 6f
+            useCompatPadding = true
+            tag = block.id
+            addView(TextView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                text = block.text?.trim().orEmpty()
+                textSize = 16f
+                setPadding(padding, padding, padding, padding)
+            })
+        }
+    }
+
+    private fun createImageBlockView(block: BlockEntity, margin: Int): View {
+        val ctx = binding.root.context
+        val image = ImageView(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            contentDescription = block.type.name
+        }
+        val uri = block.mediaUri
+        if (!uri.isNullOrBlank()) {
+            Glide.with(image).load(uri).into(image)
+        } else {
+            image.setImageResource(android.R.drawable.ic_menu_report_image)
+            image.scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }
+
+        return MaterialCardView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, margin, 0, margin) }
+            radius = 20f
+            cardElevation = 6f
+            useCompatPadding = true
+            tag = block.id
+            addView(image)
+        }
+    }
+
+    private fun createUnsupportedBlockView(block: BlockEntity, margin: Int): View {
+        val ctx = binding.root.context
+        val padding = (16 * ctx.resources.displayMetrics.density).toInt()
+        return MaterialCardView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, margin, 0, margin) }
+            radius = 20f
+            cardElevation = 6f
+            useCompatPadding = true
+            tag = block.id
+            addView(TextView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                text = block.type.name
+                setPadding(padding, padding, padding, padding)
+            })
+        }
+    }
+
+    private fun tryHighlightBlock(blockId: Long): Boolean {
+        val view = blockViews[blockId] ?: return false
+        binding.scrollBody.post {
+            val density = view.resources.displayMetrics.density
+            val offset = (16 * density).toInt()
+            val targetY = (view.top - offset).coerceAtLeast(0)
+            binding.scrollBody.smoothScrollTo(0, targetY)
+            flashView(view)
+        }
+        pendingHighlightBlockId = null
+        return true
+    }
+
+    private fun flashView(view: View) {
+        view.animate().cancel()
+        view.alpha = 0.5f
+        view.animate().alpha(1f).setDuration(350L).start()
     }
 
     // ---- Internes ----
