@@ -1,3 +1,12 @@
 package com.example.openeer.data.block
 
-enum class BlockType { TEXT, PHOTO, VIDEO, AUDIO, SKETCH, LOCATION, ROUTE, FILE }
+enum class BlockType {
+    TEXT,
+    SKETCH,
+    PHOTO,
+    VIDEO,
+    AUDIO,
+    LOCATION,
+    ROUTE,
+    FILE
+}
