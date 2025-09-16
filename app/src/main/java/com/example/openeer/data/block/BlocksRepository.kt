@@ -198,6 +198,14 @@ class BlocksRepository(
         return id
     }
 
+    suspend fun createSketchBlock(
+        noteId: Long,
+        mediaUri: String,
+        width: Int? = null,
+        height: Int? = null,
+        mimeType: String = "image/png"
+    ): Long = appendSketchImage(noteId, mediaUri, width, height, mimeType)
+
     // Back-compat: conserver l’ancien nom si tu l’appelles déjà ainsi
     @Deprecated("Use appendSketchImage() or appendSketchVector() explicitly")
     suspend fun appendSketch(
