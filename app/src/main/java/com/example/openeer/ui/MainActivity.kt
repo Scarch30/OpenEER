@@ -15,7 +15,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
-import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -28,8 +27,6 @@ import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.editor.EditorBodyController
-import com.example.openeer.ui.sketch.SketchView
-import com.example.openeer.ui.util.matchHeightTo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -121,16 +118,6 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
 
-    // Références barre d’outils dessin (XML)
-    private val sketchToolbar by lazy { findViewById<LinearLayout>(R.id.sketchToolbar) }
-    private val btnPenMenu by lazy { findViewById<ImageButton>(R.id.btnPenMenu) }
-    private val btnShapeMenu by lazy { findViewById<ImageButton>(R.id.btnShapeMenu) }
-    private val btnErase by lazy { findViewById<ImageButton>(R.id.btnErase) }
-    private val btnUndo by lazy { findViewById<ImageButton>(R.id.btnUndo) }
-    private val btnRedo by lazy { findViewById<ImageButton>(R.id.btnRedo) }
-    private val btnValidate by lazy { findViewById<ImageButton>(R.id.btnValidate) }
-    private val btnCancel by lazy { findViewById<ImageButton>(R.id.btnCancel) }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tempPhotoPath = savedInstanceState?.getString("tempPhotoPath")
@@ -203,11 +190,7 @@ class MainActivity : AppCompatActivity() {
         editorBody = EditorBodyController(
             activity = this,
             binding = b,
-            repo = repo,
-            onEditModeChanged = { editing ->
-                if (editing) showBodyEditingUi() else hideBodyEditingUi()
-            },
-            onActiveBodyViewChanged = { view -> adjustSketchHeightTo(view) }
+            repo = repo
         )
 
         // Boutons barre du bas
@@ -229,63 +212,6 @@ class MainActivity : AppCompatActivity() {
             editorBody.enterInlineEdit(notePanel.openNoteId)
         }
 
-        // Câblage barre outils dessin
-        wireSketchToolbar()
-    }
-
-    // ---------- UI édition ----------
-    private fun showBodyEditingUi() {
-        sketchToolbar?.isVisible = true
-        b.sketchOverlay.isVisible = true
-        b.txtBodyDetail.isVisible = false
-        b.btnMicBar.isVisible = false
-        b.bottomBar.isVisible = false
-        b.btnPlayDetail.isVisible = false
-        b.liveTranscriptionBar.isVisible = false
-        b.attachmentsStrip.isVisible = false
-        b.sketchOverlay.bringToFront()
-    }
-
-    private fun hideBodyEditingUi() {
-        sketchToolbar?.isVisible = false
-        b.sketchOverlay.isVisible = false
-        b.txtBodyDetail.isVisible = true
-        b.btnMicBar.isVisible = true
-        b.bottomBar.isVisible = true
-        b.btnPlayDetail.isVisible = true
-        b.attachmentsStrip.isVisible =
-            b.attachmentsStrip.adapter?.itemCount?.let { it > 0 } == true
-    }
-
-    // ---------- Barre d’outils dessin ----------
-    private fun wireSketchToolbar() {
-        val toolbar = sketchToolbar ?: return
-
-        btnPenMenu?.setOnClickListener {
-            b.sketchOverlay.setMode(SketchView.Mode.PEN)
-            Toast.makeText(this, "Stylo", Toast.LENGTH_SHORT).show()
-        }
-        btnShapeMenu?.setOnClickListener {
-            val next = when (b.sketchOverlay.getMode()) {
-                SketchView.Mode.RECT -> SketchView.Mode.CIRCLE
-                SketchView.Mode.CIRCLE -> SketchView.Mode.ARROW
-                else -> SketchView.Mode.RECT
-            }
-            b.sketchOverlay.setMode(next)
-            Toast.makeText(this, "Forme: $next", Toast.LENGTH_SHORT).show()
-        }
-        btnErase?.setOnClickListener {
-            b.sketchOverlay.setMode(SketchView.Mode.ERASE)
-            Toast.makeText(this, "Gomme", Toast.LENGTH_SHORT).show()
-        }
-        btnUndo?.setOnClickListener { b.sketchOverlay.undo() }
-        btnRedo?.setOnClickListener { b.sketchOverlay.redo() }
-        btnValidate?.setOnClickListener {
-            editorBody.commitInlineEdit(notePanel.openNoteId)
-        }
-        btnCancel?.setOnClickListener { editorBody.cancelInlineEdit() }
-
-        toolbar.isVisible = false
     }
 
     // ---------- Photo ----------
@@ -337,7 +263,6 @@ class MainActivity : AppCompatActivity() {
     // ---------- Ouvrir une note ----------
     private fun onNoteClicked(note: Note) {
         notePanel.open(note.id)
-        b.sketchOverlay.post { b.sketchOverlay.matchHeightTo(b.txtBodyDetail) }
     }
 
     // ---------- Titre rapide ----------
@@ -380,15 +305,6 @@ class MainActivity : AppCompatActivity() {
         return newId
     }
 
-    /** Aligne le calque sur la vue “active” (EditText en édition, sinon TextView). */
-    private fun adjustSketchHeightTo(target: View) {
-        val h = maxOf(target.height, target.measuredHeight)
-        if (h > 0) {
-            b.sketchOverlay.matchHeightTo(target)
-        } else {
-            b.sketchOverlay.post { b.sketchOverlay.matchHeightTo(target) }
-        }
-    }
 }
 
 class NotesVm(private val repo: NoteRepository) : ViewModel() {
