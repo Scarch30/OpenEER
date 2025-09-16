@@ -101,7 +101,7 @@ val BlockEntity.placeName: String?
 val BlockEntity.routeJson: String?
     get() = extras().routeJson
 
-fun BlockEntity.updateExtras(transform: BlockExtras.() -> BlockExtras): BlockEntity =
+internal fun BlockEntity.updateExtras(transform: BlockExtras.() -> BlockExtras): BlockEntity =
     withExtras(extras().update(transform))
 
 fun buildExtras(
