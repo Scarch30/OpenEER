@@ -3,10 +3,10 @@ package com.example.openeer.ui.editor
 import android.content.Context
 import android.graphics.Rect
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
-import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.data.NoteRepository
@@ -101,7 +101,7 @@ class EditorBodyController(
         val overlay = editOverlay
         if (overlay != null) {
             hideIme(overlay)
-            (binding.noteBodyContainer as? FrameLayout)?.removeView(overlay)
+            (binding.noteBodyContainer as? ViewGroup)?.removeView(overlay)
             editOverlay = null
         }
         editingNoteId = null
@@ -112,10 +112,20 @@ class EditorBodyController(
     private fun createOverlay(): EditText {
         val overlay = EditText(activity).apply {
             id = View.generateViewId()
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            )
+            layoutParams = ViewGroup.MarginLayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                val originalLp = binding.txtBodyDetail.layoutParams
+                if (originalLp is ViewGroup.MarginLayoutParams) {
+                    setMargins(
+                        originalLp.leftMargin,
+                        originalLp.topMargin,
+                        originalLp.rightMargin,
+                        originalLp.bottomMargin
+                    )
+                }
+            }
             setPadding(
                 binding.txtBodyDetail.paddingLeft,
                 binding.txtBodyDetail.paddingTop,
@@ -135,7 +145,12 @@ class EditorBodyController(
                 }
             }
         }
-        (binding.noteBodyContainer as? FrameLayout)?.addView(overlay, 0)
+        val container = binding.noteBodyContainer as? ViewGroup
+        if (container != null) {
+            val textIndex = container.indexOfChild(binding.txtBodyDetail)
+            val insertIndex = if (textIndex >= 0) textIndex + 1 else container.childCount
+            container.addView(overlay, insertIndex)
+        }
         editOverlay = overlay
         return overlay
     }
@@ -143,6 +158,8 @@ class EditorBodyController(
     private fun updateEditUi(active: Boolean) {
         if (editUiActive == active) return
         editUiActive = active
+        binding.txtBodyDetail.visibility = if (active) View.GONE else View.VISIBLE
+        editOverlay?.visibility = if (active) View.VISIBLE else View.GONE
         onEditModeChanged(active)
     }
 

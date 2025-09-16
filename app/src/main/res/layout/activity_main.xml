@@ -73,7 +73,7 @@
                 android:focusable="true" />
         </LinearLayout>
 
-        <!-- Corps défilant avec superposition texte + dessin -->
+        <!-- Corps défilant -->
         <ScrollView
             android:id="@+id/scrollBody"
             android:layout_width="match_parent"
@@ -81,8 +81,9 @@
             android:layout_weight="1"
             android:fillViewport="true">
 
-            <FrameLayout
+            <LinearLayout
                 android:id="@+id/noteBodyContainer"
+                android:orientation="vertical"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -95,24 +96,8 @@
                     android:layout_height="wrap_content"
                     android:padding="8dp" />
 
-                <!-- Calque dessin -->
-                <com.example.openeer.ui.sketch.SketchView
-    android:id="@+id/sketchOverlay"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:background="@android:color/transparent"
-    android:clickable="true"
-    android:minHeight="48dp"
-    android:focusable="false" />
-
-            </FrameLayout>
+            </LinearLayout>
         </ScrollView>
-
-        <!-- ⬇️ barre d’outils dessin (inclus, masquée par défaut dans son propre layout) -->
-        <include
-            layout="@layout/view_sketch_toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
 
         <!-- Bouton Lecture audio -->
         <Button
