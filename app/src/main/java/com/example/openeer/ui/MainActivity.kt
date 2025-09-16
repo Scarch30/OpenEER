@@ -1,42 +1,38 @@
 package com.example.openeer.ui
 
 import android.Manifest
-import android.app.Activity
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.view.*
-import android.widget.*
-import androidx.activity.result.PickVisualMediaRequest
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
+import android.widget.EditText
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
-import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.example.openeer.ui.capture.SketchCaptureActivity
-import com.example.openeer.R
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.ui.capture.CaptureLauncher
 import com.example.openeer.ui.editor.EditorBodyController
-import com.google.android.material.snackbar.Snackbar
+import com.example.openeer.ui.util.configureSystemInsets
+import com.example.openeer.ui.util.snackbar
+import com.example.openeer.ui.util.toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -70,77 +66,14 @@ class MainActivity : AppCompatActivity() {
 
     // Contrôleurs
     private lateinit var notePanel: NotePanelController
+    private lateinit var captureLauncher: CaptureLauncher
     private lateinit var micCtl: MicBarController
     private lateinit var editorBody: EditorBodyController
-
-    // Photo
-    private var tempPhotoPath: String? = null
-    private val takePhotoLauncher = registerForActivityResult(
-        ActivityResultContracts.TakePicture()
-    ) { ok ->
-        val path = tempPhotoPath
-        val nid = notePanel.openNoteId
-        if (ok && path != null && nid != null) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                repo.addPhoto(nid, path)
-                blocksRepo.appendPhoto(nid, path, mimeType = "image/*")
-            }
-        } else if (path != null) {
-            File(path).delete()
-        }
-        tempPhotoPath = null
-    }
-
-    private val pickPhotoLauncher =
-        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            val nid = notePanel.openNoteId ?: return@registerForActivityResult
-            if (uri != null) {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    val dir = File(filesDir, "images").apply { mkdirs() }
-                    val dest = File(dir, "img_${System.currentTimeMillis()}.jpg")
-                    contentResolver.openInputStream(uri)?.use { input ->
-                        dest.outputStream().use { input.copyTo(it) }
-                    }
-                    repo.addPhoto(nid, dest.absolutePath)
-                    blocksRepo.appendPhoto(nid, dest.absolutePath, mimeType = "image/*")
-                }
-            }
-        }
-
-    private val keyboardCaptureLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
-            val data = result.data ?: return@registerForActivityResult
-            val noteId = data.getLongExtra(KeyboardCaptureActivity.EXTRA_NOTE_ID, -1L)
-                .takeIf { it > 0 } ?: notePanel.openNoteId ?: return@registerForActivityResult
-            val added = data.getBooleanExtra("addedText", false)
-            if (!added) return@registerForActivityResult
-            val blockId = data.getLongExtra(KeyboardCaptureActivity.EXTRA_BLOCK_ID, -1L)
-                .takeIf { it > 0 }
-            onChildBlockSaved(noteId, blockId, "Post-it texte ajouté")
-        }
-
-    private val sketchCaptureLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
-            val data = result.data ?: return@registerForActivityResult
-            val noteId = data.getLongExtra(SketchCaptureActivity.EXTRA_NOTE_ID, -1L)
-                .takeIf { it > 0 } ?: notePanel.openNoteId ?: return@registerForActivityResult
-            val blockId = data.getLongExtra(SketchCaptureActivity.EXTRA_BLOCK_ID, -1L)
-                .takeIf { it > 0 } ?: return@registerForActivityResult
-            onChildBlockSaved(noteId, blockId, "Post-it dessin ajouté")
-        }
-
-    private val readMediaPermLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) openGallery()
-            else Toast.makeText(this, "Permission galerie refusée", Toast.LENGTH_LONG).show()
-        }
 
     // Permissions micro
     private val recordPermLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-            if (!ok) Toast.makeText(this, "Permission micro refusée", Toast.LENGTH_LONG).show()
+            if (!ok) toast("Permission micro refusée", Toast.LENGTH_LONG)
         }
 
     private fun hasRecordPerm(): Boolean =
@@ -149,8 +82,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        tempPhotoPath = savedInstanceState?.getString("tempPhotoPath")
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        configureSystemInsets(true)
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
 
@@ -163,6 +95,15 @@ class MainActivity : AppCompatActivity() {
 
         // Note panel
         notePanel = NotePanelController(this, b)
+
+        captureLauncher = CaptureLauncher(
+            activity = this,
+            notePanel = notePanel,
+            repo = repo,
+            blocksRepo = blocksRepo,
+            onChildBlockSaved = ::onChildBlockSaved
+        )
+        captureLauncher.onCreate(savedInstanceState)
 
         // Mic controller
         micCtl = MicBarController(
@@ -188,7 +129,7 @@ class MainActivity : AppCompatActivity() {
                             val newId = withContext(Dispatchers.IO) {
                                 repo.createTextNote("(transcription en cours…)")
                             }
-                            Toast.makeText(this@MainActivity, "Note créée (#$newId)", Toast.LENGTH_SHORT).show()
+                            this@MainActivity.toast("Note créée (#$newId)")
                             notePanel.open(newId)
                             lifecycleScope.launch(Dispatchers.IO) {
                                 val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
@@ -226,19 +167,13 @@ class MainActivity : AppCompatActivity() {
         b.btnKeyboard.setOnClickListener {
             lifecycleScope.launch {
                 val nid = ensureOpenNote()
-                val intent = Intent(this@MainActivity, KeyboardCaptureActivity::class.java).apply {
-                    putExtra(KeyboardCaptureActivity.EXTRA_NOTE_ID, nid)
-                }
-                keyboardCaptureLauncher.launch(intent)
+                captureLauncher.launchKeyboardCapture(nid)
             }
         }
         b.btnPhoto.setOnClickListener {
             lifecycleScope.launch {
                 val nid = ensureOpenNote()
-                val intent = Intent(this@MainActivity, SketchCaptureActivity::class.java).apply {
-                    putExtra(SketchCaptureActivity.EXTRA_NOTE_ID, nid)
-                }
-                sketchCaptureLauncher.launch(intent)
+                captureLauncher.launchSketchCapture(nid)
             }
         }
 
@@ -249,45 +184,9 @@ class MainActivity : AppCompatActivity() {
 
     }
 
-    // ---------- Photo ----------
-    private fun showPhotoSheet() {
-        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
-        val list = ListView(this)
-        val opts = listOf("Prendre une photo", "Depuis la galerie")
-        list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, opts)
-        list.setOnItemClickListener { _, _, pos, _ ->
-            when (pos) {
-                0 -> openCamera()
-                1 -> openGallery()
-            }
-            sheet.dismiss()
-        }
-        sheet.setContentView(list)
-        sheet.show()
-    }
-
-    private fun openCamera() {
-        val nid = notePanel.openNoteId ?: return
-        val dir = File(filesDir, "images").apply { mkdirs() }
-        val file = File(dir, "cap_${System.currentTimeMillis()}.jpg")
-        tempPhotoPath = file.absolutePath
-        val uri: Uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        takePhotoLauncher.launch(uri)
-    }
-
-    private fun openGallery() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            readMediaPermLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
-            return
-        }
-        pickPhotoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-    }
-
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putString("tempPhotoPath", tempPhotoPath)
+        captureLauncher.onSaveInstanceState(outState)
     }
 
     override fun onPause() {
@@ -322,7 +221,7 @@ class MainActivity : AppCompatActivity() {
     private suspend fun ensureOpenNote(): Long {
         notePanel.openNoteId?.let { return it }
         val newId = withContext(Dispatchers.IO) { repo.createTextNote("(transcription en cours…)") }
-        Toast.makeText(this@MainActivity, "Note créée (#$newId)", Toast.LENGTH_SHORT).show()
+        this@MainActivity.toast("Note créée (#$newId)")
         notePanel.open(newId)
         lifecycleScope.launch(Dispatchers.IO) {
             val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
@@ -349,7 +248,7 @@ class MainActivity : AppCompatActivity() {
                 notePanel.open(noteId)
             }
             blockId?.let { notePanel.highlightBlock(it) }
-            Snackbar.make(b.root, message, Snackbar.LENGTH_SHORT).show()
+            b.root.snackbar(message)
         }
     }
 
