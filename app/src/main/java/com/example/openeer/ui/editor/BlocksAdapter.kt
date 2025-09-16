@@ -14,7 +14,6 @@ import com.bumptech.glide.Glide
 import com.example.openeer.R
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
-import com.example.openeer.data.block.durationMs
 
 class BlocksAdapter(
     private val onTextCommit: (Long, String) -> Unit,
@@ -94,7 +93,7 @@ class BlocksAdapter(
     inner class PhotoHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val img: ImageView = view.findViewById(R.id.img)
         fun bind(block: BlockEntity) {
-            Glide.with(img).load(block.mediaPath).into(img)
+            Glide.with(img).load(block.mediaUri).into(img)
         }
     }
 
