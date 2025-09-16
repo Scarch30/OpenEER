@@ -137,6 +137,13 @@ class CaptureLauncher(
         sketchCaptureLauncher.launch(intent)
     }
 
+    fun launchPhotoCapture(noteId: Long) {
+        if (notePanel.openNoteId != noteId) {
+            notePanel.open(noteId)
+        }
+        showPhotoSheet()
+    }
+
     fun launchTakePhoto() {
         openCamera()
     }
