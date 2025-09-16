@@ -173,6 +173,12 @@ class MainActivity : AppCompatActivity() {
         b.btnPhoto.setOnClickListener {
             lifecycleScope.launch {
                 val nid = ensureOpenNote()
+                captureLauncher.launchPhotoCapture(nid)
+            }
+        }
+        b.btnLibrary.setOnClickListener {
+            lifecycleScope.launch {
+                val nid = ensureOpenNote()
                 captureLauncher.launchSketchCapture(nid)
             }
         }
