@@ -36,10 +36,7 @@ class BlocksRepository(
             createdAt = now,
             updatedAt = now
         )
-        val id = insert(noteId, block)
-        // ➕ MAJ aperçu pour la liste (sans remplacer la logique blocs côté détail)
-        noteDao?.updateBody(noteId, text.take(300), now)
-        return id
+        return insert(noteId, block)
     }
 
     suspend fun createTextBlock(noteId: Long): Long {
@@ -116,10 +113,7 @@ class BlocksRepository(
             createdAt = now,
             updatedAt = now
         )
-        val id = insert(noteId, block)
-        // ➕ idem : garder un aperçu exploitable dans la liste
-        noteDao?.updateBody(noteId, text.take(300), now)
-        return id
+        return insert(noteId, block)
     }
 
     suspend fun appendLocation(
@@ -187,15 +181,7 @@ class BlocksRepository(
             createdAt = now,
             updatedAt = now
         )
-        val id = insert(noteId, block)
-        // Optionnel : si aucune preview n’existe encore, mettre un libellé
-        noteDao?.let { dao ->
-            val current = dao.getByIdOnce(noteId)
-            if (current != null && current.body.isBlank()) {
-                dao.updateBody(noteId, "[Croquis]", now)
-            }
-        }
-        return id
+        return insert(noteId, block)
     }
 
     suspend fun createSketchBlock(
@@ -237,14 +223,7 @@ class BlocksRepository(
             createdAt = now,
             updatedAt = now
         )
-        val id = insert(noteId, block)
-        noteDao?.let { dao ->
-            val current = dao.getByIdOnce(noteId)
-            if (current != null && current.body.isBlank()) {
-                dao.updateBody(noteId, "[Croquis]", now)
-            }
-        }
-        return id
+        return insert(noteId, block)
     }
 
     suspend fun updateSketchVector(
