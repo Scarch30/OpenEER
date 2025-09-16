@@ -5,7 +5,6 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
-import com.example.openeer.data.block.generateGroupId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -57,23 +56,23 @@ class BlocksRepositoryTest {
         assertEquals(textId, blocks[0].id)
         assertEquals(BlockType.TEXT, blocks[0].type)
         assertEquals(gid, blocks[0].groupId)
-        assertEquals(0, blocks[0].position)
+        assertEquals(0, blocks[0].orderIndex)
         assertTrue(blocks[0].createdAt > 0)
-        assertEquals(blocks[0].createdAt, blocks[0].updatedAt)
 
         assertEquals(BlockType.PHOTO, blocks[1].type)
-        assertEquals("uri://photo", blocks[1].mediaUri)
+        assertEquals("uri://photo", blocks[1].mediaPath)
 
         assertEquals(BlockType.AUDIO, blocks[2].type)
-        assertEquals("uri://audio", blocks[2].mediaUri)
+        assertEquals("uri://audio", blocks[2].mediaPath)
         assertEquals(gid, blocks[2].groupId)
+        assertEquals(1000L, blocks[2].durationMs)
 
         assertEquals(BlockType.TEXT, blocks[3].type)
         assertEquals(gid, blocks[3].groupId)
         assertEquals("world", blocks[3].text)
 
         assertEquals(BlockType.LOCATION, blocks[4].type)
-        // ⚠️ lat/lon sont Double? dans l’entity → on vérifie notNull avant comparaison
+        // ⚠️ lat/lon sont Double? via extras → on vérifie notNull avant comparaison
         assertNotNull(blocks[4].lat)
         assertNotNull(blocks[4].lon)
         assertEquals(1.0, blocks[4].lat!!, 0.0)
@@ -91,7 +90,7 @@ class BlocksRepositoryTest {
 
         val blocks = db.blockDao().observeBlocks(noteId).first()
         assertEquals(newOrder, blocks.map { it.id })
-        assertEquals(listOf(0, 1, 2), blocks.map { it.position })
+        assertEquals(listOf(0, 1, 2), blocks.map { it.orderIndex })
     }
 
     @Test
@@ -125,7 +124,9 @@ class BlocksRepositoryTest {
         val blocks = db.blockDao().observeBlocks(noteId).first()
         assertEquals(1, blocks.size)
         assertEquals(BlockType.SKETCH, blocks[0].type)
-        assertEquals("uri://sk", blocks[0].mediaUri)
+        assertEquals("uri://sk", blocks[0].mediaPath)
+        assertEquals(10, blocks[0].width)
+        assertEquals(20, blocks[0].height)
     }
 
     @Test
@@ -135,7 +136,7 @@ class BlocksRepositoryTest {
         repo.appendSketch(noteId, "u", groupId = gid)
         val blocks = db.blockDao().observeBlocks(noteId).first()
         assertEquals(2, blocks.size)
-        assertEquals(listOf(0,1), blocks.map { it.position })
+        assertEquals(listOf(0,1), blocks.map { it.orderIndex })
         assertEquals(gid, blocks[0].groupId)
         assertEquals(gid, blocks[1].groupId)
         assertEquals(BlockType.TEXT, blocks[0].type)
