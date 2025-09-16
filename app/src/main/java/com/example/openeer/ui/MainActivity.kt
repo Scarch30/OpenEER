@@ -1,6 +1,7 @@
 package com.example.openeer.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -19,6 +20,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.openeer.ui.capture.SketchCaptureActivity
 import com.example.openeer.R
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.data.AppDatabase
@@ -27,8 +29,11 @@ import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.editor.EditorBodyController
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -100,6 +105,30 @@ class MainActivity : AppCompatActivity() {
                     blocksRepo.appendPhoto(nid, dest.absolutePath, mimeType = "image/*")
                 }
             }
+        }
+
+    private val keyboardCaptureLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+            val data = result.data ?: return@registerForActivityResult
+            val noteId = data.getLongExtra(KeyboardCaptureActivity.EXTRA_NOTE_ID, -1L)
+                .takeIf { it > 0 } ?: notePanel.openNoteId ?: return@registerForActivityResult
+            val added = data.getBooleanExtra("addedText", false)
+            if (!added) return@registerForActivityResult
+            val blockId = data.getLongExtra(KeyboardCaptureActivity.EXTRA_BLOCK_ID, -1L)
+                .takeIf { it > 0 }
+            onChildBlockSaved(noteId, blockId, "Post-it texte ajouté")
+        }
+
+    private val sketchCaptureLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+            val data = result.data ?: return@registerForActivityResult
+            val noteId = data.getLongExtra(SketchCaptureActivity.EXTRA_NOTE_ID, -1L)
+                .takeIf { it > 0 } ?: notePanel.openNoteId ?: return@registerForActivityResult
+            val blockId = data.getLongExtra(SketchCaptureActivity.EXTRA_BLOCK_ID, -1L)
+                .takeIf { it > 0 } ?: return@registerForActivityResult
+            onChildBlockSaved(noteId, blockId, "Post-it dessin ajouté")
         }
 
     private val readMediaPermLauncher =
@@ -197,13 +226,19 @@ class MainActivity : AppCompatActivity() {
         b.btnKeyboard.setOnClickListener {
             lifecycleScope.launch {
                 val nid = ensureOpenNote()
-                editorBody.enterInlineEdit(nid)
+                val intent = Intent(this@MainActivity, KeyboardCaptureActivity::class.java).apply {
+                    putExtra(KeyboardCaptureActivity.EXTRA_NOTE_ID, nid)
+                }
+                keyboardCaptureLauncher.launch(intent)
             }
         }
         b.btnPhoto.setOnClickListener {
             lifecycleScope.launch {
-                ensureOpenNote()
-                showPhotoSheet()
+                val nid = ensureOpenNote()
+                val intent = Intent(this@MainActivity, SketchCaptureActivity::class.java).apply {
+                    putExtra(SketchCaptureActivity.EXTRA_NOTE_ID, nid)
+                }
+                sketchCaptureLauncher.launch(intent)
             }
         }
 
@@ -303,6 +338,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return newId
+    }
+
+    private fun onChildBlockSaved(noteId: Long, blockId: Long?, message: String) {
+        lifecycleScope.launch {
+            if (blockId != null) {
+                awaitBlock(noteId, blockId)
+            }
+            if (notePanel.openNoteId != noteId) {
+                notePanel.open(noteId)
+            }
+            blockId?.let { notePanel.highlightBlock(it) }
+            Snackbar.make(b.root, message, Snackbar.LENGTH_SHORT).show()
+        }
+    }
+
+    private suspend fun awaitBlock(noteId: Long, blockId: Long) {
+        withContext(Dispatchers.IO) {
+            blocksRepo.observeBlocks(noteId)
+                .filter { blocks -> blocks.any { it.id == blockId } }
+                .first()
+        }
     }
 
 }
