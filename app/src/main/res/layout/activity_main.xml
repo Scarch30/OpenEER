@@ -96,6 +96,16 @@
                     android:layout_height="wrap_content"
                     android:padding="8dp" />
 
+                <LinearLayout
+                    android:id="@+id/childBlocksContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp"
+                    android:visibility="gone"
+                    android:animateLayoutChanges="true" />
+
             </LinearLayout>
         </ScrollView>
 

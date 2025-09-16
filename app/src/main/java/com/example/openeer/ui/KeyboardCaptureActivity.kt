@@ -136,20 +136,33 @@ class KeyboardCaptureActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             var nid = noteId
+            var savedBlockId: Long? = null
             withContext(Dispatchers.IO) {
                 if (nid == -1L) {
                     nid = repo.ensureNoteWithInitialText()
                     noteId = nid
                 }
                 if (text.isNotBlank()) {
-                    blockId?.let { repo.updateText(it, text) } ?: repo.appendText(nid, text)
+                    savedBlockId = if (blockId != null) {
+                        val existing = blockId!!
+                        repo.updateText(existing, text)
+                        existing
+                    } else {
+                        repo.appendText(nid, text)
+                    }
+                    blockId = savedBlockId
                 }
 
                 // ⛔️ Pas d’export PNG ici. Le calque dessin sera géré en vectoriel (strokes)
                 // et persistant plus tard côté MainActivity/NotePanel via SketchView JSON.
             }
             val data = Intent().apply {
+                putExtra(EXTRA_NOTE_ID, nid)
                 putExtra("noteId", nid)
+                val blockResult = savedBlockId ?: blockId
+                if (blockResult != null && blockResult > 0) {
+                    putExtra(EXTRA_BLOCK_ID, blockResult)
+                }
                 putExtra("addedText", text.isNotBlank())
                 // On ne renvoie pas de croquis ajouté tant que la persistance n’est pas branchée ici.
                 putExtra("addedSketch", false)
