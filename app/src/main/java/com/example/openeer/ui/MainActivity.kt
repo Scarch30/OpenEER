@@ -3,12 +3,9 @@ package com.example.openeer.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.view.*
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.widget.*
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +27,7 @@ import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.ui.editor.EditorBodyController
 import com.example.openeer.ui.sketch.SketchView
 import com.example.openeer.ui.util.matchHeightTo
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     // Contrôleurs
     private lateinit var notePanel: NotePanelController
     private lateinit var micCtl: MicBarController
+    private lateinit var editorBody: EditorBodyController
 
     // Photo
     private var tempPhotoPath: String? = null
@@ -121,10 +120,6 @@ class MainActivity : AppCompatActivity() {
     private fun hasRecordPerm(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
-
-    // --- Édition inline ---
-    private var editOverlay: EditText? = null
-    private var keyboardVisible = false
 
     // Références barre d’outils dessin (XML)
     private val sketchToolbar by lazy { findViewById<LinearLayout>(R.id.sketchToolbar) }
@@ -205,11 +200,21 @@ class MainActivity : AppCompatActivity() {
             true
         }
 
+        editorBody = EditorBodyController(
+            activity = this,
+            binding = b,
+            repo = repo,
+            onEditModeChanged = { editing ->
+                if (editing) showBodyEditingUi() else hideBodyEditingUi()
+            },
+            onActiveBodyViewChanged = { view -> adjustSketchHeightTo(view) }
+        )
+
         // Boutons barre du bas
         b.btnKeyboard.setOnClickListener {
             lifecycleScope.launch {
                 val nid = ensureOpenNote()
-                enterInlineEdit(nid)
+                editorBody.enterInlineEdit(nid)
             }
         }
         b.btnPhoto.setOnClickListener {
@@ -221,23 +226,7 @@ class MainActivity : AppCompatActivity() {
 
         // Clic sur le corps = édition inline
         b.txtBodyDetail.setOnClickListener {
-            val nid = notePanel.openNoteId ?: return@setOnClickListener
-            enterInlineEdit(nid)
-        }
-
-        // Détection clavier + alignement calque
-        b.root.viewTreeObserver.addOnGlobalLayoutListener {
-            val r = Rect()
-            b.root.getWindowVisibleDisplayFrame(r)
-            val screenHeight = b.root.rootView.height
-            val keypadHeight = screenHeight - r.bottom
-            val visible = keypadHeight > screenHeight * 0.15
-            if (visible != keyboardVisible) {
-                keyboardVisible = visible
-                if (visible) enterEditUi() else exitEditUi()
-            }
-            // Aligner sur la vue active (overlay si présent, sinon le TextView)
-            adjustSketchHeightToActive()
+            editorBody.enterInlineEdit(notePanel.openNoteId)
         }
 
         // Câblage barre outils dessin
@@ -245,7 +234,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------- UI édition ----------
-    private fun enterEditUi() {
+    private fun showBodyEditingUi() {
         sketchToolbar?.isVisible = true
         b.sketchOverlay.isVisible = true
         b.txtBodyDetail.isVisible = false
@@ -257,7 +246,7 @@ class MainActivity : AppCompatActivity() {
         b.sketchOverlay.bringToFront()
     }
 
-    private fun exitEditUi() {
+    private fun hideBodyEditingUi() {
         sketchToolbar?.isVisible = false
         b.sketchOverlay.isVisible = false
         b.txtBodyDetail.isVisible = true
@@ -292,14 +281,9 @@ class MainActivity : AppCompatActivity() {
         btnUndo?.setOnClickListener { b.sketchOverlay.undo() }
         btnRedo?.setOnClickListener { b.sketchOverlay.redo() }
         btnValidate?.setOnClickListener {
-            val nid = notePanel.openNoteId
-            if (nid != null && editOverlay != null) {
-                commitInlineEdit(nid)
-            } else {
-                exitEditUi()
-            }
+            editorBody.commitInlineEdit(notePanel.openNoteId)
         }
-        btnCancel?.setOnClickListener { cancelInlineEdit() }
+        btnCancel?.setOnClickListener { editorBody.cancelInlineEdit() }
 
         toolbar.isVisible = false
     }
@@ -345,74 +329,9 @@ class MainActivity : AppCompatActivity() {
         outState.putString("tempPhotoPath", tempPhotoPath)
     }
 
-    // ---------- MODE ÉDITION INLINE ----------
-    private fun enterInlineEdit(noteId: Long) {
-        if (editOverlay == null) {
-            val et = EditText(this).apply {
-                id = View.generateViewId()
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT
-                )
-                val currentDisplayed = b.txtBodyDetail.text?.toString().orEmpty()
-                setText(if (currentDisplayed.trim() == "(transcription en cours…)") "" else currentDisplayed)
-                setPadding(
-                    b.txtBodyDetail.paddingLeft,
-                    b.txtBodyDetail.paddingTop,
-                    b.txtBodyDetail.paddingRight,
-                    b.txtBodyDetail.paddingBottom
-                )
-                textSize = b.txtBodyDetail.textSize / resources.displayMetrics.scaledDensity
-                setBackgroundColor(0x00000000)
-                isSingleLine = false
-                imeOptions = EditorInfo.IME_ACTION_DONE
-                setOnEditorActionListener { _, actionId, _ ->
-                    if (actionId == EditorInfo.IME_ACTION_DONE) {
-                        notePanel.openNoteId?.let { commitInlineEdit(it) }
-                        true
-                    } else false
-                }
-            }
-            (b.noteBodyContainer as FrameLayout).addView(et, 0)
-            editOverlay = et
-        } else {
-            val currentDisplayed = b.txtBodyDetail.text?.toString().orEmpty()
-            editOverlay?.setText(
-                if (currentDisplayed.trim() == "(transcription en cours…)") "" else currentDisplayed
-            )
-        }
-
-        editOverlay?.post {
-            editOverlay?.requestFocus()
-            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(editOverlay, InputMethodManager.SHOW_IMPLICIT)
-        }
-        enterEditUi()
-        adjustSketchHeightToActive()
-        b.scrollBody.requestDisallowInterceptTouchEvent(true)
-    }
-
-    private fun commitInlineEdit(noteId: Long) {
-        val newText = editOverlay?.text?.toString().orEmpty()
-        b.txtBodyDetail.text = if (newText.isBlank()) "(transcription en cours…)" else newText
-        lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(noteId, newText)
-        }
-        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.hideSoftInputFromWindow(editOverlay?.windowToken, 0)
-        (b.noteBodyContainer as FrameLayout).removeView(editOverlay)
-        editOverlay = null
-        exitEditUi()
-        b.sketchOverlay.post { b.sketchOverlay.matchHeightTo(b.txtBodyDetail) }
-    }
-
-    private fun cancelInlineEdit() {
-        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.hideSoftInputFromWindow(editOverlay?.windowToken, 0)
-        (b.noteBodyContainer as FrameLayout).removeView(editOverlay)
-        editOverlay = null
-        exitEditUi()
-        b.sketchOverlay.post { b.sketchOverlay.matchHeightTo(b.txtBodyDetail) }
+    override fun onPause() {
+        super.onPause()
+        editorBody.commitInlineEdit(notePanel.openNoteId)
     }
 
     // ---------- Ouvrir une note ----------
@@ -462,13 +381,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Aligne le calque sur la vue “active” (EditText en édition, sinon TextView). */
-    private fun adjustSketchHeightToActive() {
-        val target: View = editOverlay ?: b.txtBodyDetail
+    private fun adjustSketchHeightTo(target: View) {
         val h = maxOf(target.height, target.measuredHeight)
         if (h > 0) {
             b.sketchOverlay.matchHeightTo(target)
         } else {
-            // Si la vue n’est pas encore mesurée, re-tenter au prochain frame
             b.sketchOverlay.post { b.sketchOverlay.matchHeightTo(target) }
         }
     }
