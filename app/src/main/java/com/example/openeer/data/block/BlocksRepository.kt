@@ -8,8 +8,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-private const val PREVIEW_MAX = 300
-
 fun generateGroupId(): String = UUID.randomUUID().toString()
 
 class BlocksRepository(
@@ -23,79 +21,82 @@ class BlocksRepository(
     private suspend fun insert(noteId: Long, template: BlockEntity): Long =
         withContext(io) { blockDao.insertAtEnd(noteId, template) }
 
-    private suspend fun updatePreview(noteId: Long, preview: String) {
-        val dao = noteDao ?: return
-        val now = System.currentTimeMillis()
-        withContext(io) { dao.updateBody(noteId, preview.take(PREVIEW_MAX), now) }
-    }
-
     suspend fun appendText(
         noteId: Long,
         text: String,
         groupId: String? = null
     ): Long {
+        val now = System.currentTimeMillis()
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.TEXT,
+            position = 0,
+            groupId = groupId,
             text = text,
-            orderIndex = 0,
-            extra = buildExtras(groupId = groupId)
+            createdAt = now,
+            updatedAt = now
         )
         val id = insert(noteId, block)
-        updatePreview(noteId, text)
+        // ➕ MAJ aperçu pour la liste (sans remplacer la logique blocs côté détail)
+        noteDao?.updateBody(noteId, text.take(300), now)
         return id
     }
 
     suspend fun createTextBlock(noteId: Long): Long {
+        val now = System.currentTimeMillis()
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.TEXT,
+            position = 0,
             text = "",
-            orderIndex = 0
+            createdAt = now,
+            updatedAt = now
         )
         return insert(noteId, block)
     }
 
     suspend fun appendPhoto(
         noteId: Long,
-        mediaPath: String,
+        mediaUri: String,
         width: Int? = null,
         height: Int? = null,
         mimeType: String? = "image/*",
         groupId: String? = null
     ): Long {
+        val now = System.currentTimeMillis()
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.PHOTO,
-            mediaPath = mediaPath,
-            orderIndex = 0,
-            extra = buildExtras(
-                mimeType = mimeType,
-                width = width,
-                height = height,
-                groupId = groupId
-            )
+            position = 0,
+            groupId = groupId,
+            mediaUri = mediaUri,
+            mimeType = mimeType,
+            width = width,
+            height = height,
+            createdAt = now,
+            updatedAt = now
         )
         return insert(noteId, block)
     }
 
     suspend fun appendAudio(
         noteId: Long,
-        mediaPath: String,
+        mediaUri: String,
         durationMs: Long?,
         mimeType: String? = "audio/*",
         groupId: String = generateGroupId()
     ): Long {
+        val now = System.currentTimeMillis()
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.AUDIO,
-            mediaPath = mediaPath,
-            orderIndex = 0,
-            extra = buildExtras(
-                mimeType = mimeType,
-                durationMs = durationMs,
-                groupId = groupId
-            )
+            position = 0,
+            groupId = groupId,
+            mediaUri = mediaUri,
+            mimeType = mimeType,
+            durationMs = durationMs,
+            createdAt = now,
+            updatedAt = now
         )
         return insert(noteId, block)
     }
@@ -105,15 +106,19 @@ class BlocksRepository(
         text: String,
         groupId: String
     ): Long {
+        val now = System.currentTimeMillis()
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.TEXT,
+            position = 0,
+            groupId = groupId,
             text = text,
-            orderIndex = 0,
-            extra = buildExtras(groupId = groupId)
+            createdAt = now,
+            updatedAt = now
         )
         val id = insert(noteId, block)
-        updatePreview(noteId, text)
+        // ➕ idem : garder un aperçu exploitable dans la liste
+        noteDao?.updateBody(noteId, text.take(300), now)
         return id
     }
 
@@ -123,20 +128,21 @@ class BlocksRepository(
         lon: Double,
         placeName: String? = null
     ): Long {
+        val now = System.currentTimeMillis()
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.LOCATION,
-            text = null,
-            orderIndex = 0,
-            extra = buildExtras(
-                lat = lat,
-                lon = lon,
-                placeName = placeName
-            )
+            position = 0,
+            lat = lat,
+            lon = lon,
+            placeName = placeName,
+            createdAt = now,
+            updatedAt = now
         )
         return insert(noteId, block)
     }
 
+    // ⚠️ FIX: on délègue au DAO (double passe avec positions temporaires uniques)
     suspend fun reorder(noteId: Long, orderedBlockIds: List<Long>) {
         withContext(io) {
             blockDao.reorder(noteId, orderedBlockIds)
@@ -146,70 +152,90 @@ class BlocksRepository(
     suspend fun updateText(blockId: Long, text: String) {
         withContext(io) {
             val current = blockDao.getById(blockId) ?: return@withContext
-            blockDao.update(current.copy(text = text))
+            val now = System.currentTimeMillis()
+            blockDao.update(current.copy(text = text, updatedAt = now))
+            // on laisse Note.body inchangé ici (c’est juste un aperçu)
         }
     }
 
     /**
      * --- CROQUIS / DESSIN ---
      * Deux variantes :
-     *  - appendSketchImage(...) : stocker un PNG/JPG (mediaPath + mimeType)
-     *  - appendSketchVector(...) : stocker le JSON vectoriel dans 'extra'
+     *  - appendSketchImage(...) : stocker un PNG/JPG (mediaUri + mimeType)
+     *  - appendSketchVector(...) : stocker le JSON vectoriel dans 'extra' (mimeType=application/json)
      */
 
+    // 1) Image (PNG/JPG)
     suspend fun appendSketchImage(
         noteId: Long,
-        mediaPath: String,
+        mediaUri: String,
         width: Int? = null,
         height: Int? = null,
         mimeType: String = "image/png",
         groupId: String? = null
     ): Long {
+        val now = System.currentTimeMillis()
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.SKETCH,
-            mediaPath = mediaPath,
-            orderIndex = 0,
-            extra = buildExtras(
-                mimeType = mimeType,
-                width = width,
-                height = height,
-                groupId = groupId
-            )
+            position = 0,
+            groupId = groupId,
+            mediaUri = mediaUri,
+            mimeType = mimeType,
+            width = width,
+            height = height,
+            createdAt = now,
+            updatedAt = now
         )
         val id = insert(noteId, block)
-        maybeSetSketchPreview(noteId)
+        // Optionnel : si aucune preview n’existe encore, mettre un libellé
+        noteDao?.let { dao ->
+            val current = dao.getByIdOnce(noteId)
+            if (current != null && current.body.isBlank()) {
+                dao.updateBody(noteId, "[Croquis]", now)
+            }
+        }
         return id
     }
 
+    // Back-compat: conserver l’ancien nom si tu l’appelles déjà ainsi
     @Deprecated("Use appendSketchImage() or appendSketchVector() explicitly")
     suspend fun appendSketch(
         noteId: Long,
-        mediaPath: String,
+        mediaUri: String,
         width: Int? = null,
         height: Int? = null,
         mimeType: String = "image/png",
         groupId: String? = null
-    ): Long = appendSketchImage(noteId, mediaPath, width, height, mimeType, groupId)
+    ): Long = appendSketchImage(noteId, mediaUri, width, height, mimeType, groupId)
 
+    // 2) Vectoriel (JSON dans 'extra')
     suspend fun appendSketchVector(
         noteId: Long,
         strokesJson: String,
         groupId: String? = null
     ): Long {
+        val now = System.currentTimeMillis()
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.SKETCH,
-            mediaPath = null,
-            orderIndex = 0,
-            extra = buildExtras(
-                payload = strokesJson,
-                mimeType = "application/json",
-                groupId = groupId
-            )
+            position = 0,
+            groupId = groupId,
+            mediaUri = null,
+            mimeType = "application/json",
+            width = null,
+            height = null,
+            extra = strokesJson,
+            createdAt = now,
+            updatedAt = now
         )
         val id = insert(noteId, block)
-        maybeSetSketchPreview(noteId)
+        noteDao?.let { dao ->
+            val current = dao.getByIdOnce(noteId)
+            if (current != null && current.body.isBlank()) {
+                dao.updateBody(noteId, "[Croquis]", now)
+            }
+        }
         return id
     }
 
@@ -219,11 +245,15 @@ class BlocksRepository(
     ) {
         withContext(io) {
             val current = blockDao.getById(blockId) ?: return@withContext
+            val now = System.currentTimeMillis()
             if (current.type == BlockType.SKETCH) {
-                val updated = current.updateExtras {
-                    copy(payload = strokesJson, mimeType = "application/json")
-                }
-                blockDao.update(updated)
+                blockDao.update(
+                    current.copy(
+                        extra = strokesJson,
+                        mimeType = "application/json",
+                        updatedAt = now
+                    )
+                )
             }
         }
     }
@@ -235,15 +265,5 @@ class BlocksRepository(
             appendText(noteId, initial)
         }
         return noteId
-    }
-
-    private suspend fun maybeSetSketchPreview(noteId: Long) {
-        val dao = noteDao ?: return
-        withContext(io) {
-            val current = dao.getByIdOnce(noteId)
-            if (current != null && current.body.isNullOrBlank()) {
-                dao.updateBody(noteId, "[Croquis]", System.currentTimeMillis())
-            }
-        }
     }
 }

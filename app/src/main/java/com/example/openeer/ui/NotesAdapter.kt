@@ -30,10 +30,9 @@ class NotesAdapter(
 
     override fun onBindViewHolder(h: VH, pos: Int) {
         val n = getItem(pos)
-        val preview = n.title?.takeIf { it.isNotBlank() }
-            ?: n.body?.takeIf { it.isNotBlank() }?.take(80)
-            ?: "(vide)"
-        h.b.titleOrBody.text = preview
+        h.b.titleOrBody.text =
+            n.title?.takeIf { it.isNotBlank() }
+                ?: n.body.ifBlank { "(vide)" }.take(80)
 
         h.b.meta.text = n.formatMeta()
         h.b.iconReminder.visibility = View.GONE

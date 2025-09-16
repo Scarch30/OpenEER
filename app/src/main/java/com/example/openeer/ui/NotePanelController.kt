@@ -140,7 +140,7 @@ class NotePanelController(
         binding.txtTitleDetail.text = title
 
         // Corps
-        val bodyShown = note.body?.takeIf { it.isNotBlank() } ?: "(transcription en cours…)"
+        val bodyShown = note.body.ifBlank { "(transcription en cours…)" }
         binding.txtBodyDetail.text = bodyShown
 
         // Méta
