@@ -222,6 +222,25 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
         <LinearLayout
+            android:id="@+id/btnSketch"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent">
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_tool_pen"
+                android:contentDescription="Dessin" />
+            <TextView
+                android:text="Dessin"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+        <LinearLayout
             android:id="@+id/btnLibrary"
             android:orientation="vertical"
             android:gravity="center"
@@ -235,6 +254,25 @@
                 android:contentDescription="Bibliothèque" />
             <TextView
                 android:text="Bibliothèque"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/btnMap"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent">
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_dialog_map"
+                android:contentDescription="Carte" />
+            <TextView
+                android:text="Carte"
                 android:textSize="12sp"
                 android:layout_marginTop="4dp"
                 android:layout_width="wrap_content"

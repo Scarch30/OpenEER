@@ -176,11 +176,19 @@ class MainActivity : AppCompatActivity() {
                 captureLauncher.launchPhotoCapture(nid)
             }
         }
-        b.btnLibrary.setOnClickListener {
+        b.btnSketch.setOnClickListener {
             lifecycleScope.launch {
                 val nid = ensureOpenNote()
                 captureLauncher.launchSketchCapture(nid)
             }
+        }
+        b.btnLibrary.setOnClickListener {
+            editorBody.commitInlineEdit(notePanel.openNoteId)
+            notePanel.close()
+            b.recycler.post { b.recycler.requestFocus() }
+        }
+        b.btnMap.setOnClickListener {
+            b.root.snackbar("Carte/Itinéraire — bientôt disponible")
         }
 
         // Clic sur le corps = édition inline
