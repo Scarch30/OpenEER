@@ -14,4 +14,12 @@
     <external-cache-path
         name="images_external_cache"
         path="images/" />
+
+    <!-- Enregistrements audio (wav) -->
+    <files-path
+        name="recordings_files"
+        path="recordings/" />
+    <external-files-path
+        name="recordings_external"
+        path="recordings/" />
 </paths>
