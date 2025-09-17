@@ -171,8 +171,17 @@ class MainActivity : AppCompatActivity() {
         // Boutons barre du bas
         b.btnKeyboard.setOnClickListener {
             lifecycleScope.launch {
-                ensureOpenNote()
-                editorBody.enterInlineEdit(notePanel.openNoteId)
+                val nid = ensureOpenNote()
+                if (notePanel.openNoteId != nid) {
+                    notePanel.open(nid)
+                }
+                // Lire le body réel avant d'ouvrir l'éditeur pour éviter l'ancien texte
+                val body = withContext(Dispatchers.IO) {
+                    repo.note(nid).first()?.body.orEmpty()
+                }
+                b.txtBodyDetail.text = if (body.isBlank()) "(transcription en cours…)" else body
+                // Entrer en édition après mise à jour UI
+                b.root.post { editorBody.enterInlineEdit(nid) }
             }
         }
         b.btnPhoto.setOnClickListener {
@@ -196,11 +205,20 @@ class MainActivity : AppCompatActivity() {
             b.root.snackbar("Carte/Itinéraire — bientôt disponible")
         }
 
-        // Clic sur le corps = édition inline
+        // Clic sur le corps = édition inline (sécurisée)
         b.txtBodyDetail.setOnClickListener {
-            editorBody.enterInlineEdit(notePanel.openNoteId)
+            lifecycleScope.launch {
+                val nid = ensureOpenNote()
+                if (notePanel.openNoteId != nid) {
+                    notePanel.open(nid)
+                }
+                val body = withContext(Dispatchers.IO) {
+                    repo.note(nid).first()?.body.orEmpty()
+                }
+                b.txtBodyDetail.text = if (body.isBlank()) "(transcription en cours…)" else body
+                b.root.post { editorBody.enterInlineEdit(nid) }
+            }
         }
-
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -278,7 +296,6 @@ class MainActivity : AppCompatActivity() {
                 .first()
         }
     }
-
 }
 
 class NotesVm(private val repo: NoteRepository) : ViewModel() {

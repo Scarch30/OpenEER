@@ -50,10 +50,10 @@ import java.util.concurrent.TimeUnit
 /**
  * Contrôle l'affichage de la "note ouverte" dans MainActivity (panel en haut de la liste).
  * - Observe la note + pièces jointes
- * - Met à jour le titre, corps, méta, bouton lecture
+ * - Met à jour le titre, corps, méta
  * - Expose open()/close()
  *
- * L’édition inline (clavier + dessin) est gérée par MainActivity.
+ * L’édition inline (clavier) est gérée par MainActivity.
  */
 class NotePanelController(
     private val activity: AppCompatActivity,
@@ -69,7 +69,7 @@ class NotePanelController(
     var openNoteId: Long? = null
         private set
 
-    /** Dernière note rendue (pour lecture audio, etc.) */
+    /** Dernière note rendue (pour partage, etc.) */
     private var currentNote: Note? = null
 
     private val blocksRepo: BlocksRepository by lazy {
@@ -115,6 +115,7 @@ class NotePanelController(
             }
         }
 
+        // Observe les blocs
         blocksJob?.cancel()
         blocksJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -127,7 +128,6 @@ class NotePanelController(
         // Interactions locales
         binding.btnBack.setOnClickListener { close() }
         binding.txtTitleDetail.setOnClickListener { promptEditTitle() }
-        binding.btnPlayDetail.setOnClickListener { togglePlay() }
         // ⚠️ L’édition du corps (tap sur txtBodyDetail) est gérée dans MainActivity (inline edit).
     }
 
@@ -137,6 +137,11 @@ class NotePanelController(
         currentNote = null
         binding.notePanel.isGone = true
         binding.recycler.isVisible = true
+
+        // RAZ visuelle pour éviter que le prochain "enterInlineEdit" lise l'ancien texte
+        binding.txtBodyDetail.text = "(transcription en cours…)"
+        binding.noteMetaFooter.isGone = true
+
         blocksJob?.cancel()
         blocksJob = null
         blockViews.clear()
@@ -145,10 +150,9 @@ class NotePanelController(
         binding.childBlocksContainer.isGone = true
         mediaAdapter.submitList(emptyList())
         binding.mediaStrip.isGone = true
-        // Option : arrêter lecture si en cours
-        SimplePlayer.stop {
-            binding.btnPlayDetail.text = "Lecture"
-        }
+
+        // Stopper toute lecture éventuelle (plus d'UI à mettre à jour ici)
+        SimplePlayer.stop { }
     }
 
     /** Affiche du texte "live" (transcription en cours) — pas d’écriture DB ici. */
@@ -193,7 +197,8 @@ class NotePanelController(
 
         blocks.forEach { block ->
             val view = when (block.type) {
-                BlockType.TEXT -> createTextBlockView(block, margin)
+                // On n’affiche plus les blocs TEXT : tout le texte vit dans Note.body
+                BlockType.TEXT -> null
                 BlockType.SKETCH, BlockType.PHOTO -> createImageBlockView(block, margin)
                 BlockType.VIDEO, BlockType.ROUTE, BlockType.FILE -> createUnsupportedBlockView(block, margin)
                 BlockType.AUDIO, BlockType.LOCATION -> null
@@ -227,6 +232,7 @@ class NotePanelController(
         binding.mediaStrip.isGone = items.isEmpty()
     }
 
+    // (la fabrique de “rectangle texte” reste ici au besoin, mais n’est plus utilisée)
     private fun createTextBlockView(block: BlockEntity, margin: Int): View {
         val ctx = binding.root.context
         val padding = (16 * ctx.resources.displayMetrics.density).toInt()
@@ -497,38 +503,7 @@ class NotePanelController(
             binding.noteMetaFooter.isVisible = true
             binding.noteMetaFooter.text = meta
         }
-
-        // Bouton Lecture
-        val path = note.audioPath
-        val playable = !path.isNullOrBlank() && File(path).exists()
-        binding.btnPlayDetail.isEnabled = playable
-        binding.btnPlayDetail.text = "Lecture"
-    }
-
-    private fun togglePlay() {
-        val n = currentNote ?: return
-        val path = n.audioPath
-        if (path.isNullOrBlank() || !File(path).exists()) {
-            Toast.makeText(activity, "Pas de fichier audio.", Toast.LENGTH_SHORT).show()
-            binding.btnPlayDetail.isEnabled = false
-            return
-        }
-        SimplePlayer.play(
-            ctx = activity,
-            path = path,
-            onStart = {
-                binding.btnPlayDetail.text = "Pause"
-                Toast.makeText(activity, "Lecture…", Toast.LENGTH_SHORT).show()
-            },
-            onStop = {
-                binding.btnPlayDetail.text = "Lecture"
-                Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show()
-            },
-            onError = { e ->
-                binding.btnPlayDetail.text = "Lecture"
-                Toast.makeText(activity, "Lecture impossible : ${e.message}", Toast.LENGTH_LONG).show()
-            }
-        )
+        // Plus de gestion de bouton Lecture ici (supprimé).
     }
 
     private fun promptEditTitle() {

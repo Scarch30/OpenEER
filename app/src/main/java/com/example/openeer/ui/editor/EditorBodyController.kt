@@ -173,7 +173,8 @@ class EditorBodyController(
             if (visible != keyboardVisible) {
                 keyboardVisible = visible
                 if (!visible) {
-                    exitEditUi()
+                    // Clavier fermé → commit du texte au lieu d’un simple exit (qui faisait “disparaître” l’affichage)
+                    commitInlineEdit(editingNoteId)
                 } else if (editOverlay != null) {
                     updateEditUi(true)
                 }
