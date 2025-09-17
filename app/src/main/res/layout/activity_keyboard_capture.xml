@@ -6,8 +6,6 @@
     android:background="#333333"
     android:clipToPadding="false">
 
-    
-    <!-- Saisie texte : occupe tout l’écran, reste visible pendant le dessin -->
     <EditText
         android:id="@+id/editText"
         android:layout_width="match_parent"
@@ -19,83 +17,5 @@
         android:padding="12dp"
         android:textColor="@android:color/white"
         android:textSize="18sp" />
-
-<!-- Zone de dessin, cachée tant qu’on ne touche pas aux outils -->
-    <com.example.openeer.ui.sketch.SketchView
-        android:id="@+id/sketchView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@android:color/transparent"
-        android:visibility="gone" />
-
-    <!-- Barre d’outils dessin : ancrée en bas ; visible seulement quand l’IME est ouvert -->
-    <!-- Couleur de debug pour la repérer (#CC9C27FF). Tu pourras l'enlever plus tard. -->
-    <LinearLayout
-        android:id="@+id/drawToolbar"
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:layout_gravity="bottom"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:elevation="12dp"
-        android:background="#CC9C27FF"
-        android:visibility="gone">
-
-        <ImageButton
-            android:id="@+id/btnToolPen"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Stylo"
-            android:src="@drawable/ic_tool_pen" />
-
-        <ImageButton
-            android:id="@+id/btnToolShape"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Formes"
-            android:src="@drawable/ic_tool_shapes" />
-
-        <ImageButton
-            android:id="@+id/btnToolEraser"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Gomme"
-            android:src="@drawable/ic_tool_eraser" />
-
-        <ImageButton
-            android:id="@+id/btnToolUndo"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Annuler"
-            android:src="@drawable/ic_tool_undo" />
-
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
-
-        <ImageButton
-            android:id="@+id/btnValidate"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Valider"
-            android:src="@drawable/ic_check" />
-
-        <ImageButton
-            android:id="@+id/btnClose"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Fermer"
-            android:src="@drawable/ic_close" />
-
-    </LinearLayout>
 
 </FrameLayout>
