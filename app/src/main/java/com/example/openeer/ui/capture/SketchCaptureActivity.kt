@@ -2,6 +2,7 @@ package com.example.openeer.ui.capture
 
 import android.content.ContentValues
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -11,15 +12,20 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.isGone
+import androidx.appcompat.widget.AppCompatImageButton
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivitySketchCaptureBinding
+import com.example.openeer.ui.sketch.HsvColorPickerDialog
 import com.example.openeer.ui.sketch.SketchView
 import java.io.File
 import java.io.FileOutputStream
@@ -27,6 +33,7 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 class SketchCaptureActivity : AppCompatActivity() {
 
@@ -34,6 +41,8 @@ class SketchCaptureActivity : AppCompatActivity() {
         const val EXTRA_NOTE_ID = "EXTRA_NOTE_ID"
         const val EXTRA_BLOCK_ID = "EXTRA_BLOCK_ID"
     }
+
+    private enum class Tool { PEN, SHAPES, ERASER }
 
     private lateinit var binding: ActivitySketchCaptureBinding
 
@@ -43,7 +52,27 @@ class SketchCaptureActivity : AppCompatActivity() {
     }
 
     private var noteId: Long? = null
-    private var currentColor: Int = Color.BLACK
+    private var activeTool: Tool = Tool.PEN
+    private var selectedShapeMode: SketchView.Mode = SketchView.Mode.RECT
+    private var shapeFilled: Boolean = false
+
+    private var penColor: Int = Color.BLACK
+    private var shapeColor: Int = Color.BLACK
+
+    private var penStrokeWidth: Float = 6f
+    private var shapeStrokeWidth: Float = 8f
+    private var eraserStrokeWidth: Float = 12f
+
+    private val colorPresets = intArrayOf(
+        Color.parseColor("#000000"),
+        Color.parseColor("#FFFFFF"),
+        Color.parseColor("#D32F2F"),
+        Color.parseColor("#F57C00"),
+        Color.parseColor("#FBC02D"),
+        Color.parseColor("#388E3C"),
+        Color.parseColor("#1976D2"),
+        Color.parseColor("#7B1FA2"),
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,78 +89,235 @@ class SketchCaptureActivity : AppCompatActivity() {
         binding.sketchView.apply {
             setBackgroundColor(Color.WHITE)
             setMode(SketchView.Mode.PEN)
-            setColor(currentColor)
-            setStrokeWidth(binding.sketchToolbar.penThickness.progress.toFloat())
+            setColor(penColor)
+            setStrokeWidth(penStrokeWidth)
         }
     }
 
     private fun setupToolbar() = with(binding.sketchToolbar) {
         root.visibility = View.VISIBLE
 
-        fun applyColor(color: Int) {
-            currentColor = color
-            binding.sketchView.setColor(color)
-        }
+        fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
-        fun togglePanel(panel: View, other: View) {
-            val show = !panel.isVisible
-            panel.isVisible = show
-            if (show) {
-                other.isGone = true
+        fun createColorButton(container: LinearLayout, initialColor: Int, onColorChanged: (Int) -> Unit): AppCompatImageButton {
+            val button = AppCompatImageButton(this@SketchCaptureActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply {
+                    if (container.childCount > 0) {
+                        marginStart = dp(8)
+                    }
+                }
+                background = ContextCompat.getDrawable(this@SketchCaptureActivity, R.drawable.bg_color_swatch)
+                setImageDrawable(null)
+                imageTintList = null
+                backgroundTintList = ColorStateList.valueOf(initialColor)
+                alpha = 0.6f
             }
+            button.tag = initialColor
+            button.setOnClickListener {
+                val color = it.tag as? Int ?: return@setOnClickListener
+                onColorChanged(color)
+                updateColorSelection(container, color)
+            }
+            button.setOnLongClickListener {
+                val startColor = it.tag as? Int ?: Color.BLACK
+                showColorPicker(startColor) { chosen ->
+                    it.tag = chosen
+                    (it as AppCompatImageButton).backgroundTintList = ColorStateList.valueOf(chosen)
+                    onColorChanged(chosen)
+                    updateColorSelection(container, chosen)
+                }
+                true
+            }
+            container.addView(button)
+            return button
         }
 
-        btnPenMenu.setOnClickListener {
-            togglePanel(penMenuPanel, shapeMenuPanel)
-            binding.sketchView.setMode(SketchView.Mode.PEN)
+        fun populateColors(container: LinearLayout, currentColorProvider: () -> Int, onColorChanged: (Int) -> Unit) {
+            container.removeAllViews()
+            colorPresets.forEach { preset ->
+                createColorButton(container, preset, onColorChanged)
+            }
+            updateColorSelection(container, currentColorProvider())
         }
-        btnShapeMenu.setOnClickListener {
-            togglePanel(shapeMenuPanel, penMenuPanel)
-            binding.sketchView.setMode(SketchView.Mode.RECT)
+
+        fun configureThicknessSeekBar(seekBar: SeekBar, onValueChanged: (Float) -> Unit) {
+            seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val width = (progress + 1).toFloat()
+                    onValueChanged(width)
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
         }
-        btnErase.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.ERASE) }
+
+        btnPen.setOnClickListener { selectTool(Tool.PEN) }
+        btnShapes.setOnClickListener { selectTool(Tool.SHAPES) }
+        btnEraser.setOnClickListener { selectTool(Tool.ERASER) }
+
         btnUndo.setOnClickListener { binding.sketchView.undo() }
         btnRedo.setOnClickListener { binding.sketchView.redo() }
+        btnClear.setOnClickListener { confirmClearSketch() }
         btnCancel.setOnClickListener {
             setResult(RESULT_CANCELED)
             finish()
         }
         btnValidate.setOnClickListener { persistSketch() }
 
-        btnPenFreehand.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.PEN) }
-        btnPenLine.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.LINE) }
-
-        penThickness.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.sketchView.setStrokeWidth(progress.toFloat())
+        populateColors(penColors, { penColor }) { color ->
+            penColor = color
+            if (activeTool == Tool.PEN) {
+                binding.sketchView.setColor(color)
             }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-
-        btnPenColorBlack.setOnClickListener { applyColor(Color.BLACK) }
-        btnPenColorRed.setOnClickListener { applyColor(Color.parseColor("#D32F2F")) }
-        btnPenColorBlue.setOnClickListener { applyColor(Color.parseColor("#1976D2")) }
-        btnPenColorGreen.setOnClickListener { applyColor(Color.parseColor("#388E3C")) }
-
-        btnShapeRect.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.RECT) }
-        btnShapeRoundRect.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.ROUND_RECT) }
-        btnShapeCircle.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.CIRCLE) }
-        btnShapeEllipse.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.ELLIPSE) }
-        btnShapeTriangle.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.TRIANGLE) }
-        btnShapeArrow.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.ARROW) }
-        btnShapeStar.setOnClickListener { binding.sketchView.setMode(SketchView.Mode.STAR) }
-
-        chkShapeFilled.setOnCheckedChangeListener { _, isChecked ->
-            binding.sketchView.setFilledShapes(isChecked)
+        }
+        populateColors(shapeColors, { shapeColor }) { color ->
+            shapeColor = color
+            if (activeTool == Tool.SHAPES) {
+                binding.sketchView.setColor(color)
+            }
         }
 
-        btnShapeColorBlack.setOnClickListener { applyColor(Color.BLACK) }
-        btnShapeColorRed.setOnClickListener { applyColor(Color.parseColor("#D32F2F")) }
-        btnShapeColorBlue.setOnClickListener { applyColor(Color.parseColor("#1976D2")) }
-        btnShapeColorGreen.setOnClickListener { applyColor(Color.parseColor("#388E3C")) }
+        configureThicknessSeekBar(penThickness) { width ->
+            penStrokeWidth = width
+            if (activeTool == Tool.PEN) {
+                binding.sketchView.setStrokeWidth(width)
+            }
+        }
+        configureThicknessSeekBar(shapeThickness) { width ->
+            shapeStrokeWidth = width
+            if (activeTool == Tool.SHAPES) {
+                binding.sketchView.setStrokeWidth(width)
+            }
+        }
+        configureThicknessSeekBar(eraserThickness) { width ->
+            eraserStrokeWidth = width
+            if (activeTool == Tool.ERASER) {
+                binding.sketchView.setStrokeWidth(width)
+            }
+        }
+
+        chkShapeFilled.setOnCheckedChangeListener { _, isChecked ->
+            shapeFilled = isChecked
+            if (activeTool == Tool.SHAPES) {
+                binding.sketchView.setFilledShapes(shapeFilled)
+            }
+        }
+
+        btnShapeLine.setOnClickListener { setShapeMode(SketchView.Mode.LINE) }
+        btnShapeArrow.setOnClickListener { setShapeMode(SketchView.Mode.ARROW) }
+        btnShapeRect.setOnClickListener { setShapeMode(SketchView.Mode.RECT) }
+        btnShapeRoundRect.setOnClickListener { setShapeMode(SketchView.Mode.ROUND_RECT) }
+        btnShapeCircle.setOnClickListener { setShapeMode(SketchView.Mode.CIRCLE) }
+        btnShapeEllipse.setOnClickListener { setShapeMode(SketchView.Mode.ELLIPSE) }
+        btnShapeTriangle.setOnClickListener { setShapeMode(SketchView.Mode.TRIANGLE) }
+        btnShapeStar.setOnClickListener { setShapeMode(SketchView.Mode.STAR) }
+
+        selectTool(Tool.PEN)
+    }
+
+    private fun updateColorSelection(container: LinearLayout, selectedColor: Int) {
+        for (i in 0 until container.childCount) {
+            val child = container.getChildAt(i)
+            val color = child.tag as? Int
+            child.alpha = if (color == selectedColor) 1f else 0.6f
+        }
+    }
+
+    private fun selectTool(tool: Tool) = with(binding.sketchToolbar) {
+        activeTool = tool
+        val sketchView = binding.sketchView
+        when (tool) {
+            Tool.PEN -> {
+                penOptions.isVisible = true
+                shapeOptions.isVisible = false
+                eraserOptions.isVisible = false
+                sketchView.setMode(SketchView.Mode.PEN)
+                sketchView.setColor(penColor)
+                sketchView.setStrokeWidth(penStrokeWidth)
+                updateColorSelection(penColors, penColor)
+            }
+            Tool.SHAPES -> {
+                penOptions.isVisible = false
+                shapeOptions.isVisible = true
+                eraserOptions.isVisible = false
+                chkShapeFilled.isChecked = shapeFilled
+                sketchView.setMode(selectedShapeMode)
+                sketchView.setColor(shapeColor)
+                sketchView.setFilledShapes(shapeFilled)
+                sketchView.setStrokeWidth(shapeStrokeWidth)
+                updateColorSelection(shapeColors, shapeColor)
+                updateShapeSelection()
+            }
+            Tool.ERASER -> {
+                penOptions.isVisible = false
+                shapeOptions.isVisible = false
+                eraserOptions.isVisible = true
+                sketchView.setMode(SketchView.Mode.ERASE)
+                sketchView.setStrokeWidth(eraserStrokeWidth)
+            }
+        }
+        updateToolButtons()
+        penThickness.progress = (penStrokeWidth.toInt() - 1).coerceIn(0, penThickness.max)
+        shapeThickness.progress = (shapeStrokeWidth.toInt() - 1).coerceIn(0, shapeThickness.max)
+        eraserThickness.progress = (eraserStrokeWidth.toInt() - 1).coerceIn(0, eraserThickness.max)
+    }
+
+    private fun updateToolButtons() = with(binding.sketchToolbar) {
+        listOf(
+            btnPen to Tool.PEN,
+            btnShapes to Tool.SHAPES,
+            btnEraser to Tool.ERASER
+        ).forEach { (view, tool) ->
+            val selected = activeTool == tool
+            view.isSelected = selected
+            view.alpha = if (selected) 1f else 0.7f
+        }
+    }
+
+    private fun setShapeMode(mode: SketchView.Mode) {
+        selectedShapeMode = mode
+        if (activeTool != Tool.SHAPES) {
+            selectTool(Tool.SHAPES)
+        } else {
+            binding.sketchView.setMode(mode)
+            binding.sketchView.setFilledShapes(shapeFilled)
+            updateShapeSelection()
+        }
+    }
+
+    private fun updateShapeSelection() = with(binding.sketchToolbar) {
+        listOf(
+            btnShapeLine to SketchView.Mode.LINE,
+            btnShapeArrow to SketchView.Mode.ARROW,
+            btnShapeRect to SketchView.Mode.RECT,
+            btnShapeRoundRect to SketchView.Mode.ROUND_RECT,
+            btnShapeCircle to SketchView.Mode.CIRCLE,
+            btnShapeEllipse to SketchView.Mode.ELLIPSE,
+            btnShapeTriangle to SketchView.Mode.TRIANGLE,
+            btnShapeStar to SketchView.Mode.STAR
+        ).forEach { (view, mode) ->
+            val selected = selectedShapeMode == mode
+            view.isSelected = selected
+            view.alpha = if (selected) 1f else 0.6f
+        }
+    }
+
+    private fun showColorPicker(initial: Int, onPicked: (Int) -> Unit) {
+        HsvColorPickerDialog(this, initial, onPicked).show()
+    }
+
+    private fun confirmClearSketch() {
+        if (!binding.sketchView.hasContent()) {
+            binding.sketchView.clear()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.sketch_clear_confirm_title)
+            .setMessage(R.string.sketch_clear_confirm_message)
+            .setPositiveButton(R.string.media_action_delete) { _, _ -> binding.sketchView.clear() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
     }
 
     private fun persistSketch() {
