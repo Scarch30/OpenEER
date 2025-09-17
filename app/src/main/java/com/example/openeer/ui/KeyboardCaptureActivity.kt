@@ -3,18 +3,14 @@ package com.example.openeer.ui
 import android.content.Intent
 import android.graphics.Rect
 import android.os.Bundle
-import android.view.Gravity
 import android.view.ViewTreeObserver
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.isVisible
-import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityKeyboardCaptureBinding
-import com.example.openeer.ui.sketch.SketchView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -37,8 +33,6 @@ class KeyboardCaptureActivity : AppCompatActivity() {
     private var noteId: Long = -1L
     private var blockId: Long? = null
     private var imeVisible: Boolean = false
-    private var currentShape: SketchView.Mode = SketchView.Mode.RECT
-
     // Listener global pour détecter l’ouverture/fermeture du clavier de façon fiable
     private val globalLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
         val root = binding.root
@@ -50,7 +44,6 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         val visible = heightDiff > threshold
         if (visible != imeVisible) {
             imeVisible = visible
-            binding.drawToolbar.isVisible = visible
         }
     }
 
@@ -63,19 +56,20 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
         blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
 
-        // Barre d’outils : toujours en bas, au-dessus des autres vues
-        binding.drawToolbar.updateLayoutParams<FrameLayout.LayoutParams> {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        }
-        binding.drawToolbar.bringToFront()
-        binding.drawToolbar.isVisible = false // au départ, cachée
-
         // Focus + ouverture clavier
         val edit = binding.editText
         edit.post {
             edit.requestFocus()
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
             imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
+        }
+        edit.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                saveAndFinish()
+                true
+            } else {
+                false
+            }
         }
 
         // Pré-remplissage si on édite un bloc existant
@@ -92,27 +86,6 @@ class KeyboardCaptureActivity : AppCompatActivity() {
         // ✅ Détection clavier universelle
         binding.root.viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
 
-        // ----- Outils de dessin -----
-        binding.btnToolPen.setOnClickListener {
-            binding.sketchView.setMode(SketchView.Mode.PEN)
-            binding.sketchView.isVisible = true
-        }
-        binding.btnToolShape.setOnClickListener {
-            currentShape = when (currentShape) {
-                SketchView.Mode.RECT -> SketchView.Mode.CIRCLE
-                SketchView.Mode.CIRCLE -> SketchView.Mode.ARROW
-                else -> SketchView.Mode.RECT
-            }
-            binding.sketchView.setMode(currentShape)
-            binding.sketchView.isVisible = true
-        }
-        binding.btnToolEraser.setOnClickListener {
-            binding.sketchView.setMode(SketchView.Mode.ERASE)
-            binding.sketchView.isVisible = true
-        }
-        binding.btnToolUndo.setOnClickListener { binding.sketchView.undo() }
-        binding.btnValidate.setOnClickListener { saveAndFinish() }
-        binding.btnClose.setOnClickListener { finish() }
     }
 
     override fun onDestroy() {
@@ -153,8 +126,6 @@ class KeyboardCaptureActivity : AppCompatActivity() {
                     blockId = savedBlockId
                 }
 
-                // ⛔️ Pas d’export PNG ici. Le calque dessin sera géré en vectoriel (strokes)
-                // et persistant plus tard côté MainActivity/NotePanel via SketchView JSON.
             }
             val data = Intent().apply {
                 putExtra(EXTRA_NOTE_ID, nid)
@@ -164,8 +135,6 @@ class KeyboardCaptureActivity : AppCompatActivity() {
                     putExtra(EXTRA_BLOCK_ID, blockResult)
                 }
                 putExtra("addedText", text.isNotBlank())
-                // On ne renvoie pas de croquis ajouté tant que la persistance n’est pas branchée ici.
-                putExtra("addedSketch", false)
             }
             setResult(RESULT_OK, data)
             finish()
