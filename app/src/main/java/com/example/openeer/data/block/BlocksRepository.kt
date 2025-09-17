@@ -253,4 +253,11 @@ class BlocksRepository(
         }
         return noteId
     }
+
+    suspend fun deleteBlock(blockId: Long) {
+        withContext(io) {
+            val current = blockDao.getById(blockId) ?: return@withContext
+            blockDao.delete(current)
+        }
+    }
 }
