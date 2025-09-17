@@ -25,6 +25,7 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.capture.CaptureLauncher
 import com.example.openeer.ui.editor.EditorBodyController
+import com.example.openeer.ui.sheets.ChildTextEditorSheet
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
 import com.example.openeer.ui.util.toast
@@ -171,17 +172,21 @@ class MainActivity : AppCompatActivity() {
         // Boutons barre du bas
         b.btnKeyboard.setOnClickListener {
             lifecycleScope.launch {
-                val nid = ensureOpenNote()
-                if (notePanel.openNoteId != nid) {
-                    notePanel.open(nid)
+                val openId = notePanel.openNoteId
+                if (openId != null) {
+                    // NOTE OUVERTE -> ouvrir l’éditeur de post-it (BottomSheet)
+                    editorBody.commitInlineEdit(openId) // sécurise un éventuel body en cours
+                    val sheet = ChildTextEditorSheet.new(openId).apply {
+                        onSaved = { noteId, blockId ->
+                            onChildBlockSaved(noteId, blockId, getString(com.example.openeer.R.string.msg_block_text_added))
+                        }
+                    }
+                    sheet.show(supportFragmentManager, "child_text")
+                } else {
+                    // AUCUNE note -> créer note mère + édition inline du body
+                    val nid = ensureOpenNote()
+                    b.root.post { editorBody.enterInlineEdit(nid) }
                 }
-                // Lire le body réel avant d'ouvrir l'éditeur pour éviter l'ancien texte
-                val body = withContext(Dispatchers.IO) {
-                    repo.note(nid).first()?.body.orEmpty()
-                }
-                b.txtBodyDetail.text = if (body.isBlank()) "(transcription en cours…)" else body
-                // Entrer en édition après mise à jour UI
-                b.root.post { editorBody.enterInlineEdit(nid) }
             }
         }
         b.btnPhoto.setOnClickListener {
@@ -205,17 +210,10 @@ class MainActivity : AppCompatActivity() {
             b.root.snackbar("Carte/Itinéraire — bientôt disponible")
         }
 
-        // Clic sur le corps = édition inline (sécurisée)
+        // Clic sur le corps = édition inline
         b.txtBodyDetail.setOnClickListener {
             lifecycleScope.launch {
                 val nid = ensureOpenNote()
-                if (notePanel.openNoteId != nid) {
-                    notePanel.open(nid)
-                }
-                val body = withContext(Dispatchers.IO) {
-                    repo.note(nid).first()?.body.orEmpty()
-                }
-                b.txtBodyDetail.text = if (body.isBlank()) "(transcription en cours…)" else body
                 b.root.post { editorBody.enterInlineEdit(nid) }
             }
         }

@@ -1,7 +1,7 @@
 package com.example.openeer.ui.panel.media
 
 import android.content.Context
-import android.media.MediaMetadataRetriever
+import android.graphics.Typeface
 import android.net.Uri
 import android.view.Gravity
 import android.view.View
@@ -14,30 +14,22 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
-import com.example.openeer.data.block.BlockType
 import com.google.android.material.card.MaterialCardView
 import java.util.concurrent.TimeUnit
 
-sealed class MediaStripItem {
-    abstract val blockId: Long
-    abstract val mediaUri: String
-    abstract val mimeType: String?
-
-    data class Image(
-        override val blockId: Long,
-        override val mediaUri: String,
-        override val mimeType: String?,
-        val type: BlockType,
-    ) : MediaStripItem()
-
-    data class Audio(
-        override val blockId: Long,
-        override val mediaUri: String,
-        override val mimeType: String?,
-        val durationMs: Long?,
-    ) : MediaStripItem()
-}
-
+/**
+ * Adapter pour la strip média horizontale.
+ * Rendu UNIFORME : toutes les tuiles font 90dp x 90dp.
+ *
+ * ViewTypes :
+ * - IMAGE (photo, sketch)
+ * - AUDIO
+ * - TEXT (post-it)
+ *
+ * Callbacks :
+ * - onClick(item)
+ * - onLongPress(view, item)
+ */
 class MediaStripAdapter(
     private val onClick: (MediaStripItem) -> Unit,
     private val onLongPress: (View, MediaStripItem) -> Unit,
@@ -46,6 +38,7 @@ class MediaStripAdapter(
     companion object {
         private const val TYPE_IMAGE = 0
         private const val TYPE_AUDIO = 1
+        private const val TYPE_TEXT  = 2
 
         private val DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
             override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
@@ -56,8 +49,6 @@ class MediaStripAdapter(
         }
     }
 
-    private val durationCache = mutableMapOf<Long, String>()
-
     init {
         setHasStableIds(true)
     }
@@ -65,20 +56,23 @@ class MediaStripAdapter(
     override fun getItemId(position: Int): Long = getItem(position).blockId
 
     override fun getItemViewType(position: Int): Int = when (getItem(position)) {
-        is MediaStripItem.Audio -> TYPE_AUDIO
         is MediaStripItem.Image -> TYPE_IMAGE
+        is MediaStripItem.Audio -> TYPE_AUDIO
+        is MediaStripItem.Text  -> TYPE_TEXT
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
         when (viewType) {
             TYPE_AUDIO -> createAudioHolder(parent)
-            else -> createImageHolder(parent)
+            TYPE_TEXT  -> createTextHolder(parent)
+            else       -> createImageHolder(parent)
         }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (holder) {
             is ImageHolder -> holder.bind(getItem(position) as MediaStripItem.Image)
             is AudioHolder -> holder.bind(getItem(position) as MediaStripItem.Audio)
+            is TextHolder  -> holder.bind(getItem(position) as MediaStripItem.Text)
         }
     }
 
@@ -89,30 +83,11 @@ class MediaStripAdapter(
         super.onViewRecycled(holder)
     }
 
-    override fun submitList(list: List<MediaStripItem>?) {
-        if (list == null) {
-            durationCache.clear()
-        } else {
-            val ids = list.map { it.blockId }.toSet()
-            durationCache.keys.retainAll(ids)
-        }
-        super.submitList(list?.let { ArrayList(it) })
-    }
+    // --- Holders ---
 
     private fun createImageHolder(parent: ViewGroup): ImageHolder {
         val ctx = parent.context
-        val density = ctx.resources.displayMetrics.density
-        val size = (160 * density).toInt()
-        val margin = (8 * density).toInt()
-        val card = MaterialCardView(ctx).apply {
-            layoutParams = ViewGroup.MarginLayoutParams(size, size).apply {
-                marginEnd = margin
-            }
-            radius = 20f
-            cardElevation = 6f
-            isClickable = true
-            isFocusable = true
-        }
+        val card = squareCard(ctx)
         val image = ImageView(ctx).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -120,6 +95,7 @@ class MediaStripAdapter(
             )
             scaleType = ImageView.ScaleType.CENTER_CROP
             clipToOutline = true
+            contentDescription = "Image"
         }
         card.addView(image)
         return ImageHolder(card, image)
@@ -127,52 +103,87 @@ class MediaStripAdapter(
 
     private fun createAudioHolder(parent: ViewGroup): AudioHolder {
         val ctx = parent.context
-        val density = ctx.resources.displayMetrics.density
-        val height = (48 * density).toInt()
-        val horizontalPadding = (16 * density).toInt()
-        val verticalPadding = (8 * density).toInt()
-        val margin = (8 * density).toInt()
+        val card = squareCard(ctx)
 
-        val card = MaterialCardView(ctx).apply {
-            layoutParams = ViewGroup.MarginLayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                height
-            ).apply {
-                marginEnd = margin
-            }
-            radius = 40f
-            cardElevation = 4f
-            isClickable = true
-            isFocusable = true
-        }
-
-        val row = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
+        val column = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
         }
 
         val icon = ImageView(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams((24 * density).toInt(), (24 * density).toInt())
+            layoutParams = LinearLayout.LayoutParams(
+                dp(ctx, 28), dp(ctx, 28)
+            )
             setImageResource(android.R.drawable.ic_btn_speak_now)
+            contentDescription = "Audio"
         }
 
-        val text = TextView(ctx).apply {
+        val duration = TextView(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                leftMargin = (8 * density).toInt()
-            }
-            textSize = 14f
+            ).apply { topMargin = dp(ctx, 4) }
+            textSize = 12f
         }
 
-        row.addView(icon)
-        row.addView(text)
-        card.addView(row)
+        column.addView(icon)
+        column.addView(duration)
+        card.addView(column)
 
-        return AudioHolder(card, text)
+        return AudioHolder(card, duration)
     }
+
+    private fun createTextHolder(parent: ViewGroup): TextHolder {
+        val ctx = parent.context
+        val card = squareCard(ctx)
+
+        // Fond/hiérarchie visuelle "post-it"
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setPadding(dp(ctx, 8), dp(ctx, 8), dp(ctx, 8), dp(ctx, 8))
+        }
+
+        val badge = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            text = "POST-IT"
+            textSize = 10f
+            setPadding(dp(ctx, 6), dp(ctx, 2), dp(ctx, 6), dp(ctx, 2))
+            setBackgroundColor(0xFF9E9E9E.toInt()) // gris moyen
+            setTextColor(0xFFFFFFFF.toInt())
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        val preview = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            ).apply { topMargin = dp(ctx, 6) }
+            textSize = 13f
+            maxLines = 3
+            isSingleLine = false
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+
+        container.addView(badge)
+        container.addView(preview)
+        card.addView(container)
+
+        return TextHolder(card, preview)
+    }
+
+    // --- View holders ---
 
     inner class ImageHolder(val card: MaterialCardView, val image: ImageView) :
         RecyclerView.ViewHolder(card) {
@@ -194,7 +205,7 @@ class MediaStripAdapter(
     inner class AudioHolder(val card: MaterialCardView, private val text: TextView) :
         RecyclerView.ViewHolder(card) {
         fun bind(item: MediaStripItem.Audio) {
-            text.text = resolveDuration(card.context, item)
+            text.text = formatDuration(item.durationMs)
             card.setOnClickListener { onClick(item) }
             card.setOnLongClickListener {
                 onLongPress(it, item)
@@ -203,44 +214,42 @@ class MediaStripAdapter(
         }
     }
 
-    private fun resolveDuration(context: Context, item: MediaStripItem.Audio): String {
-        durationCache[item.blockId]?.let { return it }
-
-        val label = item.durationMs?.takeIf { it > 0 }?.let { formatDuration(it) }
-            ?: extractDuration(context, item.mediaUri)
-            ?: "--:--"
-
-        durationCache[item.blockId] = label
-        return label
-    }
-
-    private fun extractDuration(context: Context, rawUri: String): String? {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            val uri = Uri.parse(rawUri)
-            when {
-                uri.scheme.isNullOrEmpty() -> retriever.setDataSource(rawUri)
-                uri.scheme.equals("content", ignoreCase = true) ||
-                        uri.scheme.equals("file", ignoreCase = true) -> retriever.setDataSource(context, uri)
-                else -> retriever.setDataSource(rawUri)
-            }
-            val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                ?.toLongOrNull()
-            duration?.let { formatDuration(it) }
-        } catch (_: Throwable) {
-            null
-        } finally {
-            try {
-                retriever.release()
-            } catch (_: Throwable) {
+    inner class TextHolder(val card: MaterialCardView, private val preview: TextView) :
+        RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem.Text) {
+            preview.text = item.preview.ifBlank { "…" }
+            card.setOnClickListener { onClick(item) }
+            card.setOnLongClickListener {
+                onLongPress(it, item)
+                true
             }
         }
     }
 
-    private fun formatDuration(durationMs: Long): String {
-        val totalSeconds = TimeUnit.MILLISECONDS.toSeconds(durationMs)
+    // --- Utils UI ---
+
+    private fun squareCard(ctx: Context): MaterialCardView {
+        val size = dp(ctx, 90)
+        val margin = dp(ctx, 8)
+        return MaterialCardView(ctx).apply {
+            layoutParams = ViewGroup.MarginLayoutParams(size, size).apply {
+                rightMargin = margin
+            }
+            radius = dp(ctx, 16).toFloat()
+            cardElevation = dp(ctx, 4).toFloat()
+            isClickable = true
+            isFocusable = true
+        }
+    }
+
+    private fun dp(ctx: Context, v: Int): Int =
+        (v * ctx.resources.displayMetrics.density).toInt()
+
+    private fun formatDuration(durationMs: Long?): String {
+        val d = durationMs ?: return "--:--"
+        val totalSeconds = TimeUnit.MILLISECONDS.toSeconds(d)
         val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
+        val seconds = (totalSeconds % 60)
         return String.format("%02d:%02d", minutes, seconds)
     }
 }

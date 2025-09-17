@@ -1,10 +1,7 @@
 package com.example.openeer.ui
 
 import android.view.View
-import android.view.ViewGroup
 import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isGone
@@ -14,7 +11,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
@@ -23,11 +19,15 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.formatMeta
+import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
 import com.google.android.material.card.MaterialCardView
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.TextView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Contrôle l'affichage de la "note ouverte" dans MainActivity (panel en haut de la liste).
- * - Observe la note + pièces jointes
+ * - Observe la note + blocs enfants
  * - Met à jour le titre, corps, méta
  * - Expose open()/close()
  *
@@ -186,7 +186,7 @@ class NotePanelController(
 
         blocks.forEach { block ->
             val view = when (block.type) {
-                // On n’affiche plus les blocs TEXT : tout le texte vit dans Note.body
+                // On n’affiche plus les blocs TEXT dans le corps : tout le texte vit dans Note.body
                 BlockType.TEXT -> null
                 BlockType.SKETCH, BlockType.PHOTO ->
                     BlockRenderers.createImageBlockView(container.context, block, margin)
@@ -216,6 +216,14 @@ class NotePanelController(
                 BlockType.AUDIO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let {
                     MediaStripItem.Audio(block.id, it, block.mimeType, block.durationMs)
                 }
+                BlockType.TEXT -> {
+                    val preview = (block.text ?: "")
+                        .lineSequence()
+                        .firstOrNull()
+                        ?.trim()
+                        .orEmpty()
+                    MediaStripItem.Text(block.id, preview)
+                }
                 else -> null
             }
         }
@@ -223,7 +231,7 @@ class NotePanelController(
         binding.mediaStrip.isGone = items.isEmpty()
     }
 
-    // (la fabrique de “rectangle texte” reste ici au besoin, mais n’est plus utilisée)
+    // (fabrique de “rectangle texte” non utilisée mais conservée si besoin d’aperçu inline)
     private fun createTextBlockView(block: BlockEntity, margin: Int): View {
         val ctx = binding.root.context
         val padding = (16 * ctx.resources.displayMetrics.density).toInt()
@@ -290,7 +298,6 @@ class NotePanelController(
             binding.noteMetaFooter.isVisible = true
             binding.noteMetaFooter.text = meta
         }
-        // Plus de gestion de bouton Lecture ici (supprimé).
     }
 
     private fun promptEditTitle() {
