@@ -119,11 +119,14 @@
             android:padding="12dp" />
 
         <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/attachmentsStrip"
+            android:id="@+id/mediaStrip"
             android:layout_width="match_parent"
-            android:layout_height="72dp"
-            android:visibility="gone"
-            android:layout_marginTop="8dp" />
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone" />
 
         <!-- Métadonnées de la note -->
         <TextView

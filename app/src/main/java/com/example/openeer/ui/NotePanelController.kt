@@ -1,6 +1,11 @@
 package com.example.openeer.ui
 
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
@@ -10,14 +15,20 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
+import androidx.core.content.FileProvider
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
@@ -32,7 +43,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Contrôle l'affichage de la "note ouverte" dans MainActivity (panel en haut de la liste).
@@ -68,14 +81,16 @@ class NotePanelController(
     private val blockViews = mutableMapOf<Long, View>()
     private var pendingHighlightBlockId: Long? = null
 
-    // Bandeau de pièces jointes
-    private val attachmentAdapter = AttachmentsAdapter(
-        onClick = { path ->
-            val i = Intent(activity, PhotoViewerActivity::class.java)
-            i.putExtra("path", path)
-            activity.startActivity(i)
-        }
+    private val mediaAdapter = MediaStripAdapter(
+        onClick = { item -> handleMediaClick(item) },
+        onLongPress = { view, item -> showMediaMenu(view, item) }
     )
+
+    init {
+        binding.mediaStrip.layoutManager =
+            LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
+        binding.mediaStrip.adapter = mediaAdapter
+    }
 
     /** Ouvre visuellement le panneau et commence à observer une note. */
     fun open(noteId: Long) {
@@ -87,22 +102,8 @@ class NotePanelController(
         binding.childBlocksContainer.isGone = true
         blockViews.clear()
         pendingHighlightBlockId = null
-
-        // Bandeau PJ horizontales
-        binding.attachmentsStrip.layoutManager =
-            LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
-        binding.attachmentsStrip.adapter = attachmentAdapter
-
-        // Observe PJ (on filtre les fichiers manquants pour éviter les miniatures cassées)
-        activity.lifecycleScope.launch {
-            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                repo.attachments(noteId).collectLatest { list ->
-                    val existing = list.filter { it.type == "photo" && File(it.path).exists() }
-                    attachmentAdapter.submit(existing.map { it.path })
-                    binding.attachmentsStrip.isGone = existing.isEmpty()
-                }
-            }
-        }
+        mediaAdapter.submitList(emptyList())
+        binding.mediaStrip.isGone = true
 
         // Observe la note
         activity.lifecycleScope.launch {
@@ -142,6 +143,8 @@ class NotePanelController(
         pendingHighlightBlockId = null
         binding.childBlocksContainer.removeAllViews()
         binding.childBlocksContainer.isGone = true
+        mediaAdapter.submitList(emptyList())
+        binding.mediaStrip.isGone = true
         // Option : arrêter lecture si en cours
         SimplePlayer.stop {
             binding.btnPlayDetail.text = "Lecture"
@@ -174,30 +177,54 @@ class NotePanelController(
     }
 
     private fun renderBlocks(blocks: List<BlockEntity>) {
+        updateMediaStrip(blocks)
+
         val container = binding.childBlocksContainer
+        container.removeAllViews()
+        blockViews.clear()
+
         if (blocks.isEmpty()) {
             container.isGone = true
-            container.removeAllViews()
-            blockViews.clear()
             return
         }
 
-        container.isVisible = true
-        container.removeAllViews()
-        blockViews.clear()
         val margin = (8 * container.resources.displayMetrics.density).toInt()
+        var hasRenderable = false
 
         blocks.forEach { block ->
             val view = when (block.type) {
                 BlockType.TEXT -> createTextBlockView(block, margin)
                 BlockType.SKETCH, BlockType.PHOTO -> createImageBlockView(block, margin)
-                else -> createUnsupportedBlockView(block, margin)
+                BlockType.VIDEO, BlockType.ROUTE, BlockType.FILE -> createUnsupportedBlockView(block, margin)
+                BlockType.AUDIO, BlockType.LOCATION -> null
             }
-            container.addView(view)
-            blockViews[block.id] = view
+            if (view != null) {
+                hasRenderable = true
+                container.addView(view)
+                blockViews[block.id] = view
+            }
         }
 
-        pendingHighlightBlockId?.let { tryHighlightBlock(it) }
+        container.isGone = !hasRenderable
+        if (hasRenderable) {
+            pendingHighlightBlockId?.let { tryHighlightBlock(it) }
+        }
+    }
+
+    private fun updateMediaStrip(blocks: List<BlockEntity>) {
+        val items = blocks.mapNotNull { block ->
+            when (block.type) {
+                BlockType.PHOTO, BlockType.SKETCH -> block.mediaUri?.takeIf { it.isNotBlank() }?.let {
+                    MediaStripItem.Image(block.id, it, block.mimeType, block.type)
+                }
+                BlockType.AUDIO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let {
+                    MediaStripItem.Audio(block.id, it, block.mimeType, block.durationMs)
+                }
+                else -> null
+            }
+        }
+        mediaAdapter.submitList(items)
+        binding.mediaStrip.isGone = items.isEmpty()
     }
 
     private fun createTextBlockView(block: BlockEntity, margin: Int): View {
@@ -298,6 +325,155 @@ class NotePanelController(
         view.animate().alpha(1f).setDuration(350L).start()
     }
 
+    private fun handleMediaClick(item: MediaStripItem) {
+        when (item) {
+            is MediaStripItem.Image -> {
+                val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
+                    putExtra("path", item.mediaUri)
+                }
+                activity.startActivity(intent)
+            }
+            is MediaStripItem.Audio -> playAudio(item)
+        }
+    }
+
+    private fun showMediaMenu(anchor: View, item: MediaStripItem) {
+        val popup = PopupMenu(activity, anchor)
+        popup.menu.add(0, MENU_SHARE, 0, activity.getString(R.string.media_action_share))
+        popup.menu.add(0, MENU_DELETE, 1, activity.getString(R.string.media_action_delete))
+        popup.setOnMenuItemClickListener { menuItem ->
+            when (menuItem.itemId) {
+                MENU_SHARE -> {
+                    shareMedia(item)
+                    true
+                }
+                MENU_DELETE -> {
+                    confirmDeleteMedia(item)
+                    true
+                }
+                else -> false
+            }
+        }
+        popup.show()
+    }
+
+    private fun shareMedia(item: MediaStripItem) {
+        val shareUri = resolveShareUri(item.mediaUri)
+        if (shareUri == null) {
+            Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val mime = when (item) {
+            is MediaStripItem.Audio -> item.mimeType ?: "audio/*"
+            is MediaStripItem.Image -> item.mimeType ?: "image/*"
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, shareUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val targets = activity.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        targets.forEach { info ->
+            activity.grantUriPermission(info.activityInfo.packageName, shareUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching {
+            activity.startActivity(Intent.createChooser(intent, activity.getString(R.string.media_action_share)))
+        }.onFailure {
+            Toast.makeText(activity, activity.getString(R.string.media_share_error), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmDeleteMedia(item: MediaStripItem) {
+        AlertDialog.Builder(activity)
+            .setTitle(R.string.media_action_delete)
+            .setMessage(R.string.media_delete_confirm)
+            .setPositiveButton(R.string.action_validate) { _, _ ->
+                performDeleteMedia(item)
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun performDeleteMedia(item: MediaStripItem) {
+        activity.lifecycleScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                runCatching {
+                    deleteMediaFile(item.mediaUri)
+                    blocksRepo.deleteBlock(item.blockId)
+                }.isSuccess
+            }
+            if (success) {
+                Toast.makeText(activity, activity.getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(activity, activity.getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun deleteMediaFile(rawUri: String) {
+        runCatching {
+            val uri = Uri.parse(rawUri)
+            when {
+                uri.scheme.isNullOrEmpty() -> File(rawUri).takeIf { it.exists() }?.delete()
+                uri.scheme.equals("file", ignoreCase = true) -> uri.path?.let { path ->
+                    File(path).takeIf { it.exists() }?.delete()
+                }
+                uri.scheme.equals("content", ignoreCase = true) ->
+                    activity.contentResolver.delete(uri, null, null)
+                else -> uri.path?.let { path ->
+                    File(path).takeIf { it.exists() }?.delete()
+                }
+            }
+        }
+    }
+
+    private fun resolveShareUri(raw: String): Uri? {
+        val parsed = Uri.parse(raw)
+        return when {
+            parsed.scheme.isNullOrEmpty() -> fileProviderUri(File(raw))
+            parsed.scheme.equals("file", ignoreCase = true) -> parsed.path?.let { path ->
+                fileProviderUri(File(path))
+            }
+            parsed.scheme.equals("content", ignoreCase = true) -> parsed
+            else -> parsed
+        }
+    }
+
+    private fun fileProviderUri(file: File): Uri? {
+        if (!file.exists()) return null
+        return try {
+            FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+    }
+
+    private fun playAudio(item: MediaStripItem.Audio) {
+        val raw = item.mediaUri
+        if (raw.startsWith("content://")) {
+            Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val file = File(raw)
+        if (!file.exists()) {
+            Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        SimplePlayer.play(
+            ctx = activity,
+            path = file.absolutePath,
+            onStart = {
+                Toast.makeText(activity, "Lecture…", Toast.LENGTH_SHORT).show()
+            },
+            onStop = {
+                Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show()
+            },
+            onError = { e ->
+                Toast.makeText(activity, "Lecture impossible : ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        )
+    }
+
     // ---- Internes ----
 
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
@@ -373,56 +549,236 @@ class NotePanelController(
             .setNegativeButton("Annuler", null)
             .show()
     }
+
+    private companion object {
+        const val MENU_SHARE = 1
+        const val MENU_DELETE = 2
+    }
 }
 
-/** Liste horizontale de vignettes (photos). */
-private class AttachmentsAdapter(
-    private val onClick: (String) -> Unit
-) : RecyclerView.Adapter<AttachmentsAdapter.VH>() {
+private sealed class MediaStripItem {
+    abstract val blockId: Long
+    abstract val mediaUri: String
+    abstract val mimeType: String?
 
-    private val items = mutableListOf<String>() // chemins absolus
+    data class Image(
+        override val blockId: Long,
+        override val mediaUri: String,
+        override val mimeType: String?,
+        val type: BlockType,
+    ) : MediaStripItem()
 
-    class VH(val card: MaterialCardView, val img: ImageView) : RecyclerView.ViewHolder(card)
+    data class Audio(
+        override val blockId: Long,
+        override val mediaUri: String,
+        override val mimeType: String?,
+        val durationMs: Long?,
+    ) : MediaStripItem()
+}
 
-    override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): VH {
-        val ctx = parent.context
-        val size = (72 * ctx.resources.displayMetrics.density).toInt()
-        val card = MaterialCardView(ctx).apply {
-            layoutParams = android.view.ViewGroup.MarginLayoutParams(size, size).apply {
-                marginEnd = (8 * ctx.resources.displayMetrics.density).toInt()
-            }
-            radius = 16f
+private class MediaStripAdapter(
+    private val onClick: (MediaStripItem) -> Unit,
+    private val onLongPress: (View, MediaStripItem) -> Unit,
+) : ListAdapter<MediaStripItem, RecyclerView.ViewHolder>(DIFF) {
+
+    companion object {
+        private const val TYPE_IMAGE = 0
+        private const val TYPE_AUDIO = 1
+
+        private val DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
+            override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
+                oldItem.blockId == newItem.blockId
+
+            override fun areContentsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
+                oldItem == newItem
         }
-        val img = ImageView(ctx).apply {
-            layoutParams = android.view.ViewGroup.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+    }
+
+    private val durationCache = mutableMapOf<Long, String>()
+
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long = getItem(position).blockId
+
+    override fun getItemViewType(position: Int): Int = when (getItem(position)) {
+        is MediaStripItem.Audio -> TYPE_AUDIO
+        is MediaStripItem.Image -> TYPE_IMAGE
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
+        when (viewType) {
+            TYPE_AUDIO -> createAudioHolder(parent)
+            else -> createImageHolder(parent)
+        }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        when (holder) {
+            is ImageHolder -> holder.bind(getItem(position) as MediaStripItem.Image)
+            is AudioHolder -> holder.bind(getItem(position) as MediaStripItem.Audio)
+        }
+    }
+
+    override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+        if (holder is ImageHolder) {
+            Glide.with(holder.image).clear(holder.image)
+        }
+        super.onViewRecycled(holder)
+    }
+
+    override fun submitList(list: List<MediaStripItem>?) {
+        if (list == null) {
+            durationCache.clear()
+        } else {
+            val ids = list.map { it.blockId }.toSet()
+            durationCache.keys.retainAll(ids)
+        }
+        super.submitList(list?.let { ArrayList(it) })
+    }
+
+    private fun createImageHolder(parent: ViewGroup): ImageHolder {
+        val ctx = parent.context
+        val density = ctx.resources.displayMetrics.density
+        val size = (160 * density).toInt()
+        val margin = (8 * density).toInt()
+        val card = MaterialCardView(ctx).apply {
+            layoutParams = ViewGroup.MarginLayoutParams(size, size).apply {
+                marginEnd = margin
+            }
+            radius = 20f
+            cardElevation = 6f
+            isClickable = true
+            isFocusable = true
+        }
+        val image = ImageView(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
             )
             scaleType = ImageView.ScaleType.CENTER_CROP
             clipToOutline = true
         }
-        card.addView(img)
-        return VH(card, img)
+        card.addView(image)
+        return ImageHolder(card, image)
     }
 
-    override fun getItemCount(): Int = items.size
+    private fun createAudioHolder(parent: ViewGroup): AudioHolder {
+        val ctx = parent.context
+        val density = ctx.resources.displayMetrics.density
+        val height = (48 * density).toInt()
+        val horizontalPadding = (16 * density).toInt()
+        val verticalPadding = (8 * density).toInt()
+        val margin = (8 * density).toInt()
 
-    override fun onBindViewHolder(holder: VH, position: Int) {
-        val path = items[position]
-        // éviter les miniatures fantômes
-        holder.img.setImageDrawable(null)
-        Glide.with(holder.img).clear(holder.img)
-        Glide.with(holder.img)
-            .load(File(path))
-            .centerCrop()
-            .into(holder.img)
+        val card = MaterialCardView(ctx).apply {
+            layoutParams = ViewGroup.MarginLayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                height
+            ).apply {
+                marginEnd = margin
+            }
+            radius = 40f
+            cardElevation = 4f
+            isClickable = true
+            isFocusable = true
+        }
 
-        holder.card.setOnClickListener { onClick(path) }
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
+        }
+
+        val icon = ImageView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams((24 * density).toInt(), (24 * density).toInt())
+            setImageResource(android.R.drawable.ic_btn_speak_now)
+        }
+
+        val text = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = (8 * density).toInt()
+            }
+            textSize = 14f
+        }
+
+        row.addView(icon)
+        row.addView(text)
+        card.addView(row)
+
+        return AudioHolder(card, text)
     }
 
-    fun submit(list: List<String>) {
-        items.clear()
-        items.addAll(list)
-        notifyDataSetChanged()
+    inner class ImageHolder(val card: MaterialCardView, val image: ImageView) :
+        RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem.Image) {
+            Glide.with(image)
+                .load(item.mediaUri)
+                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                .centerCrop()
+                .into(image)
+
+            card.setOnClickListener { onClick(item) }
+            card.setOnLongClickListener {
+                onLongPress(it, item)
+                true
+            }
+        }
+    }
+
+    inner class AudioHolder(val card: MaterialCardView, private val text: TextView) :
+        RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem.Audio) {
+            text.text = resolveDuration(card.context, item)
+            card.setOnClickListener { onClick(item) }
+            card.setOnLongClickListener {
+                onLongPress(it, item)
+                true
+            }
+        }
+    }
+
+    private fun resolveDuration(context: Context, item: MediaStripItem.Audio): String {
+        durationCache[item.blockId]?.let { return it }
+
+        val label = item.durationMs?.takeIf { it > 0 }?.let { formatDuration(it) }
+            ?: extractDuration(context, item.mediaUri)
+            ?: "--:--"
+
+        durationCache[item.blockId] = label
+        return label
+    }
+
+    private fun extractDuration(context: Context, rawUri: String): String? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            val uri = Uri.parse(rawUri)
+            when {
+                uri.scheme.isNullOrEmpty() -> retriever.setDataSource(rawUri)
+                uri.scheme.equals("content", ignoreCase = true) ||
+                        uri.scheme.equals("file", ignoreCase = true) -> retriever.setDataSource(context, uri)
+                else -> retriever.setDataSource(rawUri)
+            }
+            val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()
+            duration?.let { formatDuration(it) }
+        } catch (_: Throwable) {
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun formatDuration(durationMs: Long): String {
+        val totalSeconds = TimeUnit.MILLISECONDS.toSeconds(durationMs)
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return String.format("%02d:%02d", minutes, seconds)
     }
 }
