@@ -106,8 +106,8 @@ class RecorderService : Service() {
                 }.getOrNull()
 
                 if (!text.isNullOrBlank()) {
+                    // IMPORTANT: transcription -> Note.body only, no TEXT blocks.
                     runCatching { repo.setBody(noteId, text) }
-                    runCatching { blocksRepo.appendTranscription(noteId, text, gid) }
                 }
             }
 
