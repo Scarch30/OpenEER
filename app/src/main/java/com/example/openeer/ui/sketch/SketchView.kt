@@ -35,7 +35,8 @@ class SketchView @JvmOverloads constructor(
         val sx: Float? = null,
         val sy: Float? = null,
         val ex: Float? = null,
-        val ey: Float? = null
+        val ey: Float? = null,
+        var cachedPath: Path? = null
     )
 
     private val strokes: MutableList<Stroke> = mutableListOf()
@@ -49,6 +50,7 @@ class SketchView @JvmOverloads constructor(
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
+    private val strokePaint = Paint(basePaint)
     private val erasePaintTemplate = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.TRANSPARENT
         style = Paint.Style.STROKE
@@ -82,13 +84,18 @@ class SketchView @JvmOverloads constructor(
     private fun drawStroke(canvas: Canvas, s: Stroke, preview: Boolean = false) {
         val paint = when (s.type) {
             Mode.ERASE -> erasePaintTemplate.apply { strokeWidth = s.width }
-            else -> Paint(basePaint).apply {
+            else -> strokePaint.apply {
+                set(basePaint)
                 color = s.color
                 strokeWidth = s.width
                 style = if (isShapeMode(s.type) && s.filled) Paint.Style.FILL_AND_STROKE else Paint.Style.STROKE
             }
         }
-        val path = buildPathFromStroke(s)
+        val path = if (preview) {
+            buildPathFromStroke(s)
+        } else {
+            s.cachedPath ?: buildPathFromStroke(s).also { s.cachedPath = it }
+        }
         canvas.drawPath(path, paint)
     }
 
@@ -141,15 +148,14 @@ class SketchView @JvmOverloads constructor(
                 tempStroke = Stroke(
                     type = if (erase) Mode.ERASE else Mode.PEN,
                     color = drawColor,
-                    width = if (erase) 20f else drawStroke,
+                    width = drawStroke,
                     points = mutableListOf(PointF(ev.x, ev.y))
                 )
             }
             MotionEvent.ACTION_MOVE -> tempStroke?.points?.add(PointF(ev.x, ev.y))
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 tempStroke?.points?.add(PointF(ev.x, ev.y))
-                tempStroke?.let { strokes += it }
-                tempStroke = null
+                tempStroke?.let { finalizeStroke(it) }
             }
         }
         invalidate()
@@ -165,8 +171,7 @@ class SketchView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> tempStroke = tempStroke?.copy(ex = ev.x, ey = ev.y)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 tempStroke = tempStroke?.copy(ex = ev.x, ey = ev.y)
-                tempStroke?.let { strokes += it }
-                tempStroke = null
+                tempStroke?.let { finalizeStroke(it) }
             }
         }
         invalidate()
@@ -182,8 +187,7 @@ class SketchView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> tempStroke = tempStroke?.copy(ex = ev.x, ey = ev.y, filled = fillShapes)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 tempStroke = tempStroke?.copy(ex = ev.x, ey = ev.y, filled = fillShapes)
-                tempStroke?.let { strokes += it }
-                tempStroke = null
+                tempStroke?.let { finalizeStroke(it) }
             }
         }
         invalidate()
@@ -242,6 +246,12 @@ class SketchView @JvmOverloads constructor(
         return path
     }
 
+    private fun finalizeStroke(stroke: Stroke) {
+        stroke.cachedPath = buildPathFromStroke(stroke)
+        strokes += stroke
+        tempStroke = null
+    }
+
     // ---- Persistance JSON (inchangé) ----
     fun getStrokesJson(): String {
         val arr = JSONArray()
@@ -273,21 +283,23 @@ class SketchView @JvmOverloads constructor(
                 val color = o.optInt("color", Color.BLACK)
                 val width = o.optDouble("width", 5.0).toFloat()
                 val filled = o.optBoolean("filled", false)
-                if (o.has("points")) {
+                val stroke = if (o.has("points")) {
                     val ptsArr = o.getJSONArray("points")
                     val pts = mutableListOf<PointF>()
                     for (j in 0 until ptsArr.length()) {
                         val pj = ptsArr.getJSONObject(j)
                         pts.add(PointF(pj.getDouble("x").toFloat(), pj.getDouble("y").toFloat()))
                     }
-                    strokes.add(Stroke(type, color, width, false, pts))
+                    Stroke(type, color, width, false, pts)
                 } else {
                     val sx = o.optDouble("sx", 0.0).toFloat()
                     val sy = o.optDouble("sy", 0.0).toFloat()
                     val ex = o.optDouble("ex", 0.0).toFloat()
                     val ey = o.optDouble("ey", 0.0).toFloat()
-                    strokes.add(Stroke(type, color, width, filled, null, sx, sy, ex, ey))
+                    Stroke(type, color, width, filled, null, sx, sy, ex, ey)
                 }
+                stroke.cachedPath = buildPathFromStroke(stroke)
+                strokes.add(stroke)
             }
         } catch (_: Throwable) { /* ignore JSON invalide */ }
         invalidate()
