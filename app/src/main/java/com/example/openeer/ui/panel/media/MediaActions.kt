@@ -9,30 +9,61 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.FileProvider
-import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.SimplePlayer
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 
+/**
+ * Actions communes pour les items de la strip média (click / long press menu).
+ * Gère maintenant IMAGE, AUDIO et TEXT (post-it).
+ */
 class MediaActions(
     private val activity: AppCompatActivity,
-    private val blocksRepo: BlocksRepository,
+    private val blocksRepo: BlocksRepository
 ) {
+    private val uiScope = CoroutineScope(Dispatchers.Main)
 
     fun handleClick(item: MediaStripItem) {
         when (item) {
             is MediaStripItem.Image -> {
+                // Ouvrir viewer photo
                 val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
-                    putExtra("path", item.mediaUri)
+                    putExtra("path", item.mediaUri) // non-null
                 }
                 activity.startActivity(intent)
             }
-            is MediaStripItem.Audio -> playAudio(item)
+            is MediaStripItem.Audio -> {
+                // Jouer audio local
+                val path = item.mediaUri // non-null
+                if (path.startsWith("content://")) {
+                    Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val file = File(path)
+                if (!file.exists()) {
+                    Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                    return
+                }
+                SimplePlayer.play(
+                    ctx = activity,
+                    path = file.absolutePath,
+                    onStart = { Toast.makeText(activity, "Lecture…", Toast.LENGTH_SHORT).show() },
+                    onStop = { Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show() },
+                    onError = { e ->
+                        Toast.makeText(activity, "Lecture impossible : ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                )
+            }
+            is MediaStripItem.Text -> {
+                // Pour un post-it texte : simple aperçu via Toast (ou ouvrir un éditeur dédié plus tard)
+                val preview = item.preview.ifBlank { "…" }
+                Toast.makeText(activity, preview, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -43,11 +74,11 @@ class MediaActions(
         popup.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 MENU_SHARE -> {
-                    shareMedia(item)
+                    share(item)
                     true
                 }
                 MENU_DELETE -> {
-                    confirmDeleteMedia(item)
+                    confirmDelete(item)
                     true
                 }
                 else -> false
@@ -56,15 +87,65 @@ class MediaActions(
         popup.show()
     }
 
-    private fun shareMedia(item: MediaStripItem) {
-        val shareUri = resolveShareUri(item.mediaUri)
-        if (shareUri == null) {
+    private fun share(item: MediaStripItem) {
+        when (item) {
+            is MediaStripItem.Image -> {
+                shareFile(item.mediaUri, item.mimeType ?: "image/*")
+            }
+            is MediaStripItem.Audio -> {
+                shareFile(item.mediaUri, item.mimeType ?: "audio/*")
+            }
+            is MediaStripItem.Text -> {
+                shareText(item.preview)
+            }
+        }
+    }
+
+    private fun confirmDelete(item: MediaStripItem) {
+        AlertDialog.Builder(activity)
+            .setTitle(R.string.media_action_delete)
+            .setMessage(R.string.media_delete_confirm)
+            .setPositiveButton(R.string.action_validate) { _, _ ->
+                performDelete(item)
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun performDelete(item: MediaStripItem) {
+        uiScope.launch {
+            val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                runCatching {
+                    when (item) {
+                        is MediaStripItem.Image -> {
+                            deleteMediaFile(item.mediaUri)
+                            blocksRepo.deleteBlock(item.blockId)
+                        }
+                        is MediaStripItem.Audio -> {
+                            deleteMediaFile(item.mediaUri)
+                            blocksRepo.deleteBlock(item.blockId)
+                        }
+                        is MediaStripItem.Text -> {
+                            // Pas de fichier à supprimer
+                            blocksRepo.deleteBlock(item.blockId)
+                        }
+                    }
+                }.isSuccess
+            }
+            if (ok) {
+                Toast.makeText(activity, activity.getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(activity, activity.getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // ---- Partage ----
+
+    private fun shareFile(rawPathOrUri: String, mime: String) {
+        val shareUri = resolveShareUri(rawPathOrUri) ?: run {
             Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
             return
-        }
-        val mime = when (item) {
-            is MediaStripItem.Audio -> item.mimeType ?: "audio/*"
-            is MediaStripItem.Image -> item.mimeType ?: "image/*"
         }
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = mime
@@ -82,32 +163,20 @@ class MediaActions(
         }
     }
 
-    private fun confirmDeleteMedia(item: MediaStripItem) {
-        AlertDialog.Builder(activity)
-            .setTitle(R.string.media_action_delete)
-            .setMessage(R.string.media_delete_confirm)
-            .setPositiveButton(R.string.action_validate) { _, _ ->
-                performDeleteMedia(item)
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
-    private fun performDeleteMedia(item: MediaStripItem) {
-        activity.lifecycleScope.launch {
-            val success = withContext(Dispatchers.IO) {
-                runCatching {
-                    deleteMediaFile(item.mediaUri)
-                    blocksRepo.deleteBlock(item.blockId)
-                }.isSuccess
-            }
-            if (success) {
-                Toast.makeText(activity, activity.getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(activity, activity.getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
-            }
+    private fun shareText(text: String) {
+        val content = text.ifBlank { " " }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, content)
+        }
+        runCatching {
+            activity.startActivity(Intent.createChooser(intent, activity.getString(R.string.media_action_share)))
+        }.onFailure {
+            Toast.makeText(activity, activity.getString(R.string.media_share_error), Toast.LENGTH_LONG).show()
         }
     }
+
+    // ---- Fichiers ----
 
     private fun deleteMediaFile(rawUri: String) {
         runCatching {
@@ -129,48 +198,19 @@ class MediaActions(
     private fun resolveShareUri(raw: String): Uri? {
         val parsed = Uri.parse(raw)
         return when {
-            parsed.scheme.isNullOrEmpty() -> fileProviderUri(File(raw))
-            parsed.scheme.equals("file", ignoreCase = true) -> parsed.path?.let { path ->
-                fileProviderUri(File(path))
+            parsed.scheme.isNullOrEmpty() -> {
+                val file = File(raw)
+                if (!file.exists()) null
+                else FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
+            }
+            parsed.scheme.equals("file", ignoreCase = true) -> {
+                val file = File(parsed.path ?: return null)
+                if (!file.exists()) null
+                else FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
             }
             parsed.scheme.equals("content", ignoreCase = true) -> parsed
             else -> parsed
         }
-    }
-
-    private fun fileProviderUri(file: File): Uri? {
-        if (!file.exists()) return null
-        return try {
-            FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
-        } catch (_: IllegalArgumentException) {
-            null
-        }
-    }
-
-    private fun playAudio(item: MediaStripItem.Audio) {
-        val raw = item.mediaUri
-        if (raw.startsWith("content://")) {
-            Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val file = File(raw)
-        if (!file.exists()) {
-            Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
-            return
-        }
-        SimplePlayer.play(
-            ctx = activity,
-            path = file.absolutePath,
-            onStart = {
-                Toast.makeText(activity, "Lecture…", Toast.LENGTH_SHORT).show()
-            },
-            onStop = {
-                Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show()
-            },
-            onError = { e ->
-                Toast.makeText(activity, "Lecture impossible : ${e.message}", Toast.LENGTH_LONG).show()
-            }
-        )
     }
 
     private companion object {
