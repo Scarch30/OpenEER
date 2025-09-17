@@ -110,6 +110,7 @@ class MicBarController(
                         if (!lastWasHandsFree) segment += "\n"
 
                         activity.lifecycleScope.launch(Dispatchers.Main) {
+                            // IMPORTANT: transcription -> Note.body only, no TEXT blocks.
                             onReplaceFinal(segment, false)
                             binding.liveTranscriptionText.text = event.text
                             Toast.makeText(activity, "Segment ajouté", Toast.LENGTH_SHORT).show()
@@ -166,9 +167,6 @@ class MicBarController(
                     withContext(Dispatchers.IO) {
                         repo.updateAudio(nid, wavPath)
                         blocksRepo.appendAudio(nid, wavPath, null, "audio/wav", gid)
-                        if (finalText.isNotEmpty()) {
-                            blocksRepo.appendTranscription(nid, finalText, gid)
-                        }
                     }
                 }
 
@@ -177,6 +175,7 @@ class MicBarController(
 
                 if (segment.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
+                        // IMPORTANT: transcription -> Note.body only, no TEXT blocks.
                         onReplaceFinal(segment, false)
                         if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
                     }
