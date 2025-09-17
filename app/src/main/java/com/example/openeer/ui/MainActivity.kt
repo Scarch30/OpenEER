@@ -12,6 +12,7 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -160,14 +161,18 @@ class MainActivity : AppCompatActivity() {
         editorBody = EditorBodyController(
             activity = this,
             binding = b,
-            repo = repo
+            repo = repo,
+            onEditModeChanged = { editing ->
+                b.btnMicBar.isVisible = !editing
+                b.bottomBar.isVisible = !editing
+            }
         )
 
         // Boutons barre du bas
         b.btnKeyboard.setOnClickListener {
             lifecycleScope.launch {
-                val nid = ensureOpenNote()
-                captureLauncher.launchKeyboardCapture(nid)
+                ensureOpenNote()
+                editorBody.enterInlineEdit(notePanel.openNoteId)
             }
         }
         b.btnPhoto.setOnClickListener {
