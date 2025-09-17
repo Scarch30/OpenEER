@@ -17,9 +17,11 @@ import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.BlockType
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.formatMeta
 import com.example.openeer.ui.SimplePlayer
+import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
@@ -28,7 +30,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * Contrôle l'affichage de la "note ouverte" dans MainActivity (panel en haut de la liste).
@@ -184,8 +185,10 @@ class NotePanelController(
             val view = when (block.type) {
                 // On n’affiche plus les blocs TEXT : tout le texte vit dans Note.body
                 BlockType.TEXT -> null
-                BlockType.SKETCH, BlockType.PHOTO -> createImageBlockView(block, margin)
-                BlockType.VIDEO, BlockType.ROUTE, BlockType.FILE -> createUnsupportedBlockView(block, margin)
+                BlockType.SKETCH, BlockType.PHOTO ->
+                    BlockRenderers.createImageBlockView(container.context, block, margin)
+                BlockType.VIDEO, BlockType.ROUTE, BlockType.FILE ->
+                    BlockRenderers.createUnsupportedBlockView(container.context, block, margin)
                 BlockType.AUDIO, BlockType.LOCATION -> null
             }
             if (view != null) {
@@ -237,61 +240,6 @@ class NotePanelController(
                 )
                 text = block.text?.trim().orEmpty()
                 textSize = 16f
-                setPadding(padding, padding, padding, padding)
-            })
-        }
-    }
-
-    private fun createImageBlockView(block: BlockEntity, margin: Int): View {
-        val ctx = binding.root.context
-        val image = ImageView(ctx).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            adjustViewBounds = true
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            contentDescription = block.type.name
-        }
-        val uri = block.mediaUri
-        if (!uri.isNullOrBlank()) {
-            Glide.with(image).load(uri).into(image)
-        } else {
-            image.setImageResource(android.R.drawable.ic_menu_report_image)
-            image.scaleType = ImageView.ScaleType.CENTER_INSIDE
-        }
-
-        return MaterialCardView(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, margin, 0, margin) }
-            radius = 20f
-            cardElevation = 6f
-            useCompatPadding = true
-            tag = block.id
-            addView(image)
-        }
-    }
-
-    private fun createUnsupportedBlockView(block: BlockEntity, margin: Int): View {
-        val ctx = binding.root.context
-        val padding = (16 * ctx.resources.displayMetrics.density).toInt()
-        return MaterialCardView(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, margin, 0, margin) }
-            radius = 20f
-            cardElevation = 6f
-            useCompatPadding = true
-            tag = block.id
-            addView(TextView(ctx).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-                text = block.type.name
                 setPadding(padding, padding, padding, padding)
             })
         }
