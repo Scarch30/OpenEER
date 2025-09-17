@@ -1,7 +1,10 @@
 package com.example.openeer.ui
 
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isGone
@@ -16,15 +19,15 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlockEntity
-import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.BlockType
+import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.formatMeta
-import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
+import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -308,5 +311,4 @@ class NotePanelController(
             .setNegativeButton("Annuler", null)
             .show()
     }
-
 }
