@@ -188,8 +188,7 @@ class NotePanelController(
             val view = when (block.type) {
                 // On n’affiche plus les blocs TEXT dans le corps : tout le texte vit dans Note.body
                 BlockType.TEXT -> null
-                BlockType.SKETCH, BlockType.PHOTO ->
-                    BlockRenderers.createImageBlockView(container.context, block, margin)
+                BlockType.SKETCH, BlockType.PHOTO -> null
                 BlockType.VIDEO, BlockType.ROUTE, BlockType.FILE ->
                     BlockRenderers.createUnsupportedBlockView(container.context, block, margin)
                 BlockType.AUDIO, BlockType.LOCATION -> null
