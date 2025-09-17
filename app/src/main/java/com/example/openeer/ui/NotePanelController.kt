@@ -25,6 +25,7 @@ import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
+import com.example.openeer.ui.panel.util.ScrollHighlighter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -71,6 +72,8 @@ class NotePanelController(
         onClick = { item -> mediaActions.handleClick(item) },
         onLongPress = { view, item -> mediaActions.showMenu(view, item) }
     )
+
+    private val highlighter = ScrollHighlighter(binding.scrollBody)
 
     init {
         binding.mediaStrip.layoutManager =
@@ -161,9 +164,11 @@ class NotePanelController(
     fun highlightBlock(blockId: Long) {
         if (openNoteId == null) return
         pendingHighlightBlockId = blockId
-        if (!tryHighlightBlock(blockId)) {
-            // Le bloc sera mis en évidence lors du prochain rendu des enfants.
+        blockViews[blockId]?.let { view ->
+            highlighter.scrollToAndFlash(view)
+            pendingHighlightBlockId = null
         }
+        // Le bloc sera mis en évidence lors du prochain rendu des enfants si la vue n'est pas encore disponible.
     }
 
     private fun renderBlocks(blocks: List<BlockEntity>) {
@@ -200,7 +205,12 @@ class NotePanelController(
 
         container.isGone = !hasRenderable
         if (hasRenderable) {
-            pendingHighlightBlockId?.let { tryHighlightBlock(it) }
+            pendingHighlightBlockId?.let { pendingId ->
+                blockViews[pendingId]?.let { view ->
+                    highlighter.scrollToAndFlash(view)
+                    pendingHighlightBlockId = null
+                }
+            }
         }
     }
 
@@ -243,25 +253,6 @@ class NotePanelController(
                 setPadding(padding, padding, padding, padding)
             })
         }
-    }
-
-    private fun tryHighlightBlock(blockId: Long): Boolean {
-        val view = blockViews[blockId] ?: return false
-        binding.scrollBody.post {
-            val density = view.resources.displayMetrics.density
-            val offset = (16 * density).toInt()
-            val targetY = (view.top - offset).coerceAtLeast(0)
-            binding.scrollBody.smoothScrollTo(0, targetY)
-            flashView(view)
-        }
-        pendingHighlightBlockId = null
-        return true
-    }
-
-    private fun flashView(view: View) {
-        view.animate().cancel()
-        view.alpha = 0.5f
-        view.animate().alpha(1f).setDuration(350L).start()
     }
 
     // ---- Internes ----
