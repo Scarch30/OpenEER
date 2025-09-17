@@ -174,12 +174,21 @@ class NotePanelController(
     }
 
     private fun renderBlocks(blocks: List<BlockEntity>) {
+        val displayBlocks = blocks.filterNot {
+            it.type == BlockType.LOCATION || it.type == BlockType.ROUTE
+        }
         val container = binding.childBlocksContainer
-        if (blocks.isEmpty()) {
+        if (displayBlocks.isEmpty()) {
             container.isGone = true
             container.removeAllViews()
             blockViews.clear()
             return
+        }
+
+        pendingHighlightBlockId?.let { highlightId ->
+            if (displayBlocks.none { it.id == highlightId }) {
+                pendingHighlightBlockId = null
+            }
         }
 
         container.isVisible = true
@@ -187,7 +196,7 @@ class NotePanelController(
         blockViews.clear()
         val margin = (8 * container.resources.displayMetrics.density).toInt()
 
-        blocks.forEach { block ->
+        displayBlocks.forEach { block ->
             val view = when (block.type) {
                 BlockType.TEXT -> createTextBlockView(block, margin)
                 BlockType.SKETCH, BlockType.PHOTO -> createImageBlockView(block, margin)

@@ -41,6 +41,17 @@ class BlocksAdapter(
         else -> TYPE_TEXT
     }
 
+    override fun submitList(list: List<BlockEntity>?) {
+        super.submitList(list?.filterNot(::isMetadataBlock))
+    }
+
+    override fun submitList(list: List<BlockEntity>?, commitCallback: Runnable?) {
+        super.submitList(list?.filterNot(::isMetadataBlock), commitCallback)
+    }
+
+    private fun isMetadataBlock(block: BlockEntity): Boolean =
+        block.type == BlockType.LOCATION || block.type == BlockType.ROUTE
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inf = LayoutInflater.from(parent.context)
         return when (viewType) {

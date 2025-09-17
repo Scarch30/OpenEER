@@ -39,7 +39,7 @@ class RecorderService : Service() {
         super.onCreate()
         val db = AppDatabase.get(this)
         repo = NoteRepository(db.noteDao(), db.attachmentDao())
-        blocksRepo = BlocksRepository(db.blockDao())
+        blocksRepo = BlocksRepository(db.blockDao(), db.noteDao())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -58,11 +58,20 @@ class RecorderService : Service() {
         scope.launch {
             val place = runCatching { getOneShotPlace(this@RecorderService) }.getOrNull()
             noteId = repo.createTextNote(
-                body  = "(audio en cours d’enregistrement…)",
-                lat   = place?.lat, lon = place?.lon, place = place?.label
+                body = "(audio en cours d’enregistrement…)",
+                lat = place?.lat,
+                lon = place?.lon,
+                place = place?.label,
+                accuracyM = place?.accuracyM
             )
             if (place != null) {
-                blocksRepo.appendLocation(noteId, place.lat, place.lon, place.label)
+                blocksRepo.appendLocation(
+                    noteId = noteId,
+                    lat = place.lat,
+                    lon = place.lon,
+                    placeName = place.label,
+                    accuracyM = place.accuracyM
+                )
             }
         }
 

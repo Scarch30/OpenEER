@@ -30,7 +30,7 @@ class BlocksRepositoryTest {
         db = Room.inMemoryDatabaseBuilder(ctx, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        repo = BlocksRepository(db.blockDao())
+        repo = BlocksRepository(db.blockDao(), db.noteDao())
 
         noteId = runBlocking {
             db.noteDao().insert(Note())
@@ -49,10 +49,10 @@ class BlocksRepositoryTest {
         val photoId = repo.appendPhoto(noteId, "uri://photo")
         val audioId = repo.appendAudio(noteId, "uri://audio", 1000L, "audio/wav", gid)
         val trId = repo.appendTranscription(noteId, "world", gid)
-        val locId = repo.appendLocation(noteId, 1.0, 2.0, "place")
+        repo.appendLocation(noteId, 1.0, 2.0, "place", 12.5f)
 
         val blocks = db.blockDao().observeBlocks(noteId).first()
-        assertEquals(5, blocks.size)
+        assertEquals(4, blocks.size)
 
         assertEquals(textId, blocks[0].id)
         assertEquals(BlockType.TEXT, blocks[0].type)
@@ -72,13 +72,14 @@ class BlocksRepositoryTest {
         assertEquals(gid, blocks[3].groupId)
         assertEquals("world", blocks[3].text)
 
-        assertEquals(BlockType.LOCATION, blocks[4].type)
-        // ⚠️ lat/lon sont Double? dans l’entity → on vérifie notNull avant comparaison
-        assertNotNull(blocks[4].lat)
-        assertNotNull(blocks[4].lon)
-        assertEquals(1.0, blocks[4].lat!!, 0.0)
-        assertEquals(2.0, blocks[4].lon!!, 0.0)
-        assertEquals("place", blocks[4].placeName)
+        assertTrue(blocks.none { it.type == BlockType.LOCATION || it.type == BlockType.ROUTE })
+
+        val note = db.noteDao().getByIdOnce(noteId)
+        assertNotNull(note)
+        assertEquals(1.0, note?.lat, 0.0)
+        assertEquals(2.0, note?.lon, 0.0)
+        assertEquals("place", note?.placeLabel)
+        assertEquals(12.5f, note?.accuracyM)
     }
 
     @Test

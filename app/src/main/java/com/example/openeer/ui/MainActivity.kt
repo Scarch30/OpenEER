@@ -135,14 +135,13 @@ class MainActivity : AppCompatActivity() {
                             lifecycleScope.launch(Dispatchers.IO) {
                                 val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
                                 if (place != null) {
-                                    repo.updateLocation(
-                                        id = newId,
+                                    blocksRepo.appendLocation(
+                                        noteId = newId,
                                         lat = place.lat,
                                         lon = place.lon,
-                                        place = place.label,
+                                        placeName = place.label,
                                         accuracyM = place.accuracyM
                                     )
-                                    blocksRepo.appendLocation(newId, place.lat, place.lon, place.label)
                                 }
                             }
                             micCtl.beginPress(initialX = ev.x)
@@ -245,14 +244,13 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
             if (place != null) {
-                repo.updateLocation(
-                    id = newId,
+                blocksRepo.appendLocation(
+                    noteId = newId,
                     lat = place.lat,
                     lon = place.lon,
-                    place = place.label,
+                    placeName = place.label,
                     accuracyM = place.accuracyM
                 )
-                blocksRepo.appendLocation(newId, place.lat, place.lon, place.label)
             }
         }
         return newId

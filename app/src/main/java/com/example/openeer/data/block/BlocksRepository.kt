@@ -120,20 +120,20 @@ class BlocksRepository(
         noteId: Long,
         lat: Double,
         lon: Double,
-        placeName: String? = null
-    ): Long {
-        val now = System.currentTimeMillis()
-        val block = BlockEntity(
-            noteId = noteId,
-            type = BlockType.LOCATION,
-            position = 0,
-            lat = lat,
-            lon = lon,
-            placeName = placeName,
-            createdAt = now,
-            updatedAt = now
-        )
-        return insert(noteId, block)
+        placeName: String? = null,
+        accuracyM: Float? = null
+    ) {
+        val dao = noteDao ?: throw IllegalStateException("noteDao required for location metadata")
+        withContext(io) {
+            dao.updateLocation(
+                id = noteId,
+                lat = lat,
+                lon = lon,
+                place = placeName,
+                accuracyM = accuracyM,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
     }
 
     // ⚠️ FIX: on délègue au DAO (double passe avec positions temporaires uniques)
