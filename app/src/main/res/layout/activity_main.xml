@@ -109,15 +109,7 @@
             </LinearLayout>
         </ScrollView>
 
-        <!-- Bouton Lecture audio -->
-        <Button
-            android:id="@+id/btnPlayDetail"
-            android:text="Lecture"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:enabled="false"
-            android:padding="12dp" />
-
+        <!-- Media strip (photos / dessins / audio) -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/mediaStrip"
             android:layout_width="match_parent"

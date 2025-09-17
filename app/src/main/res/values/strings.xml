@@ -39,7 +39,7 @@
     <string name="sketch_shape_filled">Remplir la forme</string>
 
     <!-- Pas d'échappement Unicode invalide ; apostrophe encodée en entité XML -->
-    <string name="sketch_eraser_hint">Ajustez l&#39;épaisseur de la gomme</string>
+    <string name="sketch_eraser_hint">Ajustez l\u0027épaisseur de la gomme</string>
 
     <string name="sketch_color_picker_title">Choisir une couleur</string>
     <string name="sketch_hue">Teinte</string>
