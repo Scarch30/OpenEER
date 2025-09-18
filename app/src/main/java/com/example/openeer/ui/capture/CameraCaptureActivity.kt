@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +21,8 @@ import android.view.ViewConfiguration
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -39,17 +42,25 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
 import androidx.core.view.updatePadding
+import androidx.lifecycle.lifecycleScope
+import com.example.openeer.data.AppDatabase
+import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.R
 import com.example.openeer.ui.util.toast
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import java.io.File
 import java.util.concurrent.Executor
+import android.webkit.MimeTypeMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class CameraCaptureActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var captureButton: MaterialButton
+    private lateinit var openGalleryButton: MaterialButton
     private lateinit var stateIdle: TextView
     private lateinit var stateHold: TextView
     private lateinit var stateLock: TextView
@@ -65,6 +76,12 @@ class CameraCaptureActivity : AppCompatActivity() {
     private var pendingVideoFile: File? = null
     private var captureState: CaptureState = CaptureState.IDLE
     private var ignoreNextTapAfterLongPressFailure = false
+    private var noteId: Long? = null
+
+    private val blocksRepo: BlocksRepository by lazy {
+        val db = AppDatabase.get(this)
+        BlocksRepository(db.blockDao(), db.noteDao())
+    }
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayChanged(displayId: Int) {
@@ -77,6 +94,23 @@ class CameraCaptureActivity : AppCompatActivity() {
 
         override fun onDisplayRemoved(displayId: Int) = Unit
     }
+
+    private val pickMediaLauncher =
+        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            if (uri != null) {
+                handlePickedMedia(uri)
+            }
+        }
+
+    private val mediaPermissionsLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            val granted = result.values.all { it }
+            if (granted) {
+                launchUnifiedPhotoPicker()
+            } else {
+                toast("Permission galerie refusée", Toast.LENGTH_LONG)
+            }
+        }
 
     private val longPressRunnable = Runnable {
         longPressTriggered = true
@@ -97,9 +131,12 @@ class CameraCaptureActivity : AppCompatActivity() {
         val root: View = findViewById(R.id.cameraRoot)
         previewView = findViewById(R.id.cameraPreview)
         captureButton = findViewById(R.id.captureButton)
+        openGalleryButton = findViewById(R.id.openGalleryButton)
         stateIdle = findViewById(R.id.captureStateIdle)
         stateHold = findViewById(R.id.captureStateHold)
         stateLock = findViewById(R.id.captureStateLock)
+
+        noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L).takeIf { it > 0 }
 
         val originalToolbarPaddingTop = toolbar.paddingTop
         val originalControlsPaddingBottom = controls.paddingBottom
@@ -116,6 +153,7 @@ class CameraCaptureActivity : AppCompatActivity() {
         ViewCompat.requestApplyInsets(root)
 
         setupCameraController()
+        setupGalleryButton()
         setupCaptureButton()
 
         onBackPressedDispatcher.addCallback(this) {
@@ -155,6 +193,10 @@ class CameraCaptureActivity : AppCompatActivity() {
 
         displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
+    }
+
+    private fun setupGalleryButton() {
+        openGalleryButton.setOnClickListener { openMediaPickerWithPermissions() }
     }
 
     private fun setupCaptureButton() {
@@ -201,6 +243,114 @@ class CameraCaptureActivity : AppCompatActivity() {
                 }
                 else -> false
             }
+        }
+    }
+
+    private fun openMediaPickerWithPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val needed = mutableListOf<String>()
+            if (
+                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                needed += Manifest.permission.READ_MEDIA_IMAGES
+            }
+            if (
+                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                needed += Manifest.permission.READ_MEDIA_VIDEO
+            }
+            if (needed.isNotEmpty()) {
+                mediaPermissionsLauncher.launch(needed.toTypedArray())
+                return
+            }
+        }
+        launchUnifiedPhotoPicker()
+    }
+
+    private fun launchUnifiedPhotoPicker() {
+        pickMediaLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+        )
+    }
+
+    private fun handlePickedMedia(uri: Uri) {
+        val targetNoteId = noteId
+        if (targetNoteId == null) {
+            toast("Note introuvable", Toast.LENGTH_LONG)
+            return
+        }
+
+        when (val mime = resolveMimeType(uri)) {
+            null -> handlePickedImage(targetNoteId, uri, null)
+            else -> {
+                if (mime.startsWith("video")) {
+                    handlePickedVideo(targetNoteId, uri, mime)
+                } else if (mime.startsWith("image")) {
+                    handlePickedImage(targetNoteId, uri, mime)
+                } else {
+                    toast("Format de média non pris en charge", Toast.LENGTH_LONG)
+                }
+            }
+        }
+    }
+
+    private fun resolveMimeType(uri: Uri): String? {
+        val resolverMime = contentResolver.getType(uri)
+        if (!resolverMime.isNullOrBlank()) {
+            return resolverMime
+        }
+        val extension = MimeTypeMap.getFileExtensionFromUrl(uri.toString())
+        return if (!extension.isNullOrEmpty()) {
+            MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase())
+        } else {
+            null
+        }
+    }
+
+    private fun handlePickedImage(noteId: Long, uri: Uri, mime: String?) {
+        lifecycleScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    blocksRepo.appendPhoto(noteId, uri.toString(), mimeType = mime ?: "image/*")
+                }.isSuccess
+            }
+            if (saved) {
+                lastPhotoPath = uri.toString()
+                toast(getString(R.string.camera_capture_photo_saved))
+            } else {
+                toast(getString(R.string.camera_capture_photo_error), Toast.LENGTH_LONG)
+            }
+        }
+    }
+
+    private fun handlePickedVideo(noteId: Long, uri: Uri, mime: String) {
+        lifecycleScope.launch {
+            val duration = readVideoDurationMs(uri) ?: 0L
+            val saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    blocksRepo.appendVideo(noteId, uri.toString(), mimeType = mime, durationMs = duration)
+                }.isSuccess
+            }
+            if (saved) {
+                lastVideoUri = uri
+                toast(getString(R.string.camera_capture_video_saved))
+            } else {
+                toast(getString(R.string.camera_capture_video_error), Toast.LENGTH_LONG)
+            }
+        }
+    }
+
+    private suspend fun readVideoDurationMs(uri: Uri): Long? = withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(this@CameraCaptureActivity, uri)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+        } catch (t: Throwable) {
+            null
+        } finally {
+            retriever.release()
         }
     }
 
