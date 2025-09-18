@@ -2,6 +2,7 @@
 package com.example.openeer.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
@@ -24,6 +25,7 @@ import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.ui.capture.CameraCaptureActivity
 import com.example.openeer.ui.capture.CaptureLauncher
 import com.example.openeer.ui.editor.EditorBodyController
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
@@ -206,7 +208,10 @@ class MainActivity : AppCompatActivity() {
         b.btnPhoto.setOnClickListener {
             lifecycleScope.launch {
                 val nid = ensureOpenNote()
-                captureLauncher.launchPhotoCapture(nid)
+                val intent = Intent(this@MainActivity, CameraCaptureActivity::class.java).apply {
+                    putExtra(CameraCaptureActivity.EXTRA_NOTE_ID, nid)
+                }
+                startActivity(intent)
             }
         }
         b.btnSketch.setOnClickListener {

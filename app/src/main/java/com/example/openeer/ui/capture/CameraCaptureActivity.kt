@@ -367,6 +367,7 @@ class CameraCaptureActivity : AppCompatActivity() {
     private enum class CaptureState { IDLE, HOLD, LOCK }
 
     companion object {
+        const val EXTRA_NOTE_ID = "extra_note_id"
         const val EXTRA_LAST_PHOTO = "extra_last_photo"
         const val EXTRA_LAST_VIDEO_URI = "extra_last_video"
     }
