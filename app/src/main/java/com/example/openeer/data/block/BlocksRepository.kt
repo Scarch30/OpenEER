@@ -62,7 +62,8 @@ class BlocksRepository(
         width: Int? = null,
         height: Int? = null,
         mimeType: String? = "image/*",
-        groupId: String? = null
+        groupId: String? = null,
+        extra: String? = null,
     ): Long {
         val now = System.currentTimeMillis()
         val block = BlockEntity(
@@ -74,6 +75,7 @@ class BlocksRepository(
             mimeType = mimeType,
             width = width,
             height = height,
+            extra = extra,
             createdAt = now,
             updatedAt = now
         )
