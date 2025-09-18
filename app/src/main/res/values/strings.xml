@@ -73,4 +73,13 @@
     <string name="camera_capture_video_saved">Vidéo enregistrée</string>
     <string name="camera_capture_video_error">Échec enregistrement vidéo</string>
     <string name="camera_capture_video_start_error">Impossible de démarrer la vidéo</string>
+
+    <string name="screen_capture_title">Capture d&#39;écran</string>
+    <string name="screen_capture_hint">Faites glisser pour sélectionner la zone à conserver</string>
+    <string name="screen_capture_retry">Recommencer</string>
+    <string name="screen_capture_save">Enregistrer</string>
+    <string name="screen_capture_protected">Impossible de capturer du contenu protégé.</string>
+    <string name="screen_capture_error">Capture d&#39;écran impossible</string>
+    <string name="screen_capture_cancelled">Capture d&#39;écran annulée</string>
+    <string name="screen_capture_preview_description">Aperçu de la capture d&#39;écran</string>
 </resources>
