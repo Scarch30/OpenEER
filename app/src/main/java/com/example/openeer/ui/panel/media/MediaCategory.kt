@@ -5,6 +5,7 @@ package com.example.openeer.ui.panel.media
  */
 enum class MediaCategory {
     PHOTO,
+    VIDEO,
     SKETCH,
     AUDIO,
     TEXT,

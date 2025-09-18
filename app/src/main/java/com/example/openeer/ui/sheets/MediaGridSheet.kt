@@ -3,12 +3,14 @@ package com.example.openeer.ui.sheets
 import android.app.Dialog
 import android.content.Context
 import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -20,6 +22,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import androidx.core.view.isVisible
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.example.openeer.R
@@ -41,6 +44,7 @@ import kotlinx.coroutines.launch
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
+private const val GRID_TYPE_VIDEO = 4
 
 private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
     override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
@@ -161,6 +165,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
     private fun categoryTitle(category: MediaCategory): String =
         when (category) {
             MediaCategory.PHOTO -> getString(R.string.media_category_photo)
+            MediaCategory.VIDEO -> getString(R.string.media_category_video)
             MediaCategory.SKETCH -> getString(R.string.media_category_sketch)
             MediaCategory.AUDIO  -> getString(R.string.media_category_audio)
             MediaCategory.TEXT   -> getString(R.string.media_category_text)
@@ -174,6 +179,13 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     ?.takeIf { it.isNotBlank() }
                     ?.let { uri ->
                         MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                    }
+
+                MediaCategory.VIDEO -> block.takeIf { it.type == BlockType.VIDEO }
+                    ?.mediaUri
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { uri ->
+                        MediaStripItem.Video(block.id, uri, block.mimeType)
                     }
 
                 MediaCategory.SKETCH -> block.takeIf { it.type == BlockType.SKETCH }
@@ -211,6 +223,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
         override fun getItemViewType(position: Int): Int = when (getItem(position)) {
             is MediaStripItem.Image -> GRID_TYPE_IMAGE
+            is MediaStripItem.Video -> GRID_TYPE_VIDEO
             is MediaStripItem.Audio -> GRID_TYPE_AUDIO
             is MediaStripItem.Text  -> GRID_TYPE_TEXT
             is MediaStripItem.Pile  -> error("Pile items are not supported in the grid")
@@ -219,17 +232,26 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val ctx = parent.context
             return when (viewType) {
-                GRID_TYPE_IMAGE -> {
+                GRID_TYPE_IMAGE, GRID_TYPE_VIDEO -> {
                     val card = createCard(ctx)
-                    val image = ImageView(ctx).apply {
+                    val container = FrameLayout(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                    }
+                    val image = ImageView(ctx).apply {
+                        layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT,
                         )
                         scaleType = ImageView.ScaleType.CENTER_CROP
                     }
-                    card.addView(image)
-                    ImageHolder(card, image)
+                    val overlay = createPlayOverlay(ctx)
+                    container.addView(image)
+                    container.addView(overlay)
+                    card.addView(container)
+                    ImageHolder(card, image, overlay)
                 }
 
                 GRID_TYPE_AUDIO -> {
@@ -284,7 +306,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             val item = getItem(position)
             when (holder) {
-                is ImageHolder -> holder.bind(item as MediaStripItem.Image)
+                is ImageHolder -> holder.bind(item)
                 is AudioHolder -> holder.bind(item as MediaStripItem.Audio)
                 is TextHolder  -> holder.bind(item as MediaStripItem.Text)
             }
@@ -293,13 +315,22 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         inner class ImageHolder(
             private val card: MaterialCardView,
             private val image: ImageView,
+            private val overlay: ImageView,
         ) : RecyclerView.ViewHolder(card) {
-            fun bind(item: MediaStripItem.Image) {
+            fun bind(item: MediaStripItem) {
+                val (media, isVideo) = when (item) {
+                    is MediaStripItem.Image -> item to false
+                    is MediaStripItem.Video -> item to true
+                    else -> return
+                }
+
                 Glide.with(image)
-                    .load(item.mediaUri)
+                    .load(media.mediaUri)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .centerCrop()
                     .into(image)
+
+                overlay.isVisible = isVideo
 
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {
@@ -350,6 +381,22 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         cardElevation = dp(ctx, 4).toFloat()
         isClickable = true
         isFocusable = true
+    }
+
+    private fun createPlayOverlay(ctx: Context): ImageView = ImageView(ctx).apply {
+        layoutParams = FrameLayout.LayoutParams(
+            dp(ctx, 48),
+            dp(ctx, 48),
+            Gravity.CENTER,
+        )
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0x66000000)
+        }
+        setPadding(dp(ctx, 10), dp(ctx, 10), dp(ctx, 10), dp(ctx, 10))
+        setImageResource(android.R.drawable.ic_media_play)
+        setColorFilter(0xFFFFFFFF.toInt())
+        isVisible = false
     }
 
     private fun formatDuration(durationMs: Long?): String {

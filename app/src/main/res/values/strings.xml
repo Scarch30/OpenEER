@@ -17,8 +17,10 @@
     <string name="media_delete_error">Suppression impossible</string>
     <string name="media_share_error">Partage impossible</string>
     <string name="media_missing_file">Fichier introuvable</string>
+    <string name="media_video_open_error">Lecture vidéo impossible</string>
 
     <string name="media_category_photo">Photos</string>
+    <string name="media_category_video">Vidéos</string>
     <string name="media_category_sketch">Croquis</string>
     <string name="media_category_audio">Audios</string>
     <string name="media_category_text">Post-it</string>
