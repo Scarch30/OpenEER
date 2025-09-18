@@ -18,15 +18,18 @@
         app:navigationIcon="@drawable/ic_close"
         app:title="@string/camera_capture_title" />
 
-    <View
-        android:id="@+id/cameraPreviewPlaceholder"
+    <androidx.camera.view.PreviewView
+        android:id="@+id/cameraPreview"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:background="@android:color/black"
+        android:keepScreenOn="true"
+        android:importantForAccessibility="no"
+        app:implementationMode="performance"
         app:layout_constraintBottom_toTopOf="@+id/cameraControls"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/cameraToolbar" />
+        app:layout_constraintTop_toBottomOf="@id/cameraToolbar"
+        app:scaleType="fillCenter" />
 
     <LinearLayout
         android:id="@+id/cameraControls"
