@@ -49,7 +49,7 @@
     <string name="sketch_shape_filled">Remplir la forme</string>
 
     <!-- Pas d'échappement Unicode invalide ; apostrophe encodée en entité XML -->
-    <string name="sketch_eraser_hint">Ajustez l’épaisseur de la gomme</string>
+    <string name="sketch_eraser_hint">Ajustez l\u0027épaisseur de la gomme</string>
 
     <string name="sketch_color_picker_title">Choisir une couleur</string>
     <string name="sketch_hue">Teinte</string>
@@ -64,7 +64,7 @@
     <string name="camera_capture_title">Caméra</string>
     <string name="camera_capture_gallery">Galerie</string>
     <string name="camera_capture_button">Capture</string>
-    <string name="camera_capture_screenshot">Capture d’écran</string>
+    <string name="camera_capture_screenshot">Capture d&#39;écran</string>
     <string name="camera_capture_state_idle">Idle</string>
     <string name="camera_capture_state_hold">Hold</string>
     <string name="camera_capture_state_lock">Lock</string>
@@ -74,12 +74,12 @@
     <string name="camera_capture_video_error">Échec enregistrement vidéo</string>
     <string name="camera_capture_video_start_error">Impossible de démarrer la vidéo</string>
 
-    <string name="screen_capture_title">Capture d’écran</string>
+    <string name="screen_capture_title">Capture d&#39;écran</string>
     <string name="screen_capture_hint">Faites glisser pour sélectionner la zone à conserver</string>
     <string name="screen_capture_retry">Recommencer</string>
     <string name="screen_capture_save">Enregistrer</string>
     <string name="screen_capture_protected">Impossible de capturer du contenu protégé.</string>
-    <string name="screen_capture_error">Capture d’écran impossible</string>
-    <string name="screen_capture_cancelled">Capture d’écran annulée</string>
-    <string name="screen_capture_preview_description">Aperçu de la capture d’écran</string>
+    <string name="screen_capture_error">Capture d&#39;écran impossible</string>
+    <string name="screen_capture_cancelled">Capture d&#39;écran annulée</string>
+    <string name="screen_capture_preview_description">Aperçu de la capture d&#39;écran</string>
 </resources>
