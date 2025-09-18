@@ -9,14 +9,15 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.example.openeer.R
 import com.google.android.material.card.MaterialCardView
 import java.util.concurrent.TimeUnit
-import androidx.core.view.isVisible
 
 /**
  * Adapter pour la strip média horizontale.
@@ -26,13 +27,16 @@ import androidx.core.view.isVisible
  * - IMAGE (photo, sketch)
  * - AUDIO
  * - TEXT (post-it)
+ * - PILE (pile multi-médias)
  *
  * Callbacks :
  * - onClick(item)
+ * - onPileClick(category)
  * - onLongPress(view, item)
  */
 class MediaStripAdapter(
     private val onClick: (MediaStripItem) -> Unit,
+    private val onPileClick: (MediaCategory) -> Unit,
     private val onLongPress: (View, MediaStripItem) -> Unit,
 ) : ListAdapter<MediaStripItem, RecyclerView.ViewHolder>(DIFF) {
 
@@ -40,6 +44,7 @@ class MediaStripAdapter(
         private const val TYPE_IMAGE = 0
         private const val TYPE_AUDIO = 1
         private const val TYPE_TEXT  = 2
+        private const val TYPE_PILE  = 3
 
         private val DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
             override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
@@ -60,17 +65,14 @@ class MediaStripAdapter(
         is MediaStripItem.Image -> TYPE_IMAGE
         is MediaStripItem.Audio -> TYPE_AUDIO
         is MediaStripItem.Text -> TYPE_TEXT
-        is MediaStripItem.Pile -> when (item.cover) {
-            is MediaStripItem.Audio -> TYPE_AUDIO
-            is MediaStripItem.Text -> TYPE_TEXT
-            else -> TYPE_IMAGE
-        }
+        is MediaStripItem.Pile -> TYPE_PILE
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
         when (viewType) {
             TYPE_AUDIO -> createAudioHolder(parent)
             TYPE_TEXT  -> createTextHolder(parent)
+            TYPE_PILE  -> createPileHolder(parent)
             else       -> createImageHolder(parent)
         }
 
@@ -80,11 +82,14 @@ class MediaStripAdapter(
             is ImageHolder -> holder.bind(item)
             is AudioHolder -> holder.bind(item)
             is TextHolder -> holder.bind(item)
+            is PileHolder -> holder.bind(item as MediaStripItem.Pile)
         }
     }
 
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
         if (holder is ImageHolder) {
+            Glide.with(holder.image).clear(holder.image)
+        } else if (holder is PileHolder) {
             Glide.with(holder.image).clear(holder.image)
         }
         super.onViewRecycled(holder)
@@ -219,6 +224,104 @@ class MediaStripAdapter(
         return TextHolder(card, preview, pileBadge)
     }
 
+    private fun createPileHolder(parent: ViewGroup): PileHolder {
+        val ctx = parent.context
+        val card = squareCard(ctx)
+        val container = FrameLayout(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val image = ImageView(ctx).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            clipToOutline = true
+            contentDescription = "Image"
+            isVisible = false
+        }
+
+        val audioLayout = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            isVisible = false
+        }
+
+        val audioIcon = ImageView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                dp(ctx, 28), dp(ctx, 28)
+            )
+            setImageResource(android.R.drawable.ic_btn_speak_now)
+            contentDescription = "Audio"
+        }
+
+        val audioDuration = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(ctx, 4) }
+            textSize = 12f
+        }
+        audioLayout.addView(audioIcon)
+        audioLayout.addView(audioDuration)
+
+        val textLayout = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setPadding(dp(ctx, 8), dp(ctx, 8), dp(ctx, 8), dp(ctx, 8))
+            isVisible = false
+        }
+
+        val textLabel = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            text = "POST-IT"
+            textSize = 10f
+            setPadding(dp(ctx, 6), dp(ctx, 2), dp(ctx, 6), dp(ctx, 2))
+            setBackgroundColor(0xFF9E9E9E.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        val textPreview = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            ).apply { topMargin = dp(ctx, 6) }
+            textSize = 13f
+            maxLines = 3
+            isSingleLine = false
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+
+        textLayout.addView(textLabel)
+        textLayout.addView(textPreview)
+
+        val badge = createBadge(ctx)
+
+        container.addView(image)
+        container.addView(audioLayout)
+        container.addView(textLayout)
+        container.addView(badge)
+        card.addView(container)
+
+        return PileHolder(card, image, audioLayout, audioDuration, textLayout, textPreview, badge)
+    }
+
     // --- View holders ---
 
     inner class ImageHolder(
@@ -295,10 +398,55 @@ class MediaStripAdapter(
         }
     }
 
+    inner class PileHolder(
+        val card: MaterialCardView,
+        val image: ImageView,
+        private val audioLayout: LinearLayout,
+        private val audioText: TextView,
+        private val textLayout: LinearLayout,
+        private val textPreview: TextView,
+        private val badge: TextView,
+    ) : RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem.Pile) {
+            badge.text = item.count.toString()
+            badge.isVisible = item.count > 0
+
+            Glide.with(image).clear(image)
+            image.isVisible = false
+            audioLayout.isVisible = false
+            textLayout.isVisible = false
+
+            when (val cover = item.cover) {
+                is MediaStripItem.Image -> {
+                    image.isVisible = true
+                    Glide.with(image)
+                        .load(cover.mediaUri)
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .centerCrop()
+                        .into(image)
+                }
+                is MediaStripItem.Audio -> {
+                    audioLayout.isVisible = true
+                    audioText.text = formatDuration(cover.durationMs)
+                }
+                is MediaStripItem.Text -> {
+                    textLayout.isVisible = true
+                    textPreview.text = cover.preview.ifBlank { "…" }
+                }
+            }
+
+            card.setOnClickListener { onPileClick(item.category) }
+            card.setOnLongClickListener {
+                onLongPress(it, item)
+                true
+            }
+        }
+    }
+
     // --- Utils UI ---
 
     private fun squareCard(ctx: Context): MaterialCardView {
-        val size = dp(ctx, 90)
+        val size = ctx.resources.getDimensionPixelSize(R.dimen.media_strip_item_size)
         val margin = dp(ctx, 8)
         return MaterialCardView(ctx).apply {
             layoutParams = ViewGroup.MarginLayoutParams(size, size).apply {

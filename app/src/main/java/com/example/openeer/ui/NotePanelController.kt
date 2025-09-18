@@ -73,6 +73,7 @@ class NotePanelController(
 
     private val mediaAdapter = MediaStripAdapter(
         onClick = { item -> mediaActions.handleClick(item) },
+        onPileClick = { category -> mediaActions.handlePileClick(category) },
         onLongPress = { view, item -> mediaActions.showMenu(view, item) }
     )
 

@@ -3,6 +3,7 @@ package com.example.openeer.ui.panel.media
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -28,6 +29,10 @@ class MediaActions(
     private val blocksRepo: BlocksRepository
 ) {
     private val uiScope = CoroutineScope(Dispatchers.Main)
+
+    fun handlePileClick(category: MediaCategory) {
+        Log.d("MediaActions", "Pile click: $category")
+    }
 
     fun handleClick(item: MediaStripItem) {
         when (item) {
