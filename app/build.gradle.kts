@@ -77,6 +77,13 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    implementation(platform("androidx.camera:camera-bom:1.4.0"))
+    implementation("androidx.camera:camera-core")
+    implementation("androidx.camera:camera-camera2")
+    implementation("androidx.camera:camera-lifecycle")
+    implementation("androidx.camera:camera-view")
+    implementation("androidx.camera:camera-video")
+
     // ✅ Vosk Android, en excluant l'ancien JNA en JAR tiré en transitif
     implementation("com.alphacephei:vosk-android:0.3.45") {
         exclude(group = "net.java.dev.jna", module = "jna")
