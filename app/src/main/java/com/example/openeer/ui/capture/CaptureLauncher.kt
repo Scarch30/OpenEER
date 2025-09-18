@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.ArrayAdapter
 import android.widget.ListView
@@ -162,11 +163,14 @@ class CaptureLauncher(
     }
 
     private fun openGallery() {
-        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.READ_MEDIA_IMAGES)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            readMediaPermLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
-            return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (
+                ContextCompat.checkSelfPermission(activity, Manifest.permission.READ_MEDIA_IMAGES)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                readMediaPermLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
+                return
+            }
         }
         pickPhotoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
