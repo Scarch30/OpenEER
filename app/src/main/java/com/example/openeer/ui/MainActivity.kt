@@ -1,3 +1,4 @@
+// app/src/main/java/com/example/openeer/ui/MainActivity.kt
 package com.example.openeer.ui
 
 import android.Manifest
@@ -126,13 +127,22 @@ class MainActivity : AppCompatActivity() {
                     if (!hasRecordPerm()) {
                         recordPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
+                    // Sécurise un éventuel overlay d’édition avant de changer de note
+                    runCatching { editorBody.commitInlineEdit(notePanel.openNoteId) }
+
                     if (notePanel.openNoteId == null) {
                         lifecycleScope.launch {
                             val newId = withContext(Dispatchers.IO) {
-                                repo.createTextNote("(transcription en cours…)")
+                                // IMPORTANT : créer une note VIERGE
+                                repo.createTextNote("")
                             }
                             this@MainActivity.toast("Note créée (#$newId)")
                             notePanel.open(newId)
+
+                            // Placeholder visuel seulement (non persistant)
+                            notePanel.onAppendLive("(transcription en cours…)")
+
+                            // Ajout opportuniste de la localisation
                             lifecycleScope.launch(Dispatchers.IO) {
                                 val place = runCatching { getOneShotPlace(this@MainActivity) }.getOrNull()
                                 if (place != null) {
@@ -174,16 +184,20 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 val openId = notePanel.openNoteId
                 if (openId != null) {
-                    // NOTE OUVERTE -> ouvrir l’éditeur de post-it (BottomSheet)
-                    editorBody.commitInlineEdit(openId) // sécurise un éventuel body en cours
+                    // NOTE OUVERTE -> éditeur de post-it (BottomSheet)
+                    editorBody.commitInlineEdit(openId)
                     val sheet = ChildTextEditorSheet.new(openId).apply {
                         onSaved = { noteId, blockId ->
-                            onChildBlockSaved(noteId, blockId, getString(com.example.openeer.R.string.msg_block_text_added))
+                            onChildBlockSaved(
+                                noteId,
+                                blockId,
+                                getString(com.example.openeer.R.string.msg_block_text_added)
+                            )
                         }
                     }
                     sheet.show(supportFragmentManager, "child_text")
                 } else {
-                    // AUCUNE note -> créer note mère + édition inline du body
+                    // Aucune note -> créer note mère VIERGE + édition inline du body
                     val nid = ensureOpenNote()
                     b.root.post { editorBody.enterInlineEdit(nid) }
                 }
@@ -231,6 +245,8 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- Ouvrir une note ----------
     private fun onNoteClicked(note: Note) {
+        // Sécurise l’overlay avant de changer de note
+        runCatching { editorBody.commitInlineEdit(notePanel.openNoteId) }
         notePanel.open(note.id)
     }
 
@@ -255,7 +271,10 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun ensureOpenNote(): Long {
         notePanel.openNoteId?.let { return it }
-        val newId = withContext(Dispatchers.IO) { repo.createTextNote("(transcription en cours…)") }
+        val newId = withContext(Dispatchers.IO) {
+            // IMPORTANT : créer une note VIERGE
+            repo.createTextNote("")
+        }
         this@MainActivity.toast("Note créée (#$newId)")
         notePanel.open(newId)
         lifecycleScope.launch(Dispatchers.IO) {
