@@ -18,6 +18,10 @@ class BlocksRepository(
 
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
 
+    suspend fun getBlock(blockId: Long): BlockEntity? = withContext(io) {
+        blockDao.getById(blockId)
+    }
+
     private suspend fun insert(noteId: Long, template: BlockEntity): Long =
         withContext(io) { blockDao.insertAtEnd(noteId, template) }
 

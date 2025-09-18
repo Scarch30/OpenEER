@@ -3,6 +3,8 @@
 
     <string name="action_validate">Valider</string>
     <string name="action_cancel">Annuler</string>
+    <string name="action_edit">Modifier</string>
+    <string name="action_close">Fermer</string>
 
     <string name="msg_block_text_added">Bloc texte ajouté</string>
     <string name="msg_sketch_added">Croquis ajouté</string>
