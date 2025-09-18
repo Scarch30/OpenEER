@@ -1,7 +1,10 @@
 package com.example.openeer.ui
 
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isGone
@@ -18,31 +21,20 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
-import com.example.openeer.ui.formatMeta
 import com.example.openeer.ui.SimplePlayer
+import com.example.openeer.ui.formatMeta
 import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
 import com.google.android.material.card.MaterialCardView
-import android.view.ViewGroup
-import android.widget.LinearLayout
-import android.widget.TextView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-/**
- * Contrôle l'affichage de la "note ouverte" dans MainActivity (panel en haut de la liste).
- * - Observe la note + blocs enfants
- * - Met à jour le titre, corps, méta
- * - Expose open()/close()
- *
- * L’édition inline (clavier) est gérée par MainActivity.
- */
 class NotePanelController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
@@ -53,11 +45,9 @@ class NotePanelController(
         NoteRepository(db.noteDao(), db.attachmentDao())
     }
 
-    /** id de la note actuellement ouverte (ou null si aucune) */
     var openNoteId: Long? = null
         private set
 
-    /** Dernière note rendue (pour partage, etc.) */
     private var currentNote: Note? = null
 
     private val blocksRepo: BlocksRepository by lazy {
@@ -87,12 +77,14 @@ class NotePanelController(
         binding.mediaStrip.adapter = mediaAdapter
     }
 
-    /** Ouvre visuellement le panneau et commence à observer une note. */
     fun open(noteId: Long) {
         openNoteId = noteId
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
 
+        // Reset visuel immédiat pour éviter de voir l’ancienne note
+        binding.txtBodyDetail.text = ""
+        binding.noteMetaFooter.isGone = true
         binding.childBlocksContainer.removeAllViews()
         binding.childBlocksContainer.isGone = true
         blockViews.clear()
@@ -123,18 +115,16 @@ class NotePanelController(
         // Interactions locales
         binding.btnBack.setOnClickListener { close() }
         binding.txtTitleDetail.setOnClickListener { promptEditTitle() }
-        // ⚠️ L’édition du corps (tap sur txtBodyDetail) est gérée dans MainActivity (inline edit).
     }
 
-    /** Ferme le panneau et revient à la liste. */
     fun close() {
         openNoteId = null
         currentNote = null
         binding.notePanel.isGone = true
         binding.recycler.isVisible = true
 
-        // RAZ visuelle pour éviter que le prochain "enterInlineEdit" lise l'ancien texte
-        binding.txtBodyDetail.text = "(transcription en cours…)"
+        // RAZ visuelle (aucun placeholder persistant)
+        binding.txtBodyDetail.text = ""
         binding.noteMetaFooter.isGone = true
 
         blocksJob?.cancel()
@@ -146,16 +136,14 @@ class NotePanelController(
         mediaAdapter.submitList(emptyList())
         binding.mediaStrip.isGone = true
 
-        // Stopper toute lecture éventuelle (plus d'UI à mettre à jour ici)
         SimplePlayer.stop { }
     }
 
-    /** Affiche du texte "live" (transcription en cours) — pas d’écriture DB ici. */
     fun onAppendLive(displayBody: String) {
+        // Affichage UI uniquement (non persistant)
         binding.txtBodyDetail.text = displayBody
     }
 
-    /** Remplace le corps par le texte final et persiste. */
     fun onReplaceFinal(finalBody: String, addNewline: Boolean) {
         val current = binding.txtBodyDetail.text?.toString().orEmpty()
         val toAppend = if (addNewline) finalBody + "\n" else finalBody
@@ -192,7 +180,7 @@ class NotePanelController(
 
         blocks.forEach { block ->
             val view = when (block.type) {
-                // On n’affiche plus les blocs TEXT dans le corps : tout le texte vit dans Note.body
+                // Texte/Images ne s’affichent plus dans le corps principal
                 BlockType.TEXT -> null
                 BlockType.SKETCH, BlockType.PHOTO -> null
                 BlockType.VIDEO, BlockType.ROUTE, BlockType.FILE ->
@@ -249,7 +237,7 @@ class NotePanelController(
         binding.mediaStrip.isGone = piles.isEmpty()
     }
 
-    // (fabrique de “rectangle texte” non utilisée mais conservée si besoin d’aperçu inline)
+    // (fabrique de “rectangle texte” non utilisée mais conservée)
     private fun createTextBlockView(block: BlockEntity, margin: Int): View {
         val ctx = binding.root.context
         val padding = (16 * ctx.resources.displayMetrics.density).toInt()
@@ -293,8 +281,6 @@ class NotePanelController(
         view.animate().alpha(1f).setDuration(350L).start()
     }
 
-    // ---- Internes ----
-
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
 
     private fun render(note: Note?) {
@@ -304,9 +290,8 @@ class NotePanelController(
         val title = note.title?.takeIf { it.isNotBlank() } ?: "Sans titre"
         binding.txtTitleDetail.text = title
 
-        // Corps
-        val bodyShown = note.body.ifBlank { "(transcription en cours…)" }
-        binding.txtBodyDetail.text = bodyShown
+        // Corps : NE PAS injecter de placeholder si vide — nouvelle note = vide
+        binding.txtBodyDetail.text = note.body
 
         // Méta
         val meta = note.formatMeta()

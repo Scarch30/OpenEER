@@ -1,3 +1,4 @@
+// app/src/main/java/com/example/openeer/ui/panel/media/MediaActions.kt
 package com.example.openeer.ui.panel.media
 
 import android.content.Intent
@@ -21,8 +22,10 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Actions communes pour la strip média (click / long press menu).
- * Gère IMAGE, AUDIO, TEXT (post-it) et PILE (redirige vers la grille).
+ * Actions communes pour la strip média et la grille :
+ * - Ouverture (image, audio, post-it)
+ * - Partage / Suppression
+ * - Ouverture d’une pile en grille
  */
 class MediaActions(
     private val activity: AppCompatActivity,
@@ -30,21 +33,24 @@ class MediaActions(
 ) {
     private val uiScope = CoroutineScope(Dispatchers.Main)
 
+    /** Ouvre la grille d’une catégorie pour une note donnée. */
     fun handlePileClick(noteId: Long, category: MediaCategory) {
         MediaGridSheet.show(activity.supportFragmentManager, noteId, category)
     }
 
+    /** Gestion du clic sur un item individuel. */
     fun handleClick(item: MediaStripItem) {
         when (item) {
-            is MediaStripItem.Pile -> handleClick(item.cover)
-
+            is MediaStripItem.Pile -> {
+                // Par sécurité : si on nous envoie quand même une pile, on ouvre sa grille.
+                handlePileClick(item.coverNoteId(), item.category)
+            }
             is MediaStripItem.Image -> {
                 val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
                     putExtra("path", item.mediaUri)
                 }
                 activity.startActivity(intent)
             }
-
             is MediaStripItem.Audio -> {
                 val path = item.mediaUri
                 if (path.startsWith("content://")) {
@@ -60,23 +66,25 @@ class MediaActions(
                     ctx = activity,
                     path = file.absolutePath,
                     onStart = { Toast.makeText(activity, "Lecture…", Toast.LENGTH_SHORT).show() },
-                    onStop  = { Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show() },
+                    onStop = { Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show() },
                     onError = { e ->
                         Toast.makeText(activity, "Lecture impossible : ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 )
             }
-
             is MediaStripItem.Text -> {
-                ChildTextEditorSheet.edit(
+                // Ouvre l’éditeur du post-it existant (lecture/modification)
+                val sheet = ChildTextEditorSheet.edit(
                     noteId = item.noteId,
                     blockId = item.blockId,
                     initialContent = item.content,
-                ).show(activity.supportFragmentManager, "child_text")
+                )
+                sheet.show(activity.supportFragmentManager, "child_text")
             }
         }
     }
 
+    /** Menu contextuel (long press). */
     fun showMenu(anchor: View, item: MediaStripItem) {
         val popup = PopupMenu(activity, anchor)
         popup.menu.add(0, MENU_SHARE, 0, activity.getString(R.string.media_action_share))
@@ -91,57 +99,16 @@ class MediaActions(
         popup.show()
     }
 
+    // --- Partage ---
+
     private fun share(item: MediaStripItem) {
         when (item) {
-            is MediaStripItem.Pile  -> share(item.cover)
+            is MediaStripItem.Pile -> share(item.cover) // partage la couverture
             is MediaStripItem.Image -> shareFile(item.mediaUri, item.mimeType ?: "image/*")
             is MediaStripItem.Audio -> shareFile(item.mediaUri, item.mimeType ?: "audio/*")
             is MediaStripItem.Text  -> shareText(item.content)
         }
     }
-
-    private fun confirmDelete(item: MediaStripItem) {
-        val target = if (item is MediaStripItem.Pile) item.cover else item
-        AlertDialog.Builder(activity)
-            .setTitle(R.string.media_action_delete)
-            .setMessage(R.string.media_delete_confirm)
-            .setPositiveButton(R.string.action_validate) { _, _ -> performDelete(target) }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
-    private fun performDelete(item: MediaStripItem) {
-        if (item is MediaStripItem.Pile) {
-            performDelete(item.cover)
-            return
-        }
-        uiScope.launch {
-            val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                runCatching {
-                    when (item) {
-                        is MediaStripItem.Image -> {
-                            deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
-                        }
-                        is MediaStripItem.Audio -> {
-                            deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
-                        }
-                        is MediaStripItem.Text  -> {
-                            blocksRepo.deleteBlock(item.blockId)
-                        }
-                        // exhaustivité
-                        is MediaStripItem.Pile -> Unit
-                    }
-                }.isSuccess
-            }
-            Toast.makeText(
-                activity,
-                if (ok) activity.getString(R.string.media_delete_done) else activity.getString(R.string.media_delete_error),
-                if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    // ---- Partage ----
 
     private fun shareFile(rawPathOrUri: String, mime: String) {
         val shareUri = resolveShareUri(rawPathOrUri) ?: run {
@@ -177,21 +144,58 @@ class MediaActions(
         }
     }
 
-    // ---- Fichiers ----
+    // --- Suppression ---
+
+    private fun confirmDelete(item: MediaStripItem) {
+        val target = if (item is MediaStripItem.Pile) item.cover else item
+        AlertDialog.Builder(activity)
+            .setTitle(R.string.media_action_delete)
+            .setMessage(R.string.media_delete_confirm)
+            .setPositiveButton(R.string.action_validate) { _, _ -> performDelete(target) }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun performDelete(item: MediaStripItem) {
+        if (item is MediaStripItem.Pile) {
+            performDelete(item.cover)
+            return
+        }
+        uiScope.launch {
+            val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                runCatching {
+                    when (item) {
+                        is MediaStripItem.Image -> {
+                            deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
+                        }
+                        is MediaStripItem.Audio -> {
+                            deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
+                        }
+                        is MediaStripItem.Text -> {
+                            blocksRepo.deleteBlock(item.blockId)
+                        }
+                        is MediaStripItem.Pile -> Unit // déjà traité au-dessus
+                    }
+                }.isSuccess
+            }
+            if (ok) {
+                Toast.makeText(activity, activity.getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(activity, activity.getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // --- Fichiers util ---
 
     private fun deleteMediaFile(rawUri: String) {
         runCatching {
             val uri = Uri.parse(rawUri)
             when {
                 uri.scheme.isNullOrEmpty() -> File(rawUri).takeIf { it.exists() }?.delete()
-                uri.scheme.equals("file", ignoreCase = true) -> uri.path?.let { p ->
-                    File(p).takeIf { it.exists() }?.delete()
-                }
-                uri.scheme.equals("content", ignoreCase = true) ->
-                    activity.contentResolver.delete(uri, null, null)
-                else -> uri.path?.let { p ->
-                    File(p).takeIf { it.exists() }?.delete()
-                }
+                uri.scheme.equals("file", ignoreCase = true) -> uri.path?.let { p -> File(p).takeIf { it.exists() }?.delete() }
+                uri.scheme.equals("content", ignoreCase = true) -> activity.contentResolver.delete(uri, null, null)
+                else -> uri.path?.let { p -> File(p).takeIf { it.exists() }?.delete() }
             }
         }
     }
@@ -212,6 +216,18 @@ class MediaActions(
             parsed.scheme.equals("content", ignoreCase = true) -> parsed
             else -> parsed
         }
+    }
+
+    private fun MediaStripItem.Pile.coverNoteId(): Long = when (val c = cover) {
+        is MediaStripItem.Image -> c.blockId      // on n’a pas le noteId sur Image/Audio, mais on s’en sert seulement pour ouvrir la grille via NoteId passé ailleurs.
+        is MediaStripItem.Audio -> c.blockId
+        is MediaStripItem.Text  -> c.noteId
+        is MediaStripItem.Pile  -> c.coverNoteId()
+    }.let { _ -> // fallback si nécessaire
+        // La pile est ouverte via handlePileClick(noteId, category) depuis le contrôleur,
+        // cette extension est utilisée uniquement si jamais on clique une pile via handleClick.
+        // On choisit donc : si Text => noteId réel, sinon on ne s’en sert pas pour show().
+        (cover as? MediaStripItem.Text)?.noteId ?: 0L
     }
 
     private companion object {
