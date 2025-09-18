@@ -1,5 +1,6 @@
 package com.example.openeer.ui.sheets
 
+import android.app.Dialog
 import android.content.Context
 import android.graphics.Rect
 import android.os.Bundle
@@ -37,7 +38,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 // --- Constantes & DIFF au top-level (évite un companion dans l'adapter) ---
-
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
@@ -89,6 +89,30 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         MediaActions(host, blocksRepo)
     }
 
+    // ➜ Forcer l’expansion AU MOMENT de l’affichage
+    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
+        val dialog = BottomSheetDialog(requireContext(), theme)
+        dialog.setOnShowListener { di ->
+            val bottomSheet =
+                (di as BottomSheetDialog).findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+                    ?: return@setOnShowListener
+
+            // S’assure que le conteneur peut occuper tout l’écran
+            bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
+                height = ViewGroup.LayoutParams.MATCH_PARENT
+            }
+            bottomSheet.requestLayout()
+
+            val behavior = BottomSheetBehavior.from(bottomSheet).apply {
+                skipCollapsed = true
+                isDraggable = true
+                state = BottomSheetBehavior.STATE_EXPANDED
+                peekHeight = 0
+            }
+        }
+        return dialog
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -126,21 +150,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         }
 
         return view
-    }
-
-    // Forcer l’ouverture en plein écran (développé) et ignorer l’état replié
-    override fun onStart() {
-        super.onStart()
-        val bottomSheetView = (dialog as? BottomSheetDialog)
-            ?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
-            ?: return
-        BottomSheetBehavior.from(bottomSheetView).apply {
-            state = BottomSheetBehavior.STATE_EXPANDED
-            peekHeight = 0
-            skipCollapsed = true
-            isDraggable = true
-            expandedOffset = 0
-        }
     }
 
     private fun computeSpanCount(): Int {
@@ -195,7 +204,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
     }
 
     // --- Adapter grille ---
-
     private inner class MediaGridAdapter(
         private val onClick: (MediaStripItem) -> Unit,
         private val onLongClick: (View, MediaStripItem) -> Unit,
@@ -333,7 +341,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
     }
 
     // --- UI utils ---
-
     private fun createCard(ctx: Context): MaterialCardView = MaterialCardView(ctx).apply {
         layoutParams = RecyclerView.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,

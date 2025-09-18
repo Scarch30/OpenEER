@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.openeer"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.openeer"
@@ -70,30 +70,38 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
 
+    // --- Room ---
     val room = "2.6.1"
     implementation("androidx.room:room-runtime:$room")
     implementation("androidx.room:room-ktx:$room")
     ksp("androidx.room:room-compiler:$room")
 
+    // --- Coroutines ---
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // ✅ Vosk Android, en excluant l'ancien JNA en JAR tiré en transitif
+    // --- Vosk + JNA (AAR) ---
     implementation("com.alphacephei:vosk-android:0.3.45") {
         exclude(group = "net.java.dev.jna", module = "jna")
     }
-
-    // ✅ JNA Android AAR qui embarque libjnidispatch.so
     implementation("net.java.dev.jna:jna:5.13.0@aar")
 
+    // --- Glide ---
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
-   // ---------- Tests (JVM) ----------
-testImplementation("junit:junit:4.13.2")
-testImplementation("org.robolectric:robolectric:4.12.1")
-testImplementation("androidx.test:core:1.6.1")
-testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
-testImplementation("androidx.room:room-testing:$room")
+    // --- CameraX (versions explicites, sans BOM) ---
+    val camerax = "1.5.0"
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
+    implementation("androidx.camera:camera-video:$camerax")
 
+    // ---------- Tests (JVM) ----------
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.12.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("androidx.room:room-testing:$room")
 
     // ---------- Tests instrumentés (Android) ----------
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
