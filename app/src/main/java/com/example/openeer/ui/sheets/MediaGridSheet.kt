@@ -131,11 +131,14 @@ class MediaGridSheet : BottomSheetDialogFragment() {
     // Forcer l’ouverture en plein écran (développé) et ignorer l’état replié
     override fun onStart() {
         super.onStart()
-        (dialog as? BottomSheetDialog)?.behavior?.apply {
+        val bottomSheetView = (dialog as? BottomSheetDialog)
+            ?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+            ?: return
+        BottomSheetBehavior.from(bottomSheetView).apply {
             state = BottomSheetBehavior.STATE_EXPANDED
+            peekHeight = 0
             skipCollapsed = true
             isDraggable = true
-            peekHeight = 0
             expandedOffset = 0
         }
     }
