@@ -14,7 +14,7 @@ import com.example.openeer.R
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.SimplePlayer
-import com.example.openeer.ui.sheets.ChildTextEditorSheet
+import com.example.openeer.ui.sheets.ChildTextViewerSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,13 +73,11 @@ class MediaActions(
                 )
             }
             is MediaStripItem.Text -> {
-                // Ouvre l’éditeur du post-it existant (lecture/modification)
-                val sheet = ChildTextEditorSheet.edit(
-                    noteId = item.noteId,
-                    blockId = item.blockId,
-                    initialContent = item.content,
+                ChildTextViewerSheet.show(
+                    activity.supportFragmentManager,
+                    item.noteId,
+                    item.blockId,
                 )
-                sheet.show(activity.supportFragmentManager, "child_text")
             }
         }
     }
