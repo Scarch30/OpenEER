@@ -22,6 +22,7 @@ import com.example.openeer.ui.formatMeta
 import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
 import com.google.android.material.card.MaterialCardView
@@ -207,15 +208,18 @@ class NotePanelController(
     }
 
     private fun updateMediaStrip(blocks: List<BlockEntity>) {
-        val items = blocks.mapNotNull { block ->
+        val categorized = blocks.mapNotNull { block ->
             when (block.type) {
-                BlockType.PHOTO, BlockType.SKETCH -> block.mediaUri?.takeIf { it.isNotBlank() }?.let {
-                    MediaStripItem.Image(block.id, it, block.mimeType, block.type)
+                BlockType.PHOTO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                    MediaCategory.PHOTO to MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
                 }
-                BlockType.AUDIO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let {
-                    MediaStripItem.Audio(block.id, it, block.mimeType, block.durationMs)
+                BlockType.SKETCH -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                    MediaCategory.SKETCH to MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
                 }
-                BlockType.TEXT -> MediaStripItem.Text(
+                BlockType.AUDIO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                    MediaCategory.AUDIO to MediaStripItem.Audio(block.id, uri, block.mimeType, block.durationMs)
+                }
+                BlockType.TEXT -> MediaCategory.TEXT to MediaStripItem.Text(
                     blockId = block.id,
                     noteId = block.noteId,
                     content = block.text.orEmpty(),
@@ -223,8 +227,21 @@ class NotePanelController(
                 else -> null
             }
         }
-        mediaAdapter.submitList(items)
-        binding.mediaStrip.isGone = items.isEmpty()
+
+        val piles = categorized
+            .groupBy({ it.first }, { it.second })
+            .map { (category, items) ->
+                val sorted = items.sortedByDescending { it.blockId }
+                MediaStripItem.Pile(
+                    category = category,
+                    count = sorted.size,
+                    cover = sorted.first(),
+                )
+            }
+            .sortedByDescending { it.cover.blockId }
+
+        mediaAdapter.submitList(piles)
+        binding.mediaStrip.isGone = piles.isEmpty()
     }
 
     // (fabrique de “rectangle texte” non utilisée mais conservée si besoin d’aperçu inline)

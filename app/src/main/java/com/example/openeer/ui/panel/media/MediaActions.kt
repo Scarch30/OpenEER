@@ -31,6 +31,7 @@ class MediaActions(
 
     fun handleClick(item: MediaStripItem) {
         when (item) {
+            is MediaStripItem.Pile -> handleClick(item.cover)
             is MediaStripItem.Image -> {
                 // Ouvrir viewer photo
                 val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
@@ -93,6 +94,7 @@ class MediaActions(
 
     private fun share(item: MediaStripItem) {
         when (item) {
+            is MediaStripItem.Pile -> share(item.cover)
             is MediaStripItem.Image -> {
                 shareFile(item.mediaUri, item.mimeType ?: "image/*")
             }
@@ -106,17 +108,23 @@ class MediaActions(
     }
 
     private fun confirmDelete(item: MediaStripItem) {
+        val target = if (item is MediaStripItem.Pile) item.cover else item
         AlertDialog.Builder(activity)
             .setTitle(R.string.media_action_delete)
             .setMessage(R.string.media_delete_confirm)
             .setPositiveButton(R.string.action_validate) { _, _ ->
-                performDelete(item)
+                performDelete(target)
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
     }
 
     private fun performDelete(item: MediaStripItem) {
+        if (item is MediaStripItem.Pile) {
+            performDelete(item.cover)
+            return
+        }
+
         uiScope.launch {
             val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 runCatching {
@@ -133,6 +141,7 @@ class MediaActions(
                             // Pas de fichier à supprimer
                             blocksRepo.deleteBlock(item.blockId)
                         }
+                        else -> Unit
                     }
                 }.isSuccess
             }
