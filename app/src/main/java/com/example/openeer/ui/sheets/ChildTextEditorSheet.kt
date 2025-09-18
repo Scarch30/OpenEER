@@ -67,6 +67,7 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
     ): View = inflater.inflate(R.layout.sheet_child_text_editor, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        val inputTitle = view.findViewById<EditText>(R.id.inputTitle)
         val input = view.findViewById<EditText>(R.id.inputText)
         val btnCancel = view.findViewById<Button>(R.id.btnCancel)
         val btnValidate = view.findViewById<Button>(R.id.btnValidate)
@@ -78,25 +79,48 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
 
         val existingBlockId = arguments?.getLong(ARG_BLOCK_ID)?.takeIf { it > 0 }
         val initialContent = arguments?.getString(ARG_INITIAL_CONTENT).orEmpty()
+        val hasSeparator = initialContent.contains("\n\n")
+        val initialTitle = if (hasSeparator) {
+            initialContent.substringBefore("\n\n")
+        } else {
+            ""
+        }
+        val initialBody = if (hasSeparator) {
+            initialContent.substringAfter("\n\n")
+        } else {
+            initialContent
+        }
         val isEditMode = existingBlockId != null
 
         if (isEditMode) {
             title.text = getString(R.string.child_text_editor_edit_title)
         }
 
-        if (initialContent.isNotBlank()) {
-            input.setText(initialContent)
-            input.setSelection(initialContent.length)
-            btnValidate.isEnabled = true
+        if (initialTitle.isNotBlank()) {
+            inputTitle.setText(initialTitle)
+            inputTitle.setSelection(initialTitle.length)
         }
+
+        if (initialBody.isNotBlank()) {
+            input.setText(initialBody)
+            input.setSelection(initialBody.length)
+        }
+
+        btnValidate.isEnabled = initialBody.isNotBlank()
 
         input.addTextChangedListener { btnValidate.isEnabled = !it.isNullOrBlank() }
         btnCancel.setOnClickListener { dismiss() }
 
         btnValidate.setOnClickListener {
             val noteId = requireArguments().getLong(ARG_NOTE_ID)
-            val content = input.text?.toString()?.trim().orEmpty()
-            if (content.isBlank()) return@setOnClickListener
+            val titleContent = inputTitle.text?.toString()?.trim().orEmpty()
+            val bodyContent = input.text?.toString()?.trim().orEmpty()
+            if (bodyContent.isBlank()) return@setOnClickListener
+            val content = if (titleContent.isBlank()) {
+                bodyContent
+            } else {
+                "$titleContent\n\n$bodyContent"
+            }
 
             uiScope.launch {
                 val savedBlockId = withContext(Dispatchers.IO) {
