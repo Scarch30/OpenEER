@@ -11,6 +11,16 @@ sealed class MediaStripItem {
     abstract val mediaUri: String?
     abstract val mimeType: String?
 
+    data class Pile(
+        val category: MediaCategory,
+        val count: Int,
+        val cover: MediaStripItem,
+    ) : MediaStripItem() {
+        override val blockId: Long = -(category.ordinal + 1).toLong()
+        override val mediaUri: String? = cover.mediaUri
+        override val mimeType: String? = cover.mimeType
+    }
+
     data class Image(
         override val blockId: Long,
         override val mediaUri: String,   // chemin/uri (photo, sketch)
