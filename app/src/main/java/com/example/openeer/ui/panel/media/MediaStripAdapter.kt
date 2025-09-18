@@ -2,6 +2,7 @@ package com.example.openeer.ui.panel.media
 
 import android.content.Context
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -25,6 +26,7 @@ import java.util.concurrent.TimeUnit
  *
  * ViewTypes :
  * - IMAGE (photo, sketch)
+ * - VIDEO
  * - AUDIO
  * - TEXT (post-it)
  * - PILE (pile multi-médias)
@@ -45,6 +47,7 @@ class MediaStripAdapter(
         private const val TYPE_AUDIO = 1
         private const val TYPE_TEXT  = 2
         private const val TYPE_PILE  = 3
+        private const val TYPE_VIDEO = 4
 
         private val DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
             override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
@@ -63,6 +66,7 @@ class MediaStripAdapter(
 
     override fun getItemViewType(position: Int): Int = when (val item = getItem(position)) {
         is MediaStripItem.Image -> TYPE_IMAGE
+        is MediaStripItem.Video -> TYPE_VIDEO
         is MediaStripItem.Audio -> TYPE_AUDIO
         is MediaStripItem.Text -> TYPE_TEXT
         is MediaStripItem.Pile -> TYPE_PILE
@@ -73,6 +77,7 @@ class MediaStripAdapter(
             TYPE_AUDIO -> createAudioHolder(parent)
             TYPE_TEXT  -> createTextHolder(parent)
             TYPE_PILE  -> createPileHolder(parent)
+            TYPE_IMAGE, TYPE_VIDEO -> createImageHolder(parent)
             else       -> createImageHolder(parent)
         }
 
@@ -115,11 +120,13 @@ class MediaStripAdapter(
             clipToOutline = true
             contentDescription = "Image"
         }
+        val playOverlay = createPlayOverlay(ctx)
         val badge = createBadge(ctx)
         container.addView(image)
+        container.addView(playOverlay)
         container.addView(badge)
         card.addView(container)
-        return ImageHolder(card, image, badge)
+        return ImageHolder(card, image, playOverlay, badge)
     }
 
     private fun createAudioHolder(parent: ViewGroup): AudioHolder {
@@ -245,6 +252,8 @@ class MediaStripAdapter(
             isVisible = false
         }
 
+        val playOverlay = createPlayOverlay(ctx)
+
         val audioLayout = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -314,12 +323,13 @@ class MediaStripAdapter(
         val badge = createBadge(ctx)
 
         container.addView(image)
+        container.addView(playOverlay)
         container.addView(audioLayout)
         container.addView(textLayout)
         container.addView(badge)
         card.addView(container)
 
-        return PileHolder(card, image, audioLayout, audioDuration, textLayout, textPreview, badge)
+        return PileHolder(card, image, playOverlay, audioLayout, audioDuration, textLayout, textPreview, badge)
     }
 
     // --- View holders ---
@@ -327,20 +337,29 @@ class MediaStripAdapter(
     inner class ImageHolder(
         val card: MaterialCardView,
         val image: ImageView,
+        private val playOverlay: ImageView,
         private val badge: TextView,
     ) : RecyclerView.ViewHolder(card) {
         fun bind(item: MediaStripItem) {
-            val display = when (item) {
-                is MediaStripItem.Image -> item
-                is MediaStripItem.Pile  -> item.cover as? MediaStripItem.Image
-                else -> null
-            } ?: return
+            val (media, isVideo) = when (item) {
+                is MediaStripItem.Image -> item to false
+                is MediaStripItem.Video -> item to true
+                is MediaStripItem.Pile  -> when (val cover = item.cover) {
+                    is MediaStripItem.Image -> cover to false
+                    is MediaStripItem.Video -> cover to true
+                    else -> return
+                }
+                else -> return
+            }
 
             Glide.with(image)
-                .load(display.mediaUri)
+                .load(media.mediaUri)
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .centerCrop()
                 .into(image)
+
+            image.contentDescription = if (isVideo) "Vidéo" else "Image"
+            playOverlay.isVisible = isVideo
 
             bindBadge(badge, item)
 
@@ -401,6 +420,7 @@ class MediaStripAdapter(
     inner class PileHolder(
         val card: MaterialCardView,
         val image: ImageView,
+        private val playOverlay: ImageView,
         private val audioLayout: LinearLayout,
         private val audioText: TextView,
         private val textLayout: LinearLayout,
@@ -413,12 +433,23 @@ class MediaStripAdapter(
 
             Glide.with(image).clear(image)
             image.isVisible = false
+            playOverlay.isVisible = false
             audioLayout.isVisible = false
             textLayout.isVisible = false
 
             when (val cover = item.cover) {
                 is MediaStripItem.Image -> {
                     image.isVisible = true
+                    playOverlay.isVisible = false
+                    Glide.with(image)
+                        .load(cover.mediaUri)
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .centerCrop()
+                        .into(image)
+                }
+                is MediaStripItem.Video -> {
+                    image.isVisible = true
+                    playOverlay.isVisible = true
                     Glide.with(image)
                         .load(cover.mediaUri)
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
@@ -460,6 +491,22 @@ class MediaStripAdapter(
             isClickable = true
             isFocusable = true
         }
+    }
+
+    private fun createPlayOverlay(ctx: Context): ImageView = ImageView(ctx).apply {
+        layoutParams = FrameLayout.LayoutParams(
+            dp(ctx, 40),
+            dp(ctx, 40),
+            Gravity.CENTER,
+        )
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0x66000000)
+        }
+        setPadding(dp(ctx, 8), dp(ctx, 8), dp(ctx, 8), dp(ctx, 8))
+        setImageResource(android.R.drawable.ic_media_play)
+        setColorFilter(0xFFFFFFFF.toInt())
+        isVisible = false
     }
 
     private fun createBadge(ctx: Context): TextView = TextView(ctx).apply {

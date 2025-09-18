@@ -23,7 +23,7 @@ import java.io.File
 
 /**
  * Actions communes pour la strip média et la grille :
- * - Ouverture (image, audio, post-it)
+ * - Ouverture (image, vidéo, audio, post-it)
  * - Partage / Suppression
  * - Ouverture d’une pile en grille
  */
@@ -50,6 +50,29 @@ class MediaActions(
                     putExtra("path", item.mediaUri)
                 }
                 activity.startActivity(intent)
+            }
+            is MediaStripItem.Video -> {
+                val playableUri = resolveShareUri(item.mediaUri) ?: run {
+                    Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(playableUri, item.mimeType ?: "video/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val targets = activity.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                targets.forEach { info ->
+                    activity.grantUriPermission(
+                        info.activityInfo.packageName,
+                        playableUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+                runCatching {
+                    activity.startActivity(intent)
+                }.onFailure {
+                    Toast.makeText(activity, activity.getString(R.string.media_video_open_error), Toast.LENGTH_LONG).show()
+                }
             }
             is MediaStripItem.Audio -> {
                 val path = item.mediaUri
@@ -103,6 +126,7 @@ class MediaActions(
         when (item) {
             is MediaStripItem.Pile -> share(item.cover) // partage la couverture
             is MediaStripItem.Image -> shareFile(item.mediaUri, item.mimeType ?: "image/*")
+            is MediaStripItem.Video -> shareFile(item.mediaUri, item.mimeType ?: "video/*")
             is MediaStripItem.Audio -> shareFile(item.mediaUri, item.mimeType ?: "audio/*")
             is MediaStripItem.Text  -> shareText(item.content)
         }
@@ -166,6 +190,9 @@ class MediaActions(
                         is MediaStripItem.Image -> {
                             deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
                         }
+                        is MediaStripItem.Video -> {
+                            deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
+                        }
                         is MediaStripItem.Audio -> {
                             deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
                         }
@@ -216,16 +243,14 @@ class MediaActions(
         }
     }
 
-    private fun MediaStripItem.Pile.coverNoteId(): Long = when (val c = cover) {
-        is MediaStripItem.Image -> c.blockId      // on n’a pas le noteId sur Image/Audio, mais on s’en sert seulement pour ouvrir la grille via NoteId passé ailleurs.
-        is MediaStripItem.Audio -> c.blockId
-        is MediaStripItem.Text  -> c.noteId
-        is MediaStripItem.Pile  -> c.coverNoteId()
-    }.let { _ -> // fallback si nécessaire
-        // La pile est ouverte via handlePileClick(noteId, category) depuis le contrôleur,
-        // cette extension est utilisée uniquement si jamais on clique une pile via handleClick.
-        // On choisit donc : si Text => noteId réel, sinon on ne s’en sert pas pour show().
-        (cover as? MediaStripItem.Text)?.noteId ?: 0L
+    private fun MediaStripItem.Pile.coverNoteId(): Long {
+        // On n’a pas le noteId sur Image/Audio/Vidéo, mais on s’en sert seulement pour
+        // ouvrir la grille via NoteId passé ailleurs.
+        return when (val c = cover) {
+            is MediaStripItem.Text  -> c.noteId
+            is MediaStripItem.Pile  -> c.coverNoteId()
+            else -> 0L
+        }
     }
 
     private companion object {

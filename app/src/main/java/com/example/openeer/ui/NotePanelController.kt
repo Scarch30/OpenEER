@@ -206,6 +206,9 @@ class NotePanelController(
                 BlockType.PHOTO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
                     MediaCategory.PHOTO to MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
                 }
+                BlockType.VIDEO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                    MediaCategory.VIDEO to MediaStripItem.Video(block.id, uri, block.mimeType)
+                }
                 BlockType.SKETCH -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
                     MediaCategory.SKETCH to MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
                 }
