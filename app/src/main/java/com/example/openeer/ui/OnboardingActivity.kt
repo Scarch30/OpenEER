@@ -33,6 +33,8 @@ class OnboardingActivity : AppCompatActivity() {
         permissionQueue.addLast(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionQueue.addLast(Manifest.permission.POST_NOTIFICATIONS)
+            permissionQueue.addLast(Manifest.permission.READ_MEDIA_IMAGES)
+            permissionQueue.addLast(Manifest.permission.READ_MEDIA_VIDEO)
         }
         permissionQueue.addLast(Manifest.permission.CAMERA)
         permissionQueue.addLast(Manifest.permission.ACCESS_FINE_LOCATION)
