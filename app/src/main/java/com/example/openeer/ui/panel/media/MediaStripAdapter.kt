@@ -81,8 +81,8 @@ class MediaStripAdapter(
         when (holder) {
             is ImageHolder -> holder.bind(item)
             is AudioHolder -> holder.bind(item)
-            is TextHolder -> holder.bind(item)
-            is PileHolder -> holder.bind(item as MediaStripItem.Pile)
+            is TextHolder  -> holder.bind(item)
+            is PileHolder  -> holder.bind(item as MediaStripItem.Pile)
         }
     }
 
@@ -332,7 +332,7 @@ class MediaStripAdapter(
         fun bind(item: MediaStripItem) {
             val display = when (item) {
                 is MediaStripItem.Image -> item
-                is MediaStripItem.Pile -> item.cover as? MediaStripItem.Image
+                is MediaStripItem.Pile  -> item.cover as? MediaStripItem.Image
                 else -> null
             } ?: return
 
@@ -360,7 +360,7 @@ class MediaStripAdapter(
         fun bind(item: MediaStripItem) {
             val display = when (item) {
                 is MediaStripItem.Audio -> item
-                is MediaStripItem.Pile -> item.cover as? MediaStripItem.Audio
+                is MediaStripItem.Pile  -> item.cover as? MediaStripItem.Audio
                 else -> null
             } ?: return
 
@@ -432,6 +432,9 @@ class MediaStripAdapter(
                 is MediaStripItem.Text -> {
                     textLayout.isVisible = true
                     textPreview.text = cover.preview.ifBlank { "…" }
+                }
+                is MediaStripItem.Pile -> {
+                    // Cas impossible pour une cover, on ne fait rien.
                 }
             }
 

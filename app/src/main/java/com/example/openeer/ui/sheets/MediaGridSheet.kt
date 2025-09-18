@@ -34,6 +34,20 @@ import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+// --- Top-level constants & DIFF (évite companion dans l'inner adapter) ---
+
+private const val GRID_TYPE_IMAGE = 1
+private const val GRID_TYPE_AUDIO = 2
+private const val GRID_TYPE_TEXT  = 3
+
+private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
+    override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
+        oldItem.blockId == newItem.blockId
+
+    override fun areContentsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
+        oldItem == newItem
+}
+
 class MediaGridSheet : BottomSheetDialogFragment() {
 
     companion object {
@@ -123,7 +137,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             MediaCategory.PHOTO -> getString(R.string.media_category_photo)
             MediaCategory.SKETCH -> getString(R.string.media_category_sketch)
             MediaCategory.AUDIO -> getString(R.string.media_category_audio)
-            MediaCategory.TEXT -> getString(R.string.media_category_text)
+            MediaCategory.TEXT  -> getString(R.string.media_category_text)
         }
 
     private fun buildItems(blocks: List<BlockEntity>, category: MediaCategory): List<MediaStripItem> {
@@ -163,22 +177,24 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         return items.sortedByDescending { it.blockId }
     }
 
+    // --- Adapter grille ---
+
     private inner class MediaGridAdapter(
         private val onClick: (MediaStripItem) -> Unit,
         private val onLongClick: (View, MediaStripItem) -> Unit,
-    ) : ListAdapter<MediaStripItem, RecyclerView.ViewHolder>(DIFF) {
+    ) : ListAdapter<MediaStripItem, RecyclerView.ViewHolder>(MEDIA_GRID_DIFF) {
 
         override fun getItemViewType(position: Int): Int = when (getItem(position)) {
-            is MediaStripItem.Image -> TYPE_IMAGE
-            is MediaStripItem.Audio -> TYPE_AUDIO
-            is MediaStripItem.Text -> TYPE_TEXT
-            is MediaStripItem.Pile -> error("Pile items are not supported in the grid")
+            is MediaStripItem.Image -> GRID_TYPE_IMAGE
+            is MediaStripItem.Audio -> GRID_TYPE_AUDIO
+            is MediaStripItem.Text  -> GRID_TYPE_TEXT
+            is MediaStripItem.Pile  -> error("Pile items are not supported in the grid")
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val ctx = parent.context
             return when (viewType) {
-                TYPE_IMAGE -> {
+                GRID_TYPE_IMAGE -> {
                     val card = createCard(ctx)
                     val image = ImageView(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
@@ -191,7 +207,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     ImageHolder(card, image)
                 }
 
-                TYPE_AUDIO -> {
+                GRID_TYPE_AUDIO -> {
                     val card = createCard(ctx)
                     val container = LinearLayout(ctx).apply {
                         orientation = LinearLayout.VERTICAL
@@ -219,7 +235,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     AudioHolder(card, text)
                 }
 
-                TYPE_TEXT -> {
+                GRID_TYPE_TEXT -> {
                     val card = createCard(ctx)
                     val text = TextView(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
@@ -245,7 +261,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             when (holder) {
                 is ImageHolder -> holder.bind(item as MediaStripItem.Image)
                 is AudioHolder -> holder.bind(item as MediaStripItem.Audio)
-                is TextHolder -> holder.bind(item as MediaStripItem.Text)
+                is TextHolder  -> holder.bind(item as MediaStripItem.Text)
             }
         }
 
@@ -297,21 +313,9 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 }
             }
         }
-
-        companion object {
-            private const val TYPE_IMAGE = 1
-            private const val TYPE_AUDIO = 2
-            private const val TYPE_TEXT = 3
-
-            private val DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
-                override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
-                    oldItem.blockId == newItem.blockId
-
-                override fun areContentsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
-                    oldItem == newItem
-            }
-        }
     }
+
+    // --- UI utils ---
 
     private fun createCard(ctx: Context): MaterialCardView = MaterialCardView(ctx).apply {
         layoutParams = RecyclerView.LayoutParams(
