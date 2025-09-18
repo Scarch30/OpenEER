@@ -2,10 +2,10 @@ package com.example.openeer.ui.panel.media
 
 import android.content.Context
 import android.graphics.Typeface
-import android.net.Uri
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -16,6 +16,7 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.google.android.material.card.MaterialCardView
 import java.util.concurrent.TimeUnit
+import androidx.core.view.isVisible
 
 /**
  * Adapter pour la strip média horizontale.
@@ -55,10 +56,15 @@ class MediaStripAdapter(
 
     override fun getItemId(position: Int): Long = getItem(position).blockId
 
-    override fun getItemViewType(position: Int): Int = when (getItem(position)) {
+    override fun getItemViewType(position: Int): Int = when (val item = getItem(position)) {
         is MediaStripItem.Image -> TYPE_IMAGE
         is MediaStripItem.Audio -> TYPE_AUDIO
-        is MediaStripItem.Text  -> TYPE_TEXT
+        is MediaStripItem.Text -> TYPE_TEXT
+        is MediaStripItem.Pile -> when (item.cover) {
+            is MediaStripItem.Audio -> TYPE_AUDIO
+            is MediaStripItem.Text -> TYPE_TEXT
+            else -> TYPE_IMAGE
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
@@ -69,10 +75,11 @@ class MediaStripAdapter(
         }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        val item = getItem(position)
         when (holder) {
-            is ImageHolder -> holder.bind(getItem(position) as MediaStripItem.Image)
-            is AudioHolder -> holder.bind(getItem(position) as MediaStripItem.Audio)
-            is TextHolder  -> holder.bind(getItem(position) as MediaStripItem.Text)
+            is ImageHolder -> holder.bind(item)
+            is AudioHolder -> holder.bind(item)
+            is TextHolder -> holder.bind(item)
         }
     }
 
@@ -88,8 +95,14 @@ class MediaStripAdapter(
     private fun createImageHolder(parent: ViewGroup): ImageHolder {
         val ctx = parent.context
         val card = squareCard(ctx)
-        val image = ImageView(ctx).apply {
+        val container = FrameLayout(ctx).apply {
             layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        val image = ImageView(ctx).apply {
+            layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
@@ -97,18 +110,27 @@ class MediaStripAdapter(
             clipToOutline = true
             contentDescription = "Image"
         }
-        card.addView(image)
-        return ImageHolder(card, image)
+        val badge = createBadge(ctx)
+        container.addView(image)
+        container.addView(badge)
+        card.addView(container)
+        return ImageHolder(card, image, badge)
     }
 
     private fun createAudioHolder(parent: ViewGroup): AudioHolder {
         val ctx = parent.context
         val card = squareCard(ctx)
+        val container = FrameLayout(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
 
         val column = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            layoutParams = ViewGroup.LayoutParams(
+            layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
@@ -130,21 +152,31 @@ class MediaStripAdapter(
             textSize = 12f
         }
 
+        val badge = createBadge(ctx)
+
         column.addView(icon)
         column.addView(duration)
-        card.addView(column)
+        container.addView(column)
+        container.addView(badge)
+        card.addView(container)
 
-        return AudioHolder(card, duration)
+        return AudioHolder(card, duration, badge)
     }
 
     private fun createTextHolder(parent: ViewGroup): TextHolder {
         val ctx = parent.context
         val card = squareCard(ctx)
+        val container = FrameLayout(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
 
         // Fond/hiérarchie visuelle "post-it"
-        val container = LinearLayout(ctx).apply {
+        val column = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = ViewGroup.LayoutParams(
+            layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
@@ -176,24 +208,39 @@ class MediaStripAdapter(
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
 
-        container.addView(badge)
-        container.addView(preview)
+        val pileBadge = createBadge(ctx)
+
+        column.addView(badge)
+        column.addView(preview)
+        container.addView(column)
+        container.addView(pileBadge)
         card.addView(container)
 
-        return TextHolder(card, preview)
+        return TextHolder(card, preview, pileBadge)
     }
 
     // --- View holders ---
 
-    inner class ImageHolder(val card: MaterialCardView, val image: ImageView) :
-        RecyclerView.ViewHolder(card) {
-        fun bind(item: MediaStripItem.Image) {
+    inner class ImageHolder(
+        val card: MaterialCardView,
+        val image: ImageView,
+        private val badge: TextView,
+    ) : RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem) {
+            val display = when (item) {
+                is MediaStripItem.Image -> item
+                is MediaStripItem.Pile -> item.cover as? MediaStripItem.Image
+                else -> null
+            } ?: return
+
             Glide.with(image)
-                .load(item.mediaUri)
+                .load(display.mediaUri)
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .centerCrop()
                 .into(image)
 
+            bindBadge(badge, item)
+
             card.setOnClickListener { onClick(item) }
             card.setOnLongClickListener {
                 onLongPress(it, item)
@@ -202,10 +249,21 @@ class MediaStripAdapter(
         }
     }
 
-    inner class AudioHolder(val card: MaterialCardView, private val text: TextView) :
-        RecyclerView.ViewHolder(card) {
-        fun bind(item: MediaStripItem.Audio) {
-            text.text = formatDuration(item.durationMs)
+    inner class AudioHolder(
+        val card: MaterialCardView,
+        private val text: TextView,
+        private val badge: TextView,
+    ) : RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem) {
+            val display = when (item) {
+                is MediaStripItem.Audio -> item
+                is MediaStripItem.Pile -> item.cover as? MediaStripItem.Audio
+                else -> null
+            } ?: return
+
+            text.text = formatDuration(display.durationMs)
+            bindBadge(badge, item)
+
             card.setOnClickListener { onClick(item) }
             card.setOnLongClickListener {
                 onLongPress(it, item)
@@ -214,10 +272,21 @@ class MediaStripAdapter(
         }
     }
 
-    inner class TextHolder(val card: MaterialCardView, private val preview: TextView) :
-        RecyclerView.ViewHolder(card) {
-        fun bind(item: MediaStripItem.Text) {
-            preview.text = item.preview.ifBlank { "…" }
+    inner class TextHolder(
+        val card: MaterialCardView,
+        private val preview: TextView,
+        private val badge: TextView,
+    ) : RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem) {
+            val display = when (item) {
+                is MediaStripItem.Text -> item
+                is MediaStripItem.Pile -> item.cover as? MediaStripItem.Text
+                else -> null
+            } ?: return
+
+            preview.text = display.preview.ifBlank { "…" }
+            bindBadge(badge, item)
+
             card.setOnClickListener { onClick(item) }
             card.setOnLongClickListener {
                 onLongPress(it, item)
@@ -239,6 +308,33 @@ class MediaStripAdapter(
             cardElevation = dp(ctx, 4).toFloat()
             isClickable = true
             isFocusable = true
+        }
+    }
+
+    private fun createBadge(ctx: Context): TextView = TextView(ctx).apply {
+        layoutParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.END or Gravity.TOP
+        ).apply {
+            topMargin = dp(ctx, 6)
+            rightMargin = dp(ctx, 6)
+        }
+        setPadding(dp(ctx, 6), dp(ctx, 2), dp(ctx, 6), dp(ctx, 2))
+        textSize = 12f
+        setTextColor(0xFFFFFFFF.toInt())
+        setBackgroundColor(0x66000000)
+        typeface = Typeface.DEFAULT_BOLD
+        isVisible = false
+    }
+
+    private fun bindBadge(badge: TextView, item: MediaStripItem) {
+        val pile = item as? MediaStripItem.Pile
+        if (pile != null) {
+            badge.text = pile.count.toString()
+            badge.isVisible = true
+        } else {
+            badge.isVisible = false
         }
     }
 
