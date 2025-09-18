@@ -102,6 +102,28 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
+    suspend fun appendVideo(
+        noteId: Long,
+        mediaUri: String,
+        mimeType: String = "video/mp4",
+        durationMs: Long,
+        groupId: String? = null
+    ): Long {
+        val now = System.currentTimeMillis()
+        val block = BlockEntity(
+            noteId = noteId,
+            type = BlockType.VIDEO,
+            position = 0,
+            groupId = groupId,
+            mediaUri = mediaUri,
+            mimeType = mimeType,
+            durationMs = durationMs,
+            createdAt = now,
+            updatedAt = now
+        )
+        return insert(noteId, block)
+    }
+
     suspend fun appendTranscription(
         noteId: Long,
         text: String,
