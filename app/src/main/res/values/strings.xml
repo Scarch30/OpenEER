@@ -66,4 +66,9 @@
     <string name="camera_capture_state_idle">Idle</string>
     <string name="camera_capture_state_hold">Hold</string>
     <string name="camera_capture_state_lock">Lock</string>
+    <string name="camera_capture_photo_saved">Photo enregistrée</string>
+    <string name="camera_capture_photo_error">Échec de la capture photo</string>
+    <string name="camera_capture_video_saved">Vidéo enregistrée</string>
+    <string name="camera_capture_video_error">Échec enregistrement vidéo</string>
+    <string name="camera_capture_video_start_error">Impossible de démarrer la vidéo</string>
 </resources>
