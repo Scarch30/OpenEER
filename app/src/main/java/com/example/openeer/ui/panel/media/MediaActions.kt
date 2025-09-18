@@ -13,6 +13,7 @@ import com.example.openeer.R
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.SimplePlayer
+import com.example.openeer.ui.sheets.ChildTextEditorSheet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,9 +61,12 @@ class MediaActions(
                 )
             }
             is MediaStripItem.Text -> {
-                // Pour un post-it texte : simple aperçu via Toast (ou ouvrir un éditeur dédié plus tard)
-                val preview = item.preview.ifBlank { "…" }
-                Toast.makeText(activity, preview, Toast.LENGTH_SHORT).show()
+                val sheet = ChildTextEditorSheet.edit(
+                    noteId = item.noteId,
+                    blockId = item.blockId,
+                    initialContent = item.content,
+                )
+                sheet.show(activity.supportFragmentManager, "child_text")
             }
         }
     }
@@ -96,7 +100,7 @@ class MediaActions(
                 shareFile(item.mediaUri, item.mimeType ?: "audio/*")
             }
             is MediaStripItem.Text -> {
-                shareText(item.preview)
+                shareText(item.content)
             }
         }
     }

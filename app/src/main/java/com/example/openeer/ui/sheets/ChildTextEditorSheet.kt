@@ -32,10 +32,21 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
 
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
+        private const val ARG_BLOCK_ID = "arg_block_id"
+        private const val ARG_INITIAL_CONTENT = "arg_initial_content"
 
         fun new(noteId: Long): ChildTextEditorSheet =
             ChildTextEditorSheet().apply {
                 arguments = bundleOf(ARG_NOTE_ID to noteId)
+            }
+
+        fun edit(noteId: Long, blockId: Long, initialContent: String): ChildTextEditorSheet =
+            ChildTextEditorSheet().apply {
+                arguments = bundleOf(
+                    ARG_NOTE_ID to noteId,
+                    ARG_BLOCK_ID to blockId,
+                    ARG_INITIAL_CONTENT to initialContent,
+                )
             }
     }
 
@@ -60,9 +71,24 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         val btnCancel = view.findViewById<Button>(R.id.btnCancel)
         val btnValidate = view.findViewById<Button>(R.id.btnValidate)
         val badge = view.findViewById<TextView>(R.id.badgeChild)
+        val title = view.findViewById<TextView>(R.id.title)
 
         badge.text = "Note fille"
         btnValidate.isEnabled = false
+
+        val existingBlockId = arguments?.getLong(ARG_BLOCK_ID)?.takeIf { it > 0 }
+        val initialContent = arguments?.getString(ARG_INITIAL_CONTENT).orEmpty()
+        val isEditMode = existingBlockId != null
+
+        if (isEditMode) {
+            title.text = getString(R.string.child_text_editor_edit_title)
+        }
+
+        if (initialContent.isNotBlank()) {
+            input.setText(initialContent)
+            input.setSelection(initialContent.length)
+            btnValidate.isEnabled = true
+        }
 
         input.addTextChangedListener { btnValidate.isEnabled = !it.isNullOrBlank() }
         btnCancel.setOnClickListener { dismiss() }
@@ -73,11 +99,13 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
             if (content.isBlank()) return@setOnClickListener
 
             uiScope.launch {
-                val blockId = withContext(Dispatchers.IO) {
-                    // Doit exister dans BlocksRepository
-                    blocksRepo.appendText(noteId, content)
+                val savedBlockId = withContext(Dispatchers.IO) {
+                    existingBlockId?.let { blockId ->
+                        blocksRepo.updateText(blockId, content)
+                        blockId
+                    } ?: blocksRepo.appendText(noteId, content)
                 }
-                onSaved?.invoke(noteId, blockId)
+                onSaved?.invoke(noteId, savedBlockId)
                 dismiss()
             }
         }
