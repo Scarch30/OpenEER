@@ -3,7 +3,6 @@ package com.example.openeer.ui.panel.media
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -15,6 +14,7 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
+import com.example.openeer.ui.sheets.MediaGridSheet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,8 +30,8 @@ class MediaActions(
 ) {
     private val uiScope = CoroutineScope(Dispatchers.Main)
 
-    fun handlePileClick(category: MediaCategory) {
-        Log.d("MediaActions", "Pile click: $category")
+    fun handlePileClick(noteId: Long, category: MediaCategory) {
+        MediaGridSheet.show(activity.supportFragmentManager, noteId, category)
     }
 
     fun handleClick(item: MediaStripItem) {
