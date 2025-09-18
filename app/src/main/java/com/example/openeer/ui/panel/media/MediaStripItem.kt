@@ -31,9 +31,17 @@ sealed class MediaStripItem {
      */
     data class Text(
         override val blockId: Long,
-        val preview: String,
+        val noteId: Long,
+        val content: String,
     ) : MediaStripItem() {
         override val mediaUri: String? = null
         override val mimeType: String? = null
+
+        val preview: String
+            get() = content
+                .lineSequence()
+                .firstOrNull()
+                ?.trim()
+                .orEmpty()
     }
 }

@@ -215,14 +215,11 @@ class NotePanelController(
                 BlockType.AUDIO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let {
                     MediaStripItem.Audio(block.id, it, block.mimeType, block.durationMs)
                 }
-                BlockType.TEXT -> {
-                    val preview = (block.text ?: "")
-                        .lineSequence()
-                        .firstOrNull()
-                        ?.trim()
-                        .orEmpty()
-                    MediaStripItem.Text(block.id, preview)
-                }
+                BlockType.TEXT -> MediaStripItem.Text(
+                    blockId = block.id,
+                    noteId = block.noteId,
+                    content = block.text.orEmpty(),
+                )
                 else -> null
             }
         }
