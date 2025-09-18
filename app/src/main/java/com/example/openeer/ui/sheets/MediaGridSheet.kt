@@ -34,8 +34,7 @@ import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-// --- Top-level constants & DIFF (évite companion dans l'inner adapter) ---
-
+// Types & Diff pour l’adapter de grille
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
@@ -43,7 +42,6 @@ private const val GRID_TYPE_TEXT  = 3
 private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
     override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
         oldItem.blockId == newItem.blockId
-
     override fun areContentsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
         oldItem == newItem
 }
@@ -67,15 +65,13 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private val noteId: Long
-        get() = requireArguments().getLong(ARG_NOTE_ID)
+    private val noteId: Long get() = requireArguments().getLong(ARG_NOTE_ID)
 
     private val category: MediaCategory
-        get() {
-            val stored = requireArguments().getString(ARG_CATEGORY)
-                ?: throw IllegalStateException("Missing category")
-            return MediaCategory.valueOf(stored)
-        }
+        get() = MediaCategory.valueOf(
+            requireArguments().getString(ARG_CATEGORY)
+                ?: error("Missing category")
+        )
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(requireContext())
@@ -102,9 +98,15 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             0,
         )
 
+        // IMPORTANT : on ferme la grille avant d’ouvrir l’éditeur
         val adapter = MediaGridAdapter(
-            onClick = { item -> mediaActions.handleClick(item) },
-            onLongClick = { clickedView, item -> mediaActions.showMenu(clickedView, item) },
+            onClick = { item ->
+                dismissAllowingStateLoss()
+                mediaActions.handleClick(item)
+            },
+            onLongClick = { clickedView, item ->
+                mediaActions.showMenu(clickedView, item)
+            },
         )
 
         recycler.layoutManager = GridLayoutManager(requireContext(), computeSpanCount())
@@ -144,25 +146,16 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         val items = blocks.mapNotNull { block ->
             when (category) {
                 MediaCategory.PHOTO -> block.takeIf { it.type == BlockType.PHOTO }
-                    ?.mediaUri
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { uri ->
-                        MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
-                    }
+                    ?.mediaUri?.takeIf { it.isNotBlank() }
+                    ?.let { uri -> MediaStripItem.Image(block.id, uri, block.mimeType, block.type) }
 
                 MediaCategory.SKETCH -> block.takeIf { it.type == BlockType.SKETCH }
-                    ?.mediaUri
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { uri ->
-                        MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
-                    }
+                    ?.mediaUri?.takeIf { it.isNotBlank() }
+                    ?.let { uri -> MediaStripItem.Image(block.id, uri, block.mimeType, block.type) }
 
                 MediaCategory.AUDIO -> block.takeIf { it.type == BlockType.AUDIO }
-                    ?.mediaUri
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { uri ->
-                        MediaStripItem.Audio(block.id, uri, block.mimeType, block.durationMs)
-                    }
+                    ?.mediaUri?.takeIf { it.isNotBlank() }
+                    ?.let { uri -> MediaStripItem.Audio(block.id, uri, block.mimeType, block.durationMs) }
 
                 MediaCategory.TEXT -> block.takeIf { it.type == BlockType.TEXT }
                     ?.let {
@@ -206,7 +199,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     card.addView(image)
                     ImageHolder(card, image)
                 }
-
                 GRID_TYPE_AUDIO -> {
                     val card = createCard(ctx)
                     val container = LinearLayout(ctx).apply {
@@ -217,10 +209,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     }
                     val icon = ImageView(ctx).apply {
                         setImageResource(android.R.drawable.ic_btn_speak_now)
-                        layoutParams = LinearLayout.LayoutParams(
-                            dp(ctx, 36),
-                            dp(ctx, 36),
-                        )
+                        layoutParams = LinearLayout.LayoutParams(dp(ctx, 36), dp(ctx, 36))
                     }
                     val text = TextView(ctx).apply {
                         layoutParams = LinearLayout.LayoutParams(
@@ -234,7 +223,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     card.addView(container)
                     AudioHolder(card, text)
                 }
-
                 GRID_TYPE_TEXT -> {
                     val card = createCard(ctx)
                     val text = TextView(ctx).apply {
@@ -251,7 +239,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     card.addView(text)
                     TextHolder(card, text)
                 }
-
                 else -> throw IllegalStateException("Unknown view type $viewType")
             }
         }
@@ -277,10 +264,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     .into(image)
 
                 card.setOnClickListener { onClick(item) }
-                card.setOnLongClickListener {
-                    onLongClick(it, item)
-                    true
-                }
+                card.setOnLongClickListener { onLongClick(it, item); true }
             }
         }
 
@@ -290,12 +274,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Audio) {
                 duration.text = formatDuration(item.durationMs)
-
                 card.setOnClickListener { onClick(item) }
-                card.setOnLongClickListener {
-                    onLongClick(it, item)
-                    true
-                }
+                card.setOnLongClickListener { onLongClick(it, item); true }
             }
         }
 
@@ -305,12 +285,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Text) {
                 preview.text = item.preview.ifBlank { "…" }
-
                 card.setOnClickListener { onClick(item) }
-                card.setOnLongClickListener {
-                    onLongClick(it, item)
-                    true
-                }
+                card.setOnLongClickListener { onLongClick(it, item); true }
             }
         }
     }
@@ -330,10 +306,10 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
     private fun formatDuration(durationMs: Long?): String {
         val total = durationMs ?: return "--:--"
-        val totalSeconds = total / 1000
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return String.format("%02d:%02d", minutes, seconds)
+        val s = total / 1000
+        val m = s / 60
+        val r = s % 60
+        return String.format("%02d:%02d", m, r)
     }
 
     private fun dp(ctx: Context, value: Int): Int =

@@ -21,8 +21,8 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Actions communes pour les items de la strip média (click / long press menu).
- * Gère maintenant IMAGE, AUDIO et TEXT (post-it).
+ * Actions communes pour la strip média (click / long press menu).
+ * Gère IMAGE, AUDIO, TEXT (post-it) et PILE (redirige vers la grille).
  */
 class MediaActions(
     private val activity: AppCompatActivity,
@@ -37,16 +37,16 @@ class MediaActions(
     fun handleClick(item: MediaStripItem) {
         when (item) {
             is MediaStripItem.Pile -> handleClick(item.cover)
+
             is MediaStripItem.Image -> {
-                // Ouvrir viewer photo
                 val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
-                    putExtra("path", item.mediaUri) // non-null
+                    putExtra("path", item.mediaUri)
                 }
                 activity.startActivity(intent)
             }
+
             is MediaStripItem.Audio -> {
-                // Jouer audio local
-                val path = item.mediaUri // non-null
+                val path = item.mediaUri
                 if (path.startsWith("content://")) {
                     Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
                     return
@@ -60,19 +60,19 @@ class MediaActions(
                     ctx = activity,
                     path = file.absolutePath,
                     onStart = { Toast.makeText(activity, "Lecture…", Toast.LENGTH_SHORT).show() },
-                    onStop = { Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show() },
+                    onStop  = { Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show() },
                     onError = { e ->
                         Toast.makeText(activity, "Lecture impossible : ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 )
             }
+
             is MediaStripItem.Text -> {
-                val sheet = ChildTextEditorSheet.edit(
+                ChildTextEditorSheet.edit(
                     noteId = item.noteId,
                     blockId = item.blockId,
                     initialContent = item.content,
-                )
-                sheet.show(activity.supportFragmentManager, "child_text")
+                ).show(activity.supportFragmentManager, "child_text")
             }
         }
     }
@@ -83,14 +83,8 @@ class MediaActions(
         popup.menu.add(0, MENU_DELETE, 1, activity.getString(R.string.media_action_delete))
         popup.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
-                MENU_SHARE -> {
-                    share(item)
-                    true
-                }
-                MENU_DELETE -> {
-                    confirmDelete(item)
-                    true
-                }
+                MENU_SHARE -> { share(item); true }
+                MENU_DELETE -> { confirmDelete(item); true }
                 else -> false
             }
         }
@@ -99,16 +93,10 @@ class MediaActions(
 
     private fun share(item: MediaStripItem) {
         when (item) {
-            is MediaStripItem.Pile -> share(item.cover)
-            is MediaStripItem.Image -> {
-                shareFile(item.mediaUri, item.mimeType ?: "image/*")
-            }
-            is MediaStripItem.Audio -> {
-                shareFile(item.mediaUri, item.mimeType ?: "audio/*")
-            }
-            is MediaStripItem.Text -> {
-                shareText(item.content)
-            }
+            is MediaStripItem.Pile  -> share(item.cover)
+            is MediaStripItem.Image -> shareFile(item.mediaUri, item.mimeType ?: "image/*")
+            is MediaStripItem.Audio -> shareFile(item.mediaUri, item.mimeType ?: "audio/*")
+            is MediaStripItem.Text  -> shareText(item.content)
         }
     }
 
@@ -117,9 +105,7 @@ class MediaActions(
         AlertDialog.Builder(activity)
             .setTitle(R.string.media_action_delete)
             .setMessage(R.string.media_delete_confirm)
-            .setPositiveButton(R.string.action_validate) { _, _ ->
-                performDelete(target)
-            }
+            .setPositiveButton(R.string.action_validate) { _, _ -> performDelete(target) }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
     }
@@ -129,32 +115,29 @@ class MediaActions(
             performDelete(item.cover)
             return
         }
-
         uiScope.launch {
             val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 runCatching {
                     when (item) {
                         is MediaStripItem.Image -> {
-                            deleteMediaFile(item.mediaUri)
-                            blocksRepo.deleteBlock(item.blockId)
+                            deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
                         }
                         is MediaStripItem.Audio -> {
-                            deleteMediaFile(item.mediaUri)
+                            deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
+                        }
+                        is MediaStripItem.Text  -> {
                             blocksRepo.deleteBlock(item.blockId)
                         }
-                        is MediaStripItem.Text -> {
-                            // Pas de fichier à supprimer
-                            blocksRepo.deleteBlock(item.blockId)
-                        }
-                        else -> Unit
+                        // exhaustivité
+                        is MediaStripItem.Pile -> Unit
                     }
                 }.isSuccess
             }
-            if (ok) {
-                Toast.makeText(activity, activity.getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(activity, activity.getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
-            }
+            Toast.makeText(
+                activity,
+                if (ok) activity.getString(R.string.media_delete_done) else activity.getString(R.string.media_delete_error),
+                if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -201,13 +184,13 @@ class MediaActions(
             val uri = Uri.parse(rawUri)
             when {
                 uri.scheme.isNullOrEmpty() -> File(rawUri).takeIf { it.exists() }?.delete()
-                uri.scheme.equals("file", ignoreCase = true) -> uri.path?.let { path ->
-                    File(path).takeIf { it.exists() }?.delete()
+                uri.scheme.equals("file", ignoreCase = true) -> uri.path?.let { p ->
+                    File(p).takeIf { it.exists() }?.delete()
                 }
                 uri.scheme.equals("content", ignoreCase = true) ->
                     activity.contentResolver.delete(uri, null, null)
-                else -> uri.path?.let { path ->
-                    File(path).takeIf { it.exists() }?.delete()
+                else -> uri.path?.let { p ->
+                    File(p).takeIf { it.exists() }?.delete()
                 }
             }
         }
