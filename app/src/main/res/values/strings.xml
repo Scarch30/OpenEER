@@ -62,7 +62,5 @@
 <string name="camera_capture_gallery">Ouvrir la galerie</string>
 <string name="camera_capture_button">Prendre une photo / vidéo</string>
 <string name="camera_capture_screenshot">Capture d’écran</string>
-<string name="camera_capture_video_saved">Vidéo enregistrée</string>
-<string name="camera_capture_video_error">Échec enregistrement vidéo</string>
-<string name="camera_capture_video_start_error">Impossible de démarrer la vidéo</string>
+
 </resources>
