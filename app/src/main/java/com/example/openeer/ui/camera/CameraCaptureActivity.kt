@@ -2,7 +2,9 @@ package com.example.openeer.ui.camera
 
 import android.Manifest
 import android.content.ContentValues
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -68,6 +70,15 @@ class CameraCaptureActivity : AppCompatActivity() {
             }
         }
 
+    private val galleryLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (uris.isNullOrEmpty()) return@registerForActivityResult
+            uris.forEach { uri ->
+                takePersistablePermission(uri)
+                showImportToast(uri)
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -117,7 +128,9 @@ class CameraCaptureActivity : AppCompatActivity() {
             }
         }
 
-        binding.btnGallery.setOnClickListener { Toast.makeText(this, "Galerie (à venir)", Toast.LENGTH_SHORT).show() }
+        binding.btnGallery.setOnClickListener {
+            galleryLauncher.launch(arrayOf("image/*", "video/*"))
+        }
         binding.btnScreenshot.setOnClickListener {
             Toast.makeText(this, "Capture d’écran (à venir)", Toast.LENGTH_SHORT).show()
         }
@@ -218,6 +231,18 @@ class CameraCaptureActivity : AppCompatActivity() {
         val permissionsToRequest = mutableListOf<String>()
         if (!hasPermission(Manifest.permission.CAMERA)) permissionsToRequest.add(Manifest.permission.CAMERA)
         if (!hasRecordAudioPermission) permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (isPermissionDeclared(Manifest.permission.READ_MEDIA_IMAGES) &&
+                !hasPermission(Manifest.permission.READ_MEDIA_IMAGES)
+            ) {
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
+            }
+            if (isPermissionDeclared(Manifest.permission.READ_MEDIA_VIDEO) &&
+                !hasPermission(Manifest.permission.READ_MEDIA_VIDEO)
+            ) {
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_VIDEO)
+            }
+        }
 
         if (permissionsToRequest.isEmpty()) {
             startCamera()
@@ -228,6 +253,41 @@ class CameraCaptureActivity : AppCompatActivity() {
 
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    private fun isPermissionDeclared(permission: String): Boolean {
+        return try {
+            val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
+            }
+            packageInfo.requestedPermissions?.contains(permission) == true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
+    }
+
+    private fun takePersistablePermission(uri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            // Ignore if permission cannot be persisted
+        }
+    }
+
+    private fun showImportToast(uri: Uri) {
+        val mimeType = contentResolver.getType(uri) ?: ""
+        val message = when {
+            mimeType.startsWith("image/") -> "Import image : $uri"
+            mimeType.startsWith("video/") -> "Import vidéo : $uri"
+            else -> "Import média : $uri"
+        }
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
 
     private fun startCamera() {
         val providerFuture = ProcessCameraProvider.getInstance(this)
