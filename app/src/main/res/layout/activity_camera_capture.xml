@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/camera_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".ui.camera.CameraCaptureActivity">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/preview_view"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:keepScreenOn="true"
+        app:implementationMode="performance"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        tools:background="#111" />
+
+    <LinearLayout
+        android:id="@+id/bottom_bar"
+        android:layout_width="0dp"
+        android:layout_height="96dp"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:gravity="center"
+        android:background="@android:color/transparent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_gallery"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="@string/camera_capture_gallery"
+            android:insetLeft="0dp"
+            android:insetRight="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_capture"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:text="@string/camera_capture_button"
+            app:cornerRadius="48dp"
+            app:iconPadding="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_screenshot"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="@string/camera_capture_screenshot"
+            android:insetLeft="0dp"
+            android:insetRight="0dp" />
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
