@@ -1,6 +1,7 @@
 package com.example.openeer.ui.panel.media
 
 import android.content.Context
+import android.graphics.PorterDuff
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
@@ -16,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.example.openeer.R
+import com.example.openeer.data.block.BlockType
 import com.google.android.material.card.MaterialCardView
 import java.util.concurrent.TimeUnit
 
@@ -24,15 +26,10 @@ import java.util.concurrent.TimeUnit
  * Rendu UNIFORME : toutes les tuiles font 90dp x 90dp.
  *
  * ViewTypes :
- * - IMAGE (photo, sketch)
- * - AUDIO
- * - TEXT (post-it)
- * - PILE (pile multi-médias)
- *
- * Callbacks :
- * - onClick(item)
- * - onPileClick(category)
- * - onLongPress(view, item)
+ * - IMAGE (photo, sketch, vidéo)  -> vignette + badge pile + overlay ▶ pour VIDEO
+ * - AUDIO                         -> icône + durée + badge pile
+ * - TEXT                          -> post-it + badge pile
+ * - PILE                          -> couverture + badge nombre + overlay ▶ si cover vidéo
  */
 class MediaStripAdapter(
     private val onClick: (MediaStripItem) -> Unit,
@@ -116,10 +113,12 @@ class MediaStripAdapter(
             contentDescription = "Image"
         }
         val badge = createBadge(ctx)
+        val play = createPlayOverlay(ctx) // ▶ overlay pour VIDEO
         container.addView(image)
         container.addView(badge)
+        container.addView(play)
         card.addView(container)
-        return ImageHolder(card, image, badge)
+        return ImageHolder(card, image, badge, play)
     }
 
     private fun createAudioHolder(parent: ViewGroup): AudioHolder {
@@ -188,7 +187,7 @@ class MediaStripAdapter(
             setPadding(dp(ctx, 8), dp(ctx, 8), dp(ctx, 8), dp(ctx, 8))
         }
 
-        val badge = TextView(ctx).apply {
+        val badgeLabel = TextView(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -215,7 +214,7 @@ class MediaStripAdapter(
 
         val pileBadge = createBadge(ctx)
 
-        column.addView(badge)
+        column.addView(badgeLabel)
         column.addView(preview)
         container.addView(column)
         container.addView(pileBadge)
@@ -312,14 +311,16 @@ class MediaStripAdapter(
         textLayout.addView(textPreview)
 
         val badge = createBadge(ctx)
+        val play = createPlayOverlay(ctx) // ▶ overlay si cover est vidéo
 
         container.addView(image)
         container.addView(audioLayout)
         container.addView(textLayout)
         container.addView(badge)
+        container.addView(play)
         card.addView(container)
 
-        return PileHolder(card, image, audioLayout, audioDuration, textLayout, textPreview, badge)
+        return PileHolder(card, image, audioLayout, audioDuration, textLayout, textPreview, badge, play)
     }
 
     // --- View holders ---
@@ -328,6 +329,7 @@ class MediaStripAdapter(
         val card: MaterialCardView,
         val image: ImageView,
         private val badge: TextView,
+        private val play: ImageView,
     ) : RecyclerView.ViewHolder(card) {
         fun bind(item: MediaStripItem) {
             val display = when (item) {
@@ -343,6 +345,7 @@ class MediaStripAdapter(
                 .into(image)
 
             bindBadge(badge, item)
+            play.isVisible = display.type == BlockType.VIDEO
 
             card.setOnClickListener { onClick(item) }
             card.setOnLongClickListener {
@@ -406,6 +409,7 @@ class MediaStripAdapter(
         private val textLayout: LinearLayout,
         private val textPreview: TextView,
         private val badge: TextView,
+        private val play: ImageView,
     ) : RecyclerView.ViewHolder(card) {
         fun bind(item: MediaStripItem.Pile) {
             badge.text = item.count.toString()
@@ -415,6 +419,7 @@ class MediaStripAdapter(
             image.isVisible = false
             audioLayout.isVisible = false
             textLayout.isVisible = false
+            play.isVisible = false
 
             when (val cover = item.cover) {
                 is MediaStripItem.Image -> {
@@ -424,6 +429,7 @@ class MediaStripAdapter(
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .centerCrop()
                         .into(image)
+                    play.isVisible = cover.type == BlockType.VIDEO
                 }
                 is MediaStripItem.Audio -> {
                     audioLayout.isVisible = true
@@ -433,9 +439,7 @@ class MediaStripAdapter(
                     textLayout.isVisible = true
                     textPreview.text = cover.preview.ifBlank { "…" }
                 }
-                is MediaStripItem.Pile -> {
-                    // Cas impossible pour une cover, on ne fait rien.
-                }
+                is MediaStripItem.Pile -> Unit
             }
 
             card.setOnClickListener { onPileClick(item.category) }
@@ -476,6 +480,17 @@ class MediaStripAdapter(
         setTextColor(0xFFFFFFFF.toInt())
         setBackgroundColor(0x66000000)
         typeface = Typeface.DEFAULT_BOLD
+        isVisible = false
+    }
+
+    private fun createPlayOverlay(ctx: Context): ImageView = ImageView(ctx).apply {
+        layoutParams = FrameLayout.LayoutParams(
+            dp(ctx, 30), dp(ctx, 30),
+            Gravity.CENTER
+        )
+        setImageResource(android.R.drawable.ic_media_play)
+        setColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
+        alpha = 0.85f
         isVisible = false
     }
 

@@ -1,4 +1,3 @@
-// app/src/main/java/com/example/openeer/ui/panel/media/MediaActions.kt
 package com.example.openeer.ui.panel.media
 
 import android.content.Intent
@@ -11,11 +10,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.FileProvider
 import com.example.openeer.R
+import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.sheets.ChildTextViewerSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
+import com.example.openeer.ui.viewer.VideoPlayerActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -23,7 +24,7 @@ import java.io.File
 
 /**
  * Actions communes pour la strip média et la grille :
- * - Ouverture (image, audio, post-it)
+ * - Ouverture (image, vidéo, audio, post-it)
  * - Partage / Suppression
  * - Ouverture d’une pile en grille
  */
@@ -42,14 +43,23 @@ class MediaActions(
     fun handleClick(item: MediaStripItem) {
         when (item) {
             is MediaStripItem.Pile -> {
-                // Par sécurité : si on nous envoie quand même une pile, on ouvre sa grille.
                 handlePileClick(item.coverNoteId(), item.category)
             }
             is MediaStripItem.Image -> {
-                val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
-                    putExtra("path", item.mediaUri)
+                if (item.type == BlockType.VIDEO) {
+                    // ✅ Lecteur vidéo in-app
+                    val intent = Intent(activity, VideoPlayerActivity::class.java).apply {
+                        putExtra(VideoPlayerActivity.EXTRA_URI, item.mediaUri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    activity.startActivity(intent)
+                } else {
+                    // Photo / Sketch
+                    val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
+                        putExtra("path", item.mediaUri)
+                    }
+                    activity.startActivity(intent)
                 }
-                activity.startActivity(intent)
             }
             is MediaStripItem.Audio -> {
                 val path = item.mediaUri
@@ -101,11 +111,15 @@ class MediaActions(
 
     private fun share(item: MediaStripItem) {
         when (item) {
-            is MediaStripItem.Pile -> share(item.cover) // partage la couverture
-            is MediaStripItem.Image -> shareFile(item.mediaUri, item.mimeType ?: "image/*")
+            is MediaStripItem.Pile -> share(item.cover)
+            is MediaStripItem.Image -> shareFile(item.mediaUri, item.mimeType ?: inferImageOrVideoMime(item))
             is MediaStripItem.Audio -> shareFile(item.mediaUri, item.mimeType ?: "audio/*")
             is MediaStripItem.Text  -> shareText(item.content)
         }
+    }
+
+    private fun inferImageOrVideoMime(item: MediaStripItem.Image): String {
+        return if (item.type == BlockType.VIDEO) "video/*" else "image/*"
     }
 
     private fun shareFile(rawPathOrUri: String, mime: String) {
@@ -172,7 +186,7 @@ class MediaActions(
                         is MediaStripItem.Text -> {
                             blocksRepo.deleteBlock(item.blockId)
                         }
-                        is MediaStripItem.Pile -> Unit // déjà traité au-dessus
+                        is MediaStripItem.Pile -> Unit
                     }
                 }.isSuccess
             }
@@ -217,14 +231,11 @@ class MediaActions(
     }
 
     private fun MediaStripItem.Pile.coverNoteId(): Long = when (val c = cover) {
-        is MediaStripItem.Image -> c.blockId      // on n’a pas le noteId sur Image/Audio, mais on s’en sert seulement pour ouvrir la grille via NoteId passé ailleurs.
+        is MediaStripItem.Image -> c.blockId
         is MediaStripItem.Audio -> c.blockId
         is MediaStripItem.Text  -> c.noteId
         is MediaStripItem.Pile  -> c.coverNoteId()
-    }.let { _ -> // fallback si nécessaire
-        // La pile est ouverte via handlePileClick(noteId, category) depuis le contrôleur,
-        // cette extension est utilisée uniquement si jamais on clique une pile via handleClick.
-        // On choisit donc : si Text => noteId réel, sinon on ne s’en sert pas pour show().
+    }.let { _ ->
         (cover as? MediaStripItem.Text)?.noteId ?: 0L
     }
 

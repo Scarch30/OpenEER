@@ -8,6 +8,7 @@
     android:layout_height="match_parent"
     tools:context=".ui.camera.CameraCaptureActivity">
 
+    <!-- Preview caméra plein écran -->
     <androidx.camera.view.PreviewView
         android:id="@+id/preview_view"
         android:layout_width="0dp"
@@ -17,52 +18,143 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        tools:background="#111" />
+        app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- HUD REC + timer : centré au-dessus de la barre de boutons -->
     <LinearLayout
-        android:id="@+id/bottom_bar"
-        android:layout_width="0dp"
-        android:layout_height="96dp"
+        android:id="@+id/recordingHud"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:gravity="center"
-        android:background="@android:color/transparent"
-        app:layout_constraintBottom_toBottomOf="parent"
+        android:gravity="center_vertical"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="#66000000"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/bottom_controls"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginBottom="12dp">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_gallery"
-            style="@style/Widget.Material3.Button"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_weight="1"
-            android:text="@string/camera_capture_gallery"
-            android:insetLeft="0dp"
-            android:insetRight="0dp" />
+        <View
+            android:id="@+id/recDot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:background="@android:color/holo_red_light"
+            android:layout_marginEnd="8dp"
+            android:focusable="false"
+            android:clickable="false"
+            android:contentDescription="@string/cd_rec_indicator" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_capture"
-            style="@style/Widget.Material3.Button"
-            android:layout_width="96dp"
-            android:layout_height="96dp"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp"
-            android:text="@string/camera_capture_button"
-            app:cornerRadius="48dp"
-            app:iconPadding="0dp" />
+        <TextView
+            android:id="@+id/recTimer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="00:00"
+            android:textColor="@android:color/white"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:layout_marginEnd="6dp"/>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_screenshot"
-            style="@style/Widget.Material3.Button"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_weight="1"
-            android:text="@string/camera_capture_screenshot"
-            android:insetLeft="0dp"
-            android:insetRight="0dp" />
+        <!-- Icône cadenas pour feedback “mains libres” -->
+        <ImageView
+            android:id="@+id/lockFlash"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@android:drawable/ic_lock_lock"
+            android:tint="@android:color/white"
+            android:alpha="0.0"
+            android:visibility="gone"/>
     </LinearLayout>
 
+    <!-- Barre de commandes (au-dessus de la barre de navigation) -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/bottom_controls"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="12dp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <!-- Gros bouton capture (centré) -->
+        <ImageButton
+            android:id="@+id/btnShutter"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:background="@drawable/bg_shutter"
+            android:contentDescription="@string/cd_shutter"
+            android:focusable="true"
+            android:clickable="true"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"/>
+
+        <!-- Bouton Lock (caché dans ce flux) -->
+        <ImageButton
+            android:id="@+id/btnLock"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_round_button"
+            android:src="@android:drawable/ic_lock_lock"
+            android:scaleType="centerInside"
+            android:contentDescription="@string/cd_lock_recording"
+            android:visibility="gone"
+            app:layout_constraintTop_toTopOf="@id/btnShutter"
+            app:layout_constraintBottom_toBottomOf="@id/btnShutter"
+            app:layout_constraintStart_toEndOf="@id/btnShutter"
+            android:layout_marginStart="20dp"/>
+
+        <!-- Vignette dernière photo (Galerie) -->
+        <ImageView
+            android:id="@+id/btnGalleryThumb"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:scaleType="centerCrop"
+            android:contentDescription="@string/cd_open_gallery"
+            android:background="@drawable/bg_thumb_square"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toStartOf="@id/btnShutter"
+            app:layout_constraintTop_toTopOf="@id/btnShutter"
+            app:layout_constraintBottom_toBottomOf="@id/btnShutter"
+            app:layout_constraintVertical_bias="0.35"
+            android:layout_marginEnd="72dp"/>
+
+        <!-- Bloc capture d’écran : icône + texte -->
+        <LinearLayout
+            android:id="@+id/btnScreenshotWrapper"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:layout_constraintTop_toTopOf="@id/btnShutter"
+            app:layout_constraintBottom_toBottomOf="@id/btnShutter"
+            app:layout_constraintStart_toEndOf="@id/btnShutter"
+            app:layout_constraintEnd_toEndOf="parent"
+            android:layout_marginStart="72dp">
+
+            <ImageButton
+                android:id="@+id/btnScreenshot"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/bg_round_button"
+                android:src="@android:drawable/ic_menu_crop"
+                android:scaleType="centerInside"
+                android:contentDescription="@string/cd_screenshot" />
+
+            <TextView
+                android:id="@+id/btnScreenshotLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/camera_capture_screenshot_label"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"/>
+        </LinearLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

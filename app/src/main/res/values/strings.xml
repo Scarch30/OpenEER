@@ -17,6 +17,7 @@
     <string name="media_delete_error">Suppression impossible</string>
     <string name="media_share_error">Partage impossible</string>
     <string name="media_missing_file">Fichier introuvable</string>
+    <string name="media_open_failed">Ouverture impossible</string>
 
     <string name="media_category_photo">Photos</string>
     <string name="media_category_sketch">Croquis</string>
@@ -32,10 +33,8 @@
     <string name="sketch_tool_clear">Supprimer le dessin</string>
     <string name="sketch_tool_validate">Valider</string>
     <string name="sketch_tool_cancel">Annuler et fermer</string>
-
     <string name="sketch_thickness">Épaisseur</string>
     <string name="sketch_color_hint">Appui long pour choisir une couleur personnalisée</string>
-
     <string name="sketch_shape_line">Ligne</string>
     <string name="sketch_shape_arrow">Flèche</string>
     <string name="sketch_shape_rect">Rectangle</string>
@@ -45,22 +44,42 @@
     <string name="sketch_shape_triangle">Triangle</string>
     <string name="sketch_shape_star">Étoile</string>
     <string name="sketch_shape_filled">Remplir la forme</string>
-
-    <!-- Pas d'échappement Unicode invalide ; apostrophe encodée en entité XML -->
     <string name="sketch_eraser_hint">Ajustez l\u0027épaisseur de la gomme</string>
-
     <string name="sketch_color_picker_title">Choisir une couleur</string>
     <string name="sketch_hue">Teinte</string>
     <string name="sketch_saturation">Saturation</string>
     <string name="sketch_value">Valeur</string>
-
     <string name="sketch_clear_confirm_title">Supprimer le croquis ?</string>
     <string name="sketch_clear_confirm_message">Tout le dessin sera effacé.</string>
 
     <string name="child_text_editor_edit_title">Modifier le post-it</string>
 
-<string name="camera_capture_gallery">Ouvrir la galerie</string>
-<string name="camera_capture_button">Prendre une photo / vidéo</string>
-<string name="camera_capture_screenshot">Capture d’écran</string>
+    <string name="camera_capture_gallery">Ouvrir la galerie</string>
+    <string name="camera_capture_button">Prendre une photo / vidéo</string>
+    <string name="camera_capture_screenshot">Capture d’écran</string>
 
+    <string name="camera_capture_photo_saved">Photo enregistrée</string>
+    <string name="camera_capture_photo_error">Échec de la capture photo</string>
+
+    <string name="camera_permission_denied">Permission caméra refusée</string>
+    <string name="invalid_note_id">Note introuvable</string>
+    <string name="camera_capture_gallery_soon">Galerie disponible au palier 5</string>
+    <string name="camera_capture_screenshot_soon">Capture d’écran au palier 6</string>
+    <string name="camera_start_error">Erreur de démarrage de la caméra</string>
+
+    <string name="cd_open_gallery">Ouvrir la galerie</string>
+    <string name="cd_shutter">Déclencher la photo</string>
+    <string name="cd_screenshot">Capture d’écran</string>
+    <string name="camera_capture_screenshot_label">Capture d’écran</string>
+    <string name="cd_rec_indicator">Enregistrement en cours</string>
+    <string name="cd_lock_recording">Verrouiller l’enregistrement</string>
+
+    <string name="video_capture_saved">Vidéo enregistrée</string>
+    <string name="video_capture_error">Échec de l’enregistrement vidéo</string>
+    <string name="video_player_error">Lecture vidéo impossible</string>
+
+    <!-- Palier 5 : Galerie -->
+    <string name="gallery_import_ok">Média importé</string>
+    <string name="gallery_import_error">Import impossible</string>
+    <string name="gallery_import_unsupported">Type de fichier non pris en charge</string>
 </resources>

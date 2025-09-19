@@ -80,6 +80,33 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
+    /** --- VIDEO --- */
+    suspend fun appendVideo(
+        noteId: Long,
+        mediaUri: String,
+        mimeType: String? = "video/*",
+        durationMs: Long? = null,
+        width: Int? = null,
+        height: Int? = null,
+        groupId: String? = null
+    ): Long {
+        val now = System.currentTimeMillis()
+        val block = BlockEntity(
+            noteId = noteId,
+            type = BlockType.VIDEO,
+            position = 0,
+            groupId = groupId,
+            mediaUri = mediaUri,
+            mimeType = mimeType,
+            durationMs = durationMs,
+            width = width,
+            height = height,
+            createdAt = now,
+            updatedAt = now
+        )
+        return insert(noteId, block)
+    }
+
     suspend fun appendAudio(
         noteId: Long,
         mediaUri: String,

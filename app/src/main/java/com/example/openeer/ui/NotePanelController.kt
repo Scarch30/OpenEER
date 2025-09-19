@@ -180,12 +180,15 @@ class NotePanelController(
 
         blocks.forEach { block ->
             val view = when (block.type) {
-                // Texte/Images ne s’affichent plus dans le corps principal
+                // Texte/Images/Audio/Video → pas affichés dans le corps
                 BlockType.TEXT -> null
-                BlockType.SKETCH, BlockType.PHOTO -> null
-                BlockType.VIDEO, BlockType.ROUTE, BlockType.FILE ->
+                BlockType.SKETCH, BlockType.PHOTO, BlockType.VIDEO, BlockType.AUDIO -> null
+
+                // Ces blocs seulement affichés en “unsupported” pour debug
+                BlockType.ROUTE, BlockType.FILE ->
                     BlockRenderers.createUnsupportedBlockView(container.context, block, margin)
-                BlockType.AUDIO, BlockType.LOCATION -> null
+
+                BlockType.LOCATION -> null
             }
             if (view != null) {
                 hasRenderable = true
@@ -194,16 +197,22 @@ class NotePanelController(
             }
         }
 
+
         container.isGone = !hasRenderable
         if (hasRenderable) {
             pendingHighlightBlockId?.let { tryHighlightBlock(it) }
         }
     }
 
+    /** Empile PHOTOS + VIDÉOS ensemble dans la pile PHOTO, plus SKETCH, AUDIO, TEXT inchangés. */
     private fun updateMediaStrip(blocks: List<BlockEntity>) {
         val categorized = blocks.mapNotNull { block ->
             when (block.type) {
                 BlockType.PHOTO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                    MediaCategory.PHOTO to MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                }
+                BlockType.VIDEO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                    // ✅ les vidéos rejoignent la même pile que les photos
                     MediaCategory.PHOTO to MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
                 }
                 BlockType.SKETCH -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
@@ -231,6 +240,7 @@ class NotePanelController(
                     cover = sorted.first(),
                 )
             }
+            // Conserve ta logique actuelle : la pile “la plus récente” en premier
             .sortedByDescending { it.cover.blockId }
 
         mediaAdapter.submitList(piles)

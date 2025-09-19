@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Stubs pour neutraliser les références orphelines -->
+    <style name="ShapeAppearanceOverlay"/>
+    <style name="ShapeAppearanceOverlay.App"/>
+    <style name="ShapeAppearanceOverlay.App.Circle">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+</resources>

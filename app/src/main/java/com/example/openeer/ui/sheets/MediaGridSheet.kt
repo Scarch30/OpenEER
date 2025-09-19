@@ -2,6 +2,7 @@ package com.example.openeer.ui.sheets
 
 import android.app.Dialog
 import android.content.Context
+import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.os.Bundle
 import android.text.TextUtils
@@ -9,11 +10,13 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.os.bundleOf
+import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DiffUtil
@@ -37,7 +40,6 @@ import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-// --- Constantes & DIFF au top-level (évite un companion dans l'adapter) ---
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
@@ -89,7 +91,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         MediaActions(host, blocksRepo)
     }
 
-    // ➜ Forcer l’expansion AU MOMENT de l’affichage
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = BottomSheetDialog(requireContext(), theme)
         dialog.setOnShowListener { di ->
@@ -97,26 +98,19 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 .findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
                 ?: return@setOnShowListener
 
-            // Laisse la sheet occuper tout l'écran en terme de layout,
-            // mais on la "pose" à mi-hauteur via expandedOffset.
             bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
                 height = ViewGroup.LayoutParams.MATCH_PARENT
             }
             bottomSheet.requestLayout()
 
             val behavior = BottomSheetBehavior.from(bottomSheet)
-
-            // ---- Réglage mi-écran ----
             val screenH = resources.displayMetrics.heightPixels
-            val ratio = 0.5f            // 50% d’écran ; ajuste à 0.55f si tu veux un peu plus
-            behavior.expandedOffset = (screenH * ratio).toInt()
-
-            behavior.skipCollapsed = true   // pas d’état "peek" minuscule
+            behavior.expandedOffset = (screenH * 0.5f).toInt()
+            behavior.skipCollapsed = true
             behavior.isDraggable = true
             behavior.state = BottomSheetBehavior.STATE_EXPANDED
             behavior.peekHeight = 0
         }
-
         return dialog
     }
 
@@ -176,12 +170,14 @@ class MediaGridSheet : BottomSheetDialogFragment() {
     private fun buildItems(blocks: List<BlockEntity>, category: MediaCategory): List<MediaStripItem> {
         val items = blocks.mapNotNull { block ->
             when (category) {
-                MediaCategory.PHOTO -> block.takeIf { it.type == BlockType.PHOTO }
-                    ?.mediaUri
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { uri ->
-                        MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
-                    }
+                // PHOTO = photos + vidéos
+                MediaCategory.PHOTO -> when (block.type) {
+                    BlockType.PHOTO, BlockType.VIDEO ->
+                        block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                            MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                        }
+                    else -> null
+                }
 
                 MediaCategory.SKETCH -> block.takeIf { it.type == BlockType.SKETCH }
                     ?.mediaUri
@@ -228,15 +224,33 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             return when (viewType) {
                 GRID_TYPE_IMAGE -> {
                     val card = createCard(ctx)
-                    val image = ImageView(ctx).apply {
+                    val container = FrameLayout(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                    }
+                    val image = ImageView(ctx).apply {
+                        layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT,
                         )
                         scaleType = ImageView.ScaleType.CENTER_CROP
                     }
-                    card.addView(image)
-                    ImageHolder(card, image)
+                    val play = ImageView(ctx).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            dp(ctx, 36), dp(ctx, 36),
+                            Gravity.CENTER
+                        )
+                        setImageResource(android.R.drawable.ic_media_play)
+                        setColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
+                        alpha = 0.85f
+                        isVisible = false
+                    }
+                    container.addView(image)
+                    container.addView(play)
+                    card.addView(container)
+                    ImageHolder(card, image, play)
                 }
 
                 GRID_TYPE_AUDIO -> {
@@ -300,13 +314,16 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         inner class ImageHolder(
             private val card: MaterialCardView,
             private val image: ImageView,
+            private val play: ImageView,
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Image) {
                 Glide.with(image)
-                    .load(item.mediaUri)
+                    .load(item.mediaUri) // Glide gère content:// (thumbnail vidéo OK)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .centerCrop()
                     .into(image)
+
+                play.isVisible = item.type == BlockType.VIDEO
 
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {

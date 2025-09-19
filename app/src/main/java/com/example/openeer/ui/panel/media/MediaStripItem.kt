@@ -23,9 +23,9 @@ sealed class MediaStripItem {
 
     data class Image(
         override val blockId: Long,
-        override val mediaUri: String,   // chemin/uri (photo, sketch)
+        override val mediaUri: String,   // chemin/uri (photo, sketch, vidéo -> vignette)
         override val mimeType: String?,
-        val type: BlockType,             // PHOTO ou SKETCH
+        val type: BlockType,             // PHOTO, SKETCH, ou VIDEO
     ) : MediaStripItem()
 
     data class Audio(

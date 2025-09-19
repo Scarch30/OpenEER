@@ -3,8 +3,14 @@
     <!-- Micro + caméra -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.CAMERA"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
+
+    <!-- Accès médias (runtime varie selon API) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <!-- Localisation -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
@@ -48,7 +54,6 @@
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
 
-        <!-- IMPORTANT : ajuste la vue quand le clavier s’affiche -->
         <activity
             android:name=".ui.KeyboardCaptureActivity"
             android:exported="false"
@@ -57,6 +62,11 @@
 
         <activity
             android:name=".ui.capture.SketchCaptureActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
+
+        <activity
+            android:name=".ui.camera.CameraCaptureActivity"
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
 

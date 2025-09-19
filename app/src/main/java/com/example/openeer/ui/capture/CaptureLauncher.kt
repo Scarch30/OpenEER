@@ -24,6 +24,8 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.example.openeer.ui.camera.CameraCaptureActivity
+
 
 private const val STATE_TEMP_PHOTO_PATH = "tempPhotoPath"
 
@@ -141,8 +143,11 @@ class CaptureLauncher(
         if (notePanel.openNoteId != noteId) {
             notePanel.open(noteId)
         }
-        showPhotoSheet()
+        val intent = Intent(activity, CameraCaptureActivity::class.java)
+            .putExtra(CameraCaptureActivity.EXTRA_NOTE_ID, noteId)
+        activity.startActivity(intent)
     }
+
 
     fun launchTakePhoto() {
         openCamera()
