@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.openeer"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.openeer"
