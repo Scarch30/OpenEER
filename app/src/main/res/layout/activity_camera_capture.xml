@@ -110,7 +110,7 @@
             app:layout_constraintStart_toEndOf="@id/btnShutter"
             android:layout_marginStart="20dp"/>
 
-        <!-- Vignette dernière photo (Galerie) -->
+        <!-- Vignette dernière photo (ouvre le Photo Picker) -->
         <ImageView
             android:id="@+id/btnGalleryThumb"
             android:layout_width="56dp"
@@ -125,36 +125,7 @@
             app:layout_constraintVertical_bias="0.35"
             android:layout_marginEnd="72dp"/>
 
-        <!-- Bloc capture d’écran : icône + texte -->
-        <LinearLayout
-            android:id="@+id/btnScreenshotWrapper"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            app:layout_constraintTop_toTopOf="@id/btnShutter"
-            app:layout_constraintBottom_toBottomOf="@id/btnShutter"
-            app:layout_constraintStart_toEndOf="@id/btnShutter"
-            app:layout_constraintEnd_toEndOf="parent"
-            android:layout_marginStart="72dp">
+        <!-- (Section capture d’écran supprimée) -->
 
-            <ImageButton
-                android:id="@+id/btnScreenshot"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:background="@drawable/bg_round_button"
-                android:src="@android:drawable/ic_menu_crop"
-                android:scaleType="centerInside"
-                android:contentDescription="@string/cd_screenshot" />
-
-            <TextView
-                android:id="@+id/btnScreenshotLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/camera_capture_screenshot_label"
-                android:textColor="@android:color/white"
-                android:textSize="12sp"
-                android:layout_marginTop="4dp"/>
-        </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -82,4 +82,17 @@
     <string name="gallery_import_ok">Média importé</string>
     <string name="gallery_import_error">Import impossible</string>
     <string name="gallery_import_unsupported">Type de fichier non pris en charge</string>
+
+    <string name="screenshot_consent_denied">Autorisation de capture refusée</string>
+    <string name="screenshot_start_error">Impossible de démarrer la capture d’écran</string>
+    <string name="screenshot_protected_content">Contenu protégé : capture d’écran bloquée</string>
+    <string name="screenshot_save_error">Échec de l’enregistrement de la capture</string>
+    <string name="screenshot_saved">Capture d’écran enregistrée</string>
+    <string name="screenshot_channel_name">Capture d’écran</string>
+    <string name="screenshot_notif_title">Capture d’écran en cours</string>
+    <string name="screenshot_notif_text">Préparation de l’image…</string>
+    <string name="screenshot_notif_channel_name">Captures d’écran</string>
+    <string name="screenshot_notif_channel_desc">Service de capture d’écran</string>
+
+
 </resources>

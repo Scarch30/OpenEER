@@ -5,8 +5,6 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Color
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -14,7 +12,6 @@ import android.provider.MediaStore
 import android.util.Size
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
-import android.view.View
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
@@ -71,11 +68,11 @@ class CameraCaptureActivity : AppCompatActivity() {
     private var activeRecording: Recording? = null
     private var isLocked = false
 
-    // Gestuelle “switch” (glisser après long press pour passer en mains libres)
+    // Gestuelle “switch”
     private var downX = 0f
     private var downY = 0f
     private var longPressed = false
-    private val switchThresholdPx by lazy { 40f * resources.displayMetrics.density } // ~40dp
+    private val switchThresholdPx by lazy { 40f * resources.displayMetrics.density }
 
     private var noteIdArg: Long = -1L
 
@@ -124,7 +121,7 @@ class CameraCaptureActivity : AppCompatActivity() {
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        // Permissions
+        // Permissions initiales
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera()
         } else {
@@ -134,7 +131,7 @@ class CameraCaptureActivity : AppCompatActivity() {
             requestRecordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
 
-        // --- Gestuelle: tap = photo, long tap = vidéo (relâcher pour stop), glisser = lock mains libres ---
+        // --- Gestuelle: tap = photo, long tap = vidéo, glisser = lock mains libres ---
         binding.btnShutter.setOnClickListener {
             if (activeRecording != null) {
                 if (isLocked) stopVideoRecording()
@@ -142,28 +139,22 @@ class CameraCaptureActivity : AppCompatActivity() {
                 takePhotoAndAppend()
             }
         }
-
         binding.btnShutter.setOnLongClickListener {
             longPressed = true
             startVideoRecording(unlockedAtStart = true)
-            // haptique au démarrage
             binding.btnShutter.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             true
         }
-
         binding.btnShutter.setOnTouchListener { _, ev ->
             when (ev.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = ev.x
-                    downY = ev.y
-                    longPressed = false
+                    downX = ev.x; downY = ev.y; longPressed = false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (activeRecording != null && !isLocked && longPressed) {
                         val dx = ev.x - downX
                         val dy = ev.y - downY
-                        val dist = hypot(dx, dy)
-                        if (dist >= switchThresholdPx) {
+                        if (hypot(dx, dy) >= switchThresholdPx) {
                             isLocked = true
                             binding.btnShutter.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                             updateLockUi()
@@ -171,27 +162,16 @@ class CameraCaptureActivity : AppCompatActivity() {
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (activeRecording != null && !isLocked) {
-                        stopVideoRecording()
-                    }
+                    if (activeRecording != null && !isLocked) stopVideoRecording()
                     longPressed = false
                 }
             }
             false
         }
 
-        binding.btnLock.isVisible = false // plus utilisé avec le “switch”
-        binding.btnLock.setOnClickListener { /* no-op */ }
-
         // Galerie (Photo Picker)
         binding.btnGalleryThumb.setOnClickListener {
-            pickMedia.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-            )
-        }
-
-        binding.btnScreenshot.setOnClickListener {
-            Toast.makeText(this, getString(R.string.camera_capture_screenshot_soon), Toast.LENGTH_SHORT).show()
+            pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
         }
     }
 
@@ -200,89 +180,111 @@ class CameraCaptureActivity : AppCompatActivity() {
         ensureReadImagesPermissionThenLoadThumb()
     }
 
-    // ——— Import depuis la galerie ———
+    // ======== Galerie : import ========
 
-    private fun importFromUri(uri: Uri) {
-        val type = contentResolver.getType(uri) ?: guessMimeFromUri(uri).orEmpty()
-
-        if (type.startsWith("image/")) {
-            lifecycleScope.launch(Dispatchers.IO) {
+    private fun importFromUri(source: Uri) {
+        lifecycleScope.launch {
+            val type = contentResolver.getType(source) ?: source.toString().lowercase(Locale.US).let {
+                when {
+                    it.endsWith(".jpg") || it.endsWith(".jpeg") -> "image/jpeg"
+                    it.endsWith(".png") -> "image/png"
+                    it.endsWith(".webp") -> "image/webp"
+                    it.endsWith(".gif") -> "image/gif"
+                    it.endsWith(".mp4") -> "video/mp4"
+                    it.endsWith(".mkv") -> "video/x-matroska"
+                    it.endsWith(".3gp") -> "video/3gpp"
+                    else -> ""
+                }
+            }
+            if (type.startsWith("image/")) {
+                val name = "OpenEER_${System.currentTimeMillis()}.jpg"
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Images.Media.MIME_TYPE, type.ifBlank { "image/*" })
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/OpenEER")
+                        put(MediaStore.Images.Media.IS_PENDING, 1)
+                    }
+                }
+                val dest = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                if (dest == null) {
+                    Toast.makeText(this@CameraCaptureActivity, "Import image impossible", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
                 runCatching {
-                    val db = AppDatabase.get(this@CameraCaptureActivity)
-                    val blocks = BlocksRepository(db.blockDao(), db.noteDao())
+                    contentResolver.openOutputStream(dest)?.use { out ->
+                        contentResolver.openInputStream(source)?.use { inp -> inp.copyTo(out) }
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        values.clear(); values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                        contentResolver.update(dest, values, null, null)
+                    }
+                }.onFailure {
+                    contentResolver.delete(dest, null, null)
+                    Toast.makeText(this@CameraCaptureActivity, "Import image impossible", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val db = AppDatabase.get(this@CameraCaptureActivity)
+                val blocks = BlocksRepository(db.blockDao(), db.noteDao())
+                launch(Dispatchers.IO) {
                     blocks.appendPhoto(
                         noteId = noteIdArg,
-                        mediaUri = uri.toString(),
+                        mediaUri = dest.toString(),
                         width = null,
                         height = null,
                         mimeType = type.ifBlank { "image/*" },
                         groupId = null
                     )
-                }.onSuccess {
-                    launch(Dispatchers.Main) {
-                        Toast.makeText(this@CameraCaptureActivity, "Import image réussi", Toast.LENGTH_SHORT).show()
-                        finish()
-                    }
-                }.onFailure {
-                    launch(Dispatchers.Main) {
-                        Toast.makeText(this@CameraCaptureActivity, "Import image impossible", Toast.LENGTH_LONG).show()
+                }
+                Toast.makeText(this@CameraCaptureActivity, "Import image réussi", Toast.LENGTH_SHORT).show()
+                finish()
+            } else if (type.startsWith("video/")) {
+                val name = "OpenEER_${System.currentTimeMillis()}.mp4"
+                val values = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Video.Media.MIME_TYPE, type.ifBlank { "video/*" })
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/OpenEER")
+                        put(MediaStore.Video.Media.IS_PENDING, 1)
                     }
                 }
-            }
-        } else if (type.startsWith("video/")) {
-            val durationMs = readVideoDuration(uri)
-            lifecycleScope.launch(Dispatchers.IO) {
+                val dest = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                if (dest == null) {
+                    Toast.makeText(this@CameraCaptureActivity, "Import vidéo impossible", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
                 runCatching {
-                    val db = AppDatabase.get(this@CameraCaptureActivity)
-                    val blocks = BlocksRepository(db.blockDao(), db.noteDao())
+                    contentResolver.openOutputStream(dest)?.use { out ->
+                        contentResolver.openInputStream(source)?.use { inp -> inp.copyTo(out) }
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        values.clear(); values.put(MediaStore.Video.Media.IS_PENDING, 0)
+                        contentResolver.update(dest, values, null, null)
+                    }
+                }.onFailure {
+                    contentResolver.delete(dest, null, null)
+                    Toast.makeText(this@CameraCaptureActivity, "Import vidéo impossible", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val db = AppDatabase.get(this@CameraCaptureActivity)
+                val blocks = BlocksRepository(db.blockDao(), db.noteDao())
+                launch(Dispatchers.IO) {
                     blocks.appendVideo(
                         noteId = noteIdArg,
-                        mediaUri = uri.toString(),
+                        mediaUri = dest.toString(),
                         mimeType = type.ifBlank { "video/*" },
-                        durationMs = durationMs
+                        durationMs = null
                     )
-                }.onSuccess {
-                    launch(Dispatchers.Main) {
-                        Toast.makeText(this@CameraCaptureActivity, "Import vidéo réussi", Toast.LENGTH_SHORT).show()
-                        finish()
-                    }
-                }.onFailure {
-                    launch(Dispatchers.Main) {
-                        Toast.makeText(this@CameraCaptureActivity, "Import vidéo impossible", Toast.LENGTH_LONG).show()
-                    }
                 }
+                Toast.makeText(this@CameraCaptureActivity, "Import vidéo réussi", Toast.LENGTH_SHORT).show()
+                finish()
+            } else {
+                Toast.makeText(this@CameraCaptureActivity, "Type non supporté", Toast.LENGTH_LONG).show()
             }
-        } else {
-            Toast.makeText(this, "Type non supporté", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun guessMimeFromUri(uri: Uri): String? {
-        val path = uri.toString().lowercase(Locale.US)
-        return when {
-            path.endsWith(".jpg") || path.endsWith(".jpeg") -> "image/jpeg"
-            path.endsWith(".png") -> "image/png"
-            path.endsWith(".webp") -> "image/webp"
-            path.endsWith(".gif") -> "image/gif"
-            path.endsWith(".mp4") -> "video/mp4"
-            path.endsWith(".mkv") -> "video/x-matroska"
-            path.endsWith(".3gp") -> "video/3gpp"
-            else -> null
-        }
-    }
-
-    private fun readVideoDuration(uri: Uri): Long? {
-        return try {
-            MediaMetadataRetriever().use { mmr ->
-                mmr.setDataSource(this, uri)
-                mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-            }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    // ——— Photo (prise de vue) ———
+    // ======== Photo ========
 
     private fun takePhotoAndAppend() {
         val imageCapture = imageCapture ?: return
@@ -292,6 +294,7 @@ class CameraCaptureActivity : AppCompatActivity() {
             put(MediaStore.Images.Media.DISPLAY_NAME, "OpenEER_$name.jpg")
             put(MediaStore.Images.Media.MIME_TYPE, MIME_IMAGE)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/OpenEER")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
@@ -308,16 +311,14 @@ class CameraCaptureActivity : AppCompatActivity() {
                     Toast.makeText(this@CameraCaptureActivity, getString(R.string.camera_capture_photo_error), Toast.LENGTH_SHORT).show()
                 }
             }
-
             override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                 val savedUri = outputFileResults.savedUri ?: return
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    try {
+                    runCatching {
                         val values = ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }
                         contentResolver.update(savedUri, values, null, null)
-                    } catch (_: Throwable) { }
+                    }
                 }
-
                 lifecycleScope.launch(Dispatchers.IO) {
                     runCatching {
                         val db = AppDatabase.get(this@CameraCaptureActivity)
@@ -345,7 +346,7 @@ class CameraCaptureActivity : AppCompatActivity() {
         })
     }
 
-    // ——— Vidéo (prise de vue) ———
+    // ======== Vidéo ========
 
     private fun startVideoRecording(unlockedAtStart: Boolean) {
         val vc = videoCapture ?: return
@@ -358,6 +359,9 @@ class CameraCaptureActivity : AppCompatActivity() {
         ).setContentValues(ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, "OpenEER_$name.mp4")
             put(MediaStore.Video.Media.MIME_TYPE, MIME_VIDEO)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/OpenEER")
+            }
         }).build()
 
         val pending = vc.output
@@ -384,7 +388,6 @@ class CameraCaptureActivity : AppCompatActivity() {
                     showRecordingHud(false)
                     val uri = event.outputResults.outputUri
                     val durationMs = event.recordingStats.recordedDurationNanos / 1_000_000
-
                     if (event.hasError()) {
                         Toast.makeText(this, getString(R.string.video_capture_error), Toast.LENGTH_SHORT).show()
                     } else {
@@ -422,52 +425,14 @@ class CameraCaptureActivity : AppCompatActivity() {
         activeRecording?.stop()
     }
 
-    // ——— UI/HUD ———
-
     private fun updateLockUi() {
         val recording = activeRecording != null
-
-        // HUD
         binding.recordingHud.isVisible = recording
-
-        // Teinte rouge sur le bouton pendant la vidéo (feedback visuel demandé)
-        val tint = if (recording) android.content.res.ColorStateList.valueOf(Color.parseColor("#FF5252")) else null
-        binding.btnShutter.backgroundTintList = tint
-
-        // Point rouge qui pulse
-        binding.recDot.animate().cancel()
-        if (recording) {
-            binding.recDot.visibility = View.VISIBLE
-            binding.recDot.alpha = 1f
-            binding.recDot.animate()
-                .alpha(0.3f)
-                .setDuration(650L)
-                .withEndAction { if (activeRecording != null) pulseRecDot() }
-                .start()
-        } else {
-            binding.recDot.visibility = View.VISIBLE
-            binding.recDot.alpha = 1f
-        }
-    }
-
-    private fun pulseRecDot() {
-        if (activeRecording == null) return
-        binding.recDot.animate().cancel()
-        binding.recDot.animate()
-            .alpha(if (binding.recDot.alpha < 0.7f) 1f else 0.3f)
-            .setDuration(650L)
-            .withEndAction { if (activeRecording != null) pulseRecDot() }
-            .start()
     }
 
     private fun showRecordingHud(show: Boolean) {
         binding.recordingHud.isVisible = show
-        updateLockUi()
-        if (!show) {
-            binding.recTimer.text = "00:00"
-            isLocked = false
-            longPressed = false
-        }
+        if (!show) binding.recTimer.text = "00:00"
     }
 
     private fun updateTimer(ms: Long) {
@@ -477,7 +442,7 @@ class CameraCaptureActivity : AppCompatActivity() {
         binding.recTimer.text = String.format(Locale.US, "%02d:%02d", mm, ss)
     }
 
-    // ——— Camera setup ———
+    // ======== Vignette galerie ========
 
     private fun ensureReadImagesPermissionThenLoadThumb() {
         val permission = if (Build.VERSION.SDK_INT >= 33)
@@ -491,40 +456,6 @@ class CameraCaptureActivity : AppCompatActivity() {
             requestReadImagesPermission.launch(permission)
         }
     }
-
-    private fun startCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener({
-            val provider = cameraProviderFuture.get()
-
-            // Preview
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(binding.previewView.surfaceProvider)
-            }
-
-            // Photo
-            imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .build()
-
-            // Vidéo
-            val recorder = Recorder.Builder()
-                .setQualitySelector(QualitySelector.from(Quality.HD))
-                .build()
-            videoCapture = VideoCapture.withOutput(recorder)
-
-            val selector = CameraSelector.DEFAULT_BACK_CAMERA
-            try {
-                provider.unbindAll()
-                provider.bindToLifecycle(this, selector, preview, imageCapture, videoCapture)
-            } catch (_: Throwable) {
-                Toast.makeText(this, getString(R.string.camera_start_error), Toast.LENGTH_SHORT).show()
-                finish()
-            }
-        }, ContextCompat.getMainExecutor(this))
-    }
-
-    // ——— Vignette galerie (dernière image du MediaStore) ———
 
     private fun loadLastPhotoThumbnail() {
         try {
@@ -550,6 +481,35 @@ class CameraCaptureActivity : AppCompatActivity() {
         } catch (_: Throwable) {
             // Silencieux
         }
+    }
+
+    private fun startCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            val provider = cameraProviderFuture.get()
+
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(binding.previewView.surfaceProvider)
+            }
+
+            imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .build()
+
+            val recorder = Recorder.Builder()
+                .setQualitySelector(QualitySelector.from(Quality.HD))
+                .build()
+            videoCapture = VideoCapture.withOutput(recorder)
+
+            val selector = CameraSelector.DEFAULT_BACK_CAMERA
+            try {
+                provider.unbindAll()
+                provider.bindToLifecycle(this, selector, preview, imageCapture, videoCapture)
+            } catch (_: Throwable) {
+                Toast.makeText(this, getString(R.string.camera_start_error), Toast.LENGTH_SHORT).show()
+                finish()
+            }
+        }, ContextCompat.getMainExecutor(this))
     }
 
     override fun onDestroy() {

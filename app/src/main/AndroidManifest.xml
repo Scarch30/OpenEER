@@ -28,6 +28,9 @@
 
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+
     <application
         android:allowBackup="true"
         android:label="@string/app_name"
@@ -53,6 +56,12 @@
             android:name=".ui.PhotoViewerActivity"
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
+
+        <activity
+            android:name=".ui.viewer.VideoPlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
+
 
         <activity
             android:name=".ui.KeyboardCaptureActivity"
