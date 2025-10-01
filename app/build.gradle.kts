@@ -19,15 +19,20 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
+
+        // ➜ Les flags C++ pour CMake se mettent ici
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++17"
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            // ⚠️ hack local: signe la release avec la clé debug
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -42,6 +47,14 @@ android {
     // ⚙️ Tests JVM (Robolectric a besoin des ressources)
     testOptions {
         unitTests.isIncludeAndroidResources = true
+    }
+
+    // ➜ Câblage CMake (chemin du CMakeLists de Whisper)
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/jni/whisper/CMakeLists.txt")
+            // version = "3.22.1" // optionnel
+        }
     }
 
     // Evite quelques conflits META-INF
@@ -79,7 +92,7 @@ dependencies {
     // --- Coroutines ---
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // --- Vosk + JNA (AAR) ---
+    // --- Vosk + JNA (inchangé)
     implementation("com.alphacephei:vosk-android:0.3.45") {
         exclude(group = "net.java.dev.jna", module = "jna")
     }
@@ -96,19 +109,17 @@ dependencies {
     implementation("androidx.camera:camera-view:$camerax")
     implementation("androidx.camera:camera-video:$camerax")
 
-    // ✅ Media3 (ExoPlayer + UI) pour lecteur vidéo in-app
+    // Media3
     val media3 = "1.3.1"
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
 
-    // ---------- Tests (JVM) ----------
+    // Tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.12.1")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("androidx.room:room-testing:$room")
-
-    // ---------- Tests instrumentés (Android) ----------
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }

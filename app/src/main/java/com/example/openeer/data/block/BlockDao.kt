@@ -33,24 +33,21 @@ interface BlockDao {
     @Query("UPDATE blocks SET position = :position WHERE id = :id AND noteId = :noteId")
     suspend fun updatePosition(id: Long, noteId: Long, position: Int)
 
+    // ✅ Utilisée par BlocksRepository.updateAudioTranscription(...)
+    @Query("UPDATE blocks SET text = :newText, updatedAt = :updatedAt WHERE id = :blockId")
+    suspend fun updateTranscription(blockId: Long, newText: String, updatedAt: Long)
+
     @Transaction
     suspend fun insertAtEnd(noteId: Long, template: BlockEntity): Long {
         val pos = (getMaxPosition(noteId) ?: -1) + 1
         return insert(template.copy(noteId = noteId, position = pos))
     }
 
-    /**
-     * Réordonne sans violer l'unique (noteId, position) :
-     *  - Passe 1 : place des positions temporaires négatives uniques (-1, -2, ...)
-     *  - Passe 2 : assigne les positions finales 0..n-1 dans l'ordre demandé
-     */
     @Transaction
     suspend fun reorder(noteId: Long, orderedBlockIds: List<Long>) {
-        // Pass 1: positions temporaires (évite toute collision)
         orderedBlockIds.forEachIndexed { idx, blockId ->
             updatePosition(blockId, noteId, -(idx + 1))
         }
-        // Pass 2: positions finales
         orderedBlockIds.forEachIndexed { idx, blockId ->
             updatePosition(blockId, noteId, idx)
         }

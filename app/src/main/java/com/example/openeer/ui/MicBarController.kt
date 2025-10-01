@@ -13,7 +13,10 @@ import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.services.WhisperService
+import com.whispercpp.java.whisper.WhisperSegment
 import kotlinx.coroutines.*
+import java.io.File
 import kotlin.math.abs
 
 class MicBarController(
@@ -35,7 +38,7 @@ class MicBarController(
     private var switchedToHandsFree = false
     private var movedTooMuch = false
 
-    // Transcription live
+    // Transcription live (Vosk)
     private var live: LiveTranscriber? = null
     private var lastWasHandsFree = false
 
@@ -104,13 +107,13 @@ class MicBarController(
                     is LiveTranscriber.TranscriptionEvent.Partial -> {
                         binding.liveTranscriptionBar.isVisible = true
                         binding.liveTranscriptionText.text = event.text
+                        onAppendLive(event.text)
                     }
                     is LiveTranscriber.TranscriptionEvent.Final -> {
                         var segment = event.text.trim()
                         if (!lastWasHandsFree) segment += "\n"
 
                         activity.lifecycleScope.launch(Dispatchers.Main) {
-                            // IMPORTANT: transcription -> Note.body only, no TEXT blocks.
                             onReplaceFinal(segment, false)
                             binding.liveTranscriptionText.text = event.text
                             Toast.makeText(activity, "Segment ajouté", Toast.LENGTH_SHORT).show()
@@ -141,12 +144,10 @@ class MicBarController(
         if (state == RecordingState.IDLE) return
         lastWasHandsFree = (state == RecordingState.RECORDING_HANDS_FREE)
 
-        // Couper enregistrement
         val rec = recorder
         recorder = null
         rec?.onPcmChunk = null
 
-        // UI
         binding.iconMic.alpha = 0.9f
         binding.labelMic.text = "Appuyez pour parler"
         binding.txtActivity.text = "Prêt"
@@ -158,33 +159,160 @@ class MicBarController(
                     rec?.stop()
                     rec?.finalizeToWav()
                 }
-                val finalText = withContext(Dispatchers.IO) { live?.stop().orEmpty().trim() }
+                val initialVoskText = withContext(Dispatchers.IO) { live?.stop().orEmpty().trim() }
                 live = null
 
                 val nid = getOpenNoteId()
                 if (!wavPath.isNullOrBlank() && nid != null) {
                     val gid = generateGroupId()
-                    withContext(Dispatchers.IO) {
-                        repo.updateAudio(nid, wavPath)
-                        blocksRepo.appendAudio(nid, wavPath, null, "audio/wav", gid)
+
+                    // 1) On crée l'AudioBlock avec la transcription brouillon de Vosk
+                    val newBlockId = withContext(Dispatchers.IO) {
+                        blocksRepo.appendAudio(
+                            noteId = nid,
+                            mediaUri = wavPath,
+                            durationMs = null,
+                            mimeType = "audio/wav",
+                            groupId = gid,
+                            transcription = initialVoskText
+                        )
+                    }
+
+                    // 2) Affinage Whisper (asynchrone)
+                    activity.lifecycleScope.launch(Dispatchers.Default) {
+                        try {
+                            showRefineStatus(inProgress = true)
+
+                            val segs: List<WhisperSegment> =
+                                WhisperService.transcribeWavWithTimestamps(File(wavPath))
+
+                            val refinedGrouped = formatSegmentsToTenSecondGroups(segs).trim()
+
+                            // Mise à jour DB (bloc audio)
+                            withContext(Dispatchers.IO) {
+                                blocksRepo.updateAudioTranscription(newBlockId, refinedGrouped)
+                            }
+
+                            // Remplacer dans la note la dernière occurrence du texte Vosk par Whisper
+                            val bodyNow = binding.txtBodyDetail.text?.toString().orEmpty()
+                            val replaced = replaceLast(bodyNow, initialVoskText, refinedGrouped).let {
+                                if (!lastWasHandsFree && !it.endsWith("\n")) it + "\n" else it
+                            }
+
+                            withContext(Dispatchers.Main) {
+                                binding.txtBodyDetail.text = replaced
+                            }
+                            withContext(Dispatchers.IO) {
+                                repo.setBody(nid, replaced)
+                            }
+
+                            Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$newBlockId")
+                            showRefineStatus(inProgress = false)
+
+                        } catch (t: Throwable) {
+                            Log.e("MicCtl", "Affinage Whisper échoué pour bloc #$newBlockId", t)
+                            showRefineStatus(inProgress = false, failed = true)
+                        }
                     }
                 }
 
-                var segment = finalText
+                var segment = initialVoskText
                 if (!lastWasHandsFree) segment += "\n"
 
                 if (segment.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
-                        // IMPORTANT: transcription -> Note.body only, no TEXT blocks.
                         onReplaceFinal(segment, false)
                         if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
                     }
                 } else {
                     withContext(Dispatchers.Main) { binding.liveTranscriptionBar.isGone = true }
                 }
-            } catch (_: Throwable) {
+            } catch (e: Throwable) {
+                Log.e("MicCtl", "Erreur dans stopSegment", e)
                 live = null
             }
         }
     }
+
+    // --------------------------------------------------
+    // Helpers "UX affinage"
+    // --------------------------------------------------
+
+    private fun showRefineStatus(inProgress: Boolean, failed: Boolean = false) {
+        activity.runOnUiThread {
+            binding.liveTranscriptionBar.isVisible = true
+            binding.liveTranscriptionText.text = when {
+                failed -> "❌ Affinage Whisper indisponible"
+                inProgress -> "Affinage Whisper…"
+                else -> "✅ Transcription définitive prête"
+            }
+            // Disparition douce quand fini (si on n’est plus en enregistrement)
+            if (!inProgress && !failed) {
+                activity.lifecycleScope.launch {
+                    delay(1500)
+                    if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
+                }
+            }
+        }
+    }
+
+    // --------------------------------------------------
+    // Helpers "texte"
+    // --------------------------------------------------
+
+    // Remplace la dernière occurrence de 'target' par 'replacement'
+    private fun replaceLast(input: String, target: String, replacement: String): String {
+        if (target.isEmpty()) return input + replacement
+        val idx = input.lastIndexOf(target)
+        return if (idx < 0) input + replacement
+        else buildString {
+            append(input.substring(0, idx))
+            append(replacement)
+            append(input.substring(idx + target.length))
+        }
+    }
+
+    // Regroupe les phrases Whisper en paquets ≤ 10s, sans couper la phrase
+    private fun formatSegmentsToTenSecondGroups(
+        segments: List<WhisperSegment>,
+        maxGroupMs: Long = 10_000L
+    ): String {
+        if (segments.isEmpty()) return ""
+        val out = ArrayList<String>()
+        var curStart = timeToMs(segments.first().start)
+        var curEnd = curStart
+        val sb = StringBuilder()
+
+        fun flush() {
+            if (sb.isNotEmpty()) {
+                out += sb.toString().trim()
+                sb.clear()
+            }
+        }
+
+        for (seg in segments) {
+            val sMs = timeToMs(seg.start)
+            val eMs = timeToMs(seg.end)
+            val sentence = seg.sentence?.trim().orEmpty()
+            if (sentence.isBlank()) continue
+
+            val newGroupEnd = eMs
+            val newGroupDur = newGroupEnd - curStart
+            if (sb.isNotEmpty() && newGroupDur > maxGroupMs) {
+                flush()
+                curStart = sMs
+                curEnd = sMs
+            }
+
+            if (sb.isNotEmpty()) sb.append(' ')
+            sb.append(sentence)
+            curEnd = eMs
+        }
+        flush()
+
+        return out.joinToString(separator = "\n")
+    }
+
+    // t0/t1 Whisper sont en pas de 10 ms
+    private fun timeToMs(tWhisperUnits: Long): Long = tWhisperUnits * 10L
 }

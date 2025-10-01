@@ -1,0 +1,48 @@
+# Version minimale de CMake requise
+cmake_minimum_required(VERSION 3.18.1)
+
+# On donne un nom à notre projet d'assemblage
+project(OpenEERWhisper)
+
+# --- Définir les versions (corrige les erreurs de compilation) ---
+# On définit manuellement toutes les variables que les sous-projets attendent.
+set(WHISPER_VERSION "\"1.5.0\"")
+add_compile_definitions(WHISPER_VERSION=${WHISPER_VERSION})
+set(GGML_VERSION "\"0.1.0\"")
+add_compile_definitions(GGML_VERSION=${GGML_VERSION})
+set(GGML_COMMIT "\"unknown\"")
+add_compile_definitions(GGML_COMMIT=${GGML_COMMIT})
+
+# --- Lister les "pièces détachées" ---
+# On prend tous les fichiers .cpp du dossier src
+file(GLOB WHISPER_SOURCES "src/*.cpp")
+# On prend tous les fichiers .c ET .cpp du dossier ggml/src
+file(GLOB GGML_SOURCES_C "ggml/src/*.c")
+file(GLOB GGML_SOURCES_CPP "ggml/src/*.cpp")
+
+# --- Définir notre bibliothèque finale ---
+# On la construit en assemblant toutes les pièces listées ci-dessus
+add_library(
+        openeer-whisper-lib
+        SHARED
+        jni.c
+        ${WHISPER_SOURCES}
+        ${GGML_SOURCES_C}
+        ${GGML_SOURCES_CPP}
+)
+
+# --- Indiquer où trouver les "manuels d'instructions" (.h) ---
+target_include_directories(openeer-whisper-lib PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ggml/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ggml/src"
+)
+
+# --- Connecter notre bibliothèque finale aux bibliothèques standards d'Android ---
+target_link_libraries(
+        openeer-whisper-lib
+        log
+        android
+)
+

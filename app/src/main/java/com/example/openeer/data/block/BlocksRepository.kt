@@ -112,7 +112,9 @@ class BlocksRepository(
         mediaUri: String,
         durationMs: Long?,
         mimeType: String? = "audio/*",
-        groupId: String = generateGroupId()
+        groupId: String = generateGroupId(),
+        // ✅ MODIFICATION : On ajoute un paramètre pour la transcription initiale
+        transcription: String? = null
     ): Long {
         val now = System.currentTimeMillis()
         val block = BlockEntity(
@@ -123,10 +125,19 @@ class BlocksRepository(
             mediaUri = mediaUri,
             mimeType = mimeType,
             durationMs = durationMs,
+            text = transcription, // On stocke la transcription de Vosk ici
             createdAt = now,
             updatedAt = now
         )
         return insert(noteId, block)
+    }
+
+    // ✅ NOUVELLE FONCTION AJOUTÉE
+    // Appelle la fonction correspondante dans le DAO pour la mise à jour par Whisper.
+    suspend fun updateAudioTranscription(blockId: Long, newText: String) {
+        withContext(io) {
+            blockDao.updateTranscription(blockId, newText, System.currentTimeMillis())
+        }
     }
 
     suspend fun appendTranscription(
@@ -186,8 +197,8 @@ class BlocksRepository(
     /**
      * --- CROQUIS / DESSIN ---
      * Deux variantes :
-     *  - appendSketchImage(...) : stocker un PNG/JPG (mediaUri + mimeType)
-     *  - appendSketchVector(...) : stocker le JSON vectoriel dans 'extra' (mimeType=application/json)
+     * - appendSketchImage(...) : stocker un PNG/JPG (mediaUri + mimeType)
+     * - appendSketchVector(...) : stocker le JSON vectoriel dans 'extra' (mimeType=application/json)
      */
 
     // 1) Image (PNG/JPG)
@@ -292,3 +303,4 @@ class BlocksRepository(
         }
     }
 }
+
