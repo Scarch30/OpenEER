@@ -1,9 +1,16 @@
 package com.example.openeer.ui
 
+import android.graphics.Color
+import android.graphics.Typeface
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.util.Log
 import android.view.MotionEvent
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.text.getSpans
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
@@ -14,10 +21,11 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
-import com.whispercpp.java.whisper.WhisperSegment
 import kotlinx.coroutines.*
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 class MicBarController(
     private val activity: AppCompatActivity,
@@ -38,9 +46,15 @@ class MicBarController(
     private var switchedToHandsFree = false
     private var movedTooMuch = false
 
-    // Transcription live (Vosk)
+    // Transcription live
     private var live: LiveTranscriber? = null
     private var lastWasHandsFree = false
+
+    /**
+     * Mapping bloc audio -> range du texte Vosk dans la note (indices sur le body courant).
+     * On s'en sert pour remplacer précisément par le texte Whisper, sans marqueurs.
+     */
+    private val rangesByBlock = mutableMapOf<Long, IntRange>()
 
     /** Démarre un appui PTT immédiatement. */
     fun beginPress(initialX: Float) {
@@ -107,20 +121,10 @@ class MicBarController(
                     is LiveTranscriber.TranscriptionEvent.Partial -> {
                         binding.liveTranscriptionBar.isVisible = true
                         binding.liveTranscriptionText.text = event.text
-                        onAppendLive(event.text)
                     }
                     is LiveTranscriber.TranscriptionEvent.Final -> {
-                        var segment = event.text.trim()
-                        if (!lastWasHandsFree) segment += "\n"
-
-                        activity.lifecycleScope.launch(Dispatchers.Main) {
-                            onReplaceFinal(segment, false)
-                            binding.liveTranscriptionText.text = event.text
-                            Toast.makeText(activity, "Segment ajouté", Toast.LENGTH_SHORT).show()
-                            delay(1500)
-                            if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
-                            else binding.liveTranscriptionText.text = ""
-                        }
+                        // On n’ajoute plus rien ici : le Vosk "final" sera posé quand on stoppe.
+                        binding.liveTranscriptionText.text = event.text
                     }
                 }
             }
@@ -166,7 +170,12 @@ class MicBarController(
                 if (!wavPath.isNullOrBlank() && nid != null) {
                     val gid = generateGroupId()
 
-                    // 1) On crée l'AudioBlock avec la transcription brouillon de Vosk
+                    // 1) On affiche et PERSISTE le texte Vosk tout de suite,
+                    //    en l’habillant en gris/italique dans l’UI (Spannable),
+                    //    et on mémorise sa plage pour remplacement futur.
+                    val addNewline = !lastWasHandsFree
+                    val blockRange = appendProvisionalToBody(initialVoskText, addNewline)
+                    // On crée l'audio block avec transcription initiale (plain text)
                     val newBlockId = withContext(Dispatchers.IO) {
                         blocksRepo.appendAudio(
                             noteId = nid,
@@ -177,55 +186,31 @@ class MicBarController(
                             transcription = initialVoskText
                         )
                     }
+                    if (blockRange != null) {
+                        rangesByBlock[newBlockId] = blockRange
+                    }
 
-                    // 2) Affinage Whisper (asynchrone)
-                    activity.lifecycleScope.launch(Dispatchers.Default) {
-                        try {
-                            showRefineStatus(inProgress = true)
-
-                            val segs: List<WhisperSegment> =
-                                WhisperService.transcribeWavWithTimestamps(File(wavPath))
-
-                            val refinedGrouped = formatSegmentsToTenSecondGroups(segs).trim()
-
-                            // Mise à jour DB (bloc audio)
-                            withContext(Dispatchers.IO) {
-                                blocksRepo.updateAudioTranscription(newBlockId, refinedGrouped)
-                            }
-
-                            // Remplacer dans la note la dernière occurrence du texte Vosk par Whisper
-                            val bodyNow = binding.txtBodyDetail.text?.toString().orEmpty()
-                            val replaced = replaceLast(bodyNow, initialVoskText, refinedGrouped).let {
-                                if (!lastWasHandsFree && !it.endsWith("\n")) it + "\n" else it
-                            }
-
-                            withContext(Dispatchers.Main) {
-                                binding.txtBodyDetail.text = replaced
-                            }
-                            withContext(Dispatchers.IO) {
-                                repo.setBody(nid, replaced)
-                            }
-
-                            Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$newBlockId")
-                            showRefineStatus(inProgress = false)
-
-                        } catch (t: Throwable) {
-                            Log.e("MicCtl", "Affinage Whisper échoué pour bloc #$newBlockId", t)
-                            showRefineStatus(inProgress = false, failed = true)
+                    // 2) Affinage Whisper en arrière-plan
+                    activity.lifecycleScope.launch {
+                        Log.d("MicCtl", "Lancement de l'affinage Whisper pour le bloc #$newBlockId")
+                        val refinedText = WhisperService.transcribeWav(File(wavPath))
+                        withContext(Dispatchers.IO) {
+                            blocksRepo.updateAudioTranscription(newBlockId, refinedText)
                         }
+                        // 3) Remplacement dans le body si la note est ouverte
+                        withContext(Dispatchers.Main) {
+                            replaceProvisionalWithRefined(newBlockId, refinedText)
+                        }
+                        Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$newBlockId")
                     }
                 }
 
-                var segment = initialVoskText
-                if (!lastWasHandsFree) segment += "\n"
-
-                if (segment.isNotEmpty()) {
+                // Nettoyage de la barre live
+                if (binding.liveTranscriptionBar.isVisible) {
                     withContext(Dispatchers.Main) {
-                        onReplaceFinal(segment, false)
-                        if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
+                        binding.liveTranscriptionText.text = ""
+                        binding.liveTranscriptionBar.isGone = true
                     }
-                } else {
-                    withContext(Dispatchers.Main) { binding.liveTranscriptionBar.isGone = true }
                 }
             } catch (e: Throwable) {
                 Log.e("MicCtl", "Erreur dans stopSegment", e)
@@ -234,85 +219,90 @@ class MicBarController(
         }
     }
 
-    // --------------------------------------------------
-    // Helpers "UX affinage"
-    // --------------------------------------------------
+    // ------------------------------------------------------------
+    // ----------- UI Body: gestion des spans & ranges ------------
+    // ------------------------------------------------------------
 
-    private fun showRefineStatus(inProgress: Boolean, failed: Boolean = false) {
-        activity.runOnUiThread {
-            binding.liveTranscriptionBar.isVisible = true
-            binding.liveTranscriptionText.text = when {
-                failed -> "❌ Affinage Whisper indisponible"
-                inProgress -> "Affinage Whisper…"
-                else -> "✅ Transcription définitive prête"
+    /**
+     * Ajoute le texte Vosk "provisoire" dans le body :
+     * - rendu UI : gris + italique
+     * - persistance : plain text (sans styles, évidemment)
+     * Retourne la plage [start..end) insérée (indices sur la chaîne du body après insertion).
+     */
+    private fun appendProvisionalToBody(text: String, addNewline: Boolean): IntRange? {
+        if (text.isBlank()) return null
+        val toAppend = if (addNewline) text + "\n" else text
+
+        val current = binding.txtBodyDetail.text?.toString().orEmpty()
+        val start = current.length
+        val end = start + toAppend.length
+
+        // UI: spans
+        val sb = ensureSpannable(current)
+        sb.append(toAppend)
+        sb.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(ForegroundColorSpan(Color.parseColor("#9AA0A6")), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        binding.txtBodyDetail.text = sb
+
+        // Persist (plain)
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            repo.setBody(getOpenNoteId() ?: return@launch, sb.toString())
+        }
+        return IntRange(start, end)
+    }
+
+    /**
+     * Remplace la plage Vosk d’un bloc par le texte Whisper :
+     * - enlève les styles "provisoires"
+     * - applique noir + gras sur la nouvelle plage
+     * - persiste le texte plain
+     */
+    private fun replaceProvisionalWithRefined(blockId: Long, refined: String) {
+        val range = rangesByBlock.remove(blockId) ?: return
+        val current = binding.txtBodyDetail.text
+        val sb = if (current is SpannableStringBuilder) current else SpannableStringBuilder(current ?: "")
+
+        val safeStart = min(max(0, range.first), sb.length)
+        val safeEnd = min(max(0, range.last), sb.length).let { it.coerceAtLeast(safeStart) }
+
+        // Enlever spans existants sur l’ancienne plage
+        val oldSpans = sb.getSpans<Any>(safeStart, safeEnd)
+        for (sp in oldSpans) sb.removeSpan(sp)
+
+        // Remplacer le texte
+        sb.replace(safeStart, safeEnd, refined)
+        val newEnd = safeStart + refined.length
+
+        // Style "définitif"
+        sb.setSpan(StyleSpan(Typeface.BOLD), safeStart, newEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(ForegroundColorSpan(Color.BLACK), safeStart, newEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+
+        binding.txtBodyDetail.text = sb
+
+        // Persiste (plain)
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            repo.setBody(getOpenNoteId() ?: return@launch, sb.toString())
+        }
+
+        // Ajuster les ranges restants après remplacement (décalage éventuel)
+        val delta = (newEnd - safeStart) - (safeEnd - safeStart)
+        if (delta != 0) {
+            val updated = rangesByBlock.mapValues { (_, r) ->
+                if (r.first >= safeEnd) {
+                    IntRange(r.first + delta, r.last + delta)
+                } else r
             }
-            // Disparition douce quand fini (si on n’est plus en enregistrement)
-            if (!inProgress && !failed) {
-                activity.lifecycleScope.launch {
-                    delay(1500)
-                    if (state == RecordingState.IDLE) binding.liveTranscriptionBar.isGone = true
-                }
-            }
+            rangesByBlock.clear()
+            rangesByBlock.putAll(updated)
         }
     }
 
-    // --------------------------------------------------
-    // Helpers "texte"
-    // --------------------------------------------------
-
-    // Remplace la dernière occurrence de 'target' par 'replacement'
-    private fun replaceLast(input: String, target: String, replacement: String): String {
-        if (target.isEmpty()) return input + replacement
-        val idx = input.lastIndexOf(target)
-        return if (idx < 0) input + replacement
-        else buildString {
-            append(input.substring(0, idx))
-            append(replacement)
-            append(input.substring(idx + target.length))
+    private fun ensureSpannable(currentPlain: String): SpannableStringBuilder {
+        val cur = binding.txtBodyDetail.text
+        return when (cur) {
+            is SpannableStringBuilder -> cur
+            null -> SpannableStringBuilder(currentPlain)
+            else -> SpannableStringBuilder(cur)
         }
     }
-
-    // Regroupe les phrases Whisper en paquets ≤ 10s, sans couper la phrase
-    private fun formatSegmentsToTenSecondGroups(
-        segments: List<WhisperSegment>,
-        maxGroupMs: Long = 10_000L
-    ): String {
-        if (segments.isEmpty()) return ""
-        val out = ArrayList<String>()
-        var curStart = timeToMs(segments.first().start)
-        var curEnd = curStart
-        val sb = StringBuilder()
-
-        fun flush() {
-            if (sb.isNotEmpty()) {
-                out += sb.toString().trim()
-                sb.clear()
-            }
-        }
-
-        for (seg in segments) {
-            val sMs = timeToMs(seg.start)
-            val eMs = timeToMs(seg.end)
-            val sentence = seg.sentence?.trim().orEmpty()
-            if (sentence.isBlank()) continue
-
-            val newGroupEnd = eMs
-            val newGroupDur = newGroupEnd - curStart
-            if (sb.isNotEmpty() && newGroupDur > maxGroupMs) {
-                flush()
-                curStart = sMs
-                curEnd = sMs
-            }
-
-            if (sb.isNotEmpty()) sb.append(' ')
-            sb.append(sentence)
-            curEnd = eMs
-        }
-        flush()
-
-        return out.joinToString(separator = "\n")
-    }
-
-    // t0/t1 Whisper sont en pas de 10 ms
-    private fun timeToMs(tWhisperUnits: Long): Long = tWhisperUnits * 10L
 }

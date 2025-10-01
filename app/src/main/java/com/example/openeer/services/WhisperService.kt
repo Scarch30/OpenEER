@@ -87,6 +87,16 @@ object WhisperService {
             }
         }
 
+    suspend fun transcribeDataDirect(samples: FloatArray): String =
+        withContext(Dispatchers.Default) {
+            val c = ctx ?: error("Whisper model not loaded yet. Call loadModel() once.")
+            try {
+                c.transcribeData(samples)
+            } catch (e: java.util.concurrent.ExecutionException) {
+                throw (e.cause ?: e)
+            }
+        }
+
     /**
      * Libère le contexte (optionnel à l’arrêt de l’app).
      */

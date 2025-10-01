@@ -12,6 +12,7 @@ captures/
 # --- OpenEER : dossiers lourds ---
 app/src/main/assets/vosk-small-fr/
 app/src/main/assets/vosk-fr/
+app/src/main/assets/models
 
 # --- Logs & autres ---
 *.log
