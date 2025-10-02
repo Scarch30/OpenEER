@@ -1,6 +1,7 @@
 package com.example.openeer.ui
 
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.databinding.ItemNoteBinding
@@ -14,6 +15,7 @@ class NotesStubAdapter : RecyclerView.Adapter<NotesStubAdapter.VH>() {
     override fun getItemCount() = items.size
     override fun onBindViewHolder(h: VH, pos: Int) {
         h.b.titleOrBody.text = items[pos]
+        h.b.classificationSubtitle.visibility = View.GONE
         h.b.meta.text = "—"
         // iconReminder: invisible au Sprint 0
     }

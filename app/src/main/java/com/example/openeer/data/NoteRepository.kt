@@ -1,22 +1,24 @@
 package com.example.openeer.data
 
 import androidx.sqlite.db.SimpleSQLiteQuery
+import com.example.openeer.domain.classification.NoteClassifier
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 class NoteRepository(
     private val noteDao: NoteDao,
     private val attachmentDao: AttachmentDao
 ) {
-    val allNotes = noteDao.getAllFlow()
+    val allNotes = noteDao.getAllFlow().map { notes -> notes.map { it.ensureClassified() } }
 
-    fun notesByDate() = noteDao.notesOrderedByDate()
+    fun notesByDate() = noteDao.notesOrderedByDate().map { notes -> notes.map { it.ensureClassified() } }
 
     // --- Sprint 3: expose text search ---
-    fun searchNotes(query: String) = noteDao.searchNotes(query)
+    fun searchNotes(query: String) = noteDao.searchNotes(query).map { notes -> notes.map { it.ensureClassified() } }
 
     // TODO(sprint3): expose geotagged list for map skeleton
-    fun geotaggedNotes() = noteDao.geotaggedNotes()
+    fun geotaggedNotes() = noteDao.geotaggedNotes().map { notes -> notes.map { it.ensureClassified() } }
 
     fun searchNotesByTags(queryTags: List<String>): Flow<List<Note>> {
         val normalized = queryTags.map { it.trim().lowercase() }.filter { it.isNotBlank() }.distinct()
@@ -32,7 +34,7 @@ class NoteRepository(
         """.trimIndent()
         val args = Array<Any>(normalized.size) { index -> "%," + normalized[index] + ",%" }
         val query = SimpleSQLiteQuery(sql, args)
-        return noteDao.searchNotesByTags(query)
+        return noteDao.searchNotesByTags(query).map { notes -> notes.map { it.ensureClassified() } }
     }
 
     suspend fun setNoteTags(noteId: Long, tags: List<String>) {
@@ -45,8 +47,8 @@ class NoteRepository(
         noteDao.updateTags(noteId, tagsCsv, System.currentTimeMillis())
     }
 
-    fun note(id: Long) = noteDao.getByIdFlow(id)
-    suspend fun noteOnce(id: Long) = noteDao.getByIdOnce(id)
+    fun note(id: Long) = noteDao.getByIdFlow(id).map { it?.ensureClassified() }
+    suspend fun noteOnce(id: Long) = noteDao.getByIdOnce(id)?.ensureClassified()
 
     fun attachments(noteId: Long) = attachmentDao.byNoteId(noteId)
     suspend fun addPhoto(noteId: Long, path: String) {
@@ -64,11 +66,18 @@ class NoteRepository(
         accuracyM: Float? = null
     ): Long {
         val now = System.currentTimeMillis()
+        val classifiedPlace = resolvePlaceLabel(placeLabel, lat, lon)
         return noteDao.insert(
             Note(
-                title = null, body = "",
-                createdAt = now, updatedAt = now,
-                lat = lat, lon = lon, placeLabel = placeLabel, accuracyM = accuracyM,
+                title = null,
+                body = "",
+                createdAt = now,
+                updatedAt = now,
+                lat = lat,
+                lon = lon,
+                timeBucket = NoteClassifier.classifyTime(now),
+                placeLabel = classifiedPlace,
+                accuracyM = accuracyM,
                 audioPath = audioPath
             )
         )
@@ -83,7 +92,8 @@ class NoteRepository(
     }
 
     suspend fun updateLocation(id: Long, lat: Double?, lon: Double?, place: String?, accuracyM: Float?) {
-        noteDao.updateLocation(id, lat, lon, place, accuracyM, System.currentTimeMillis())
+        val resolvedPlace = resolvePlaceLabel(place, lat, lon)
+        noteDao.updateLocation(id, lat, lon, resolvedPlace, accuracyM, System.currentTimeMillis())
     }
 
     suspend fun setBody(id: Long, body: String) {
@@ -98,13 +108,38 @@ class NoteRepository(
         accuracyM: Float? = null
     ): Long {
         val now = System.currentTimeMillis()
+        val classifiedPlace = resolvePlaceLabel(place, lat, lon)
         return noteDao.insert(
             Note(
-                title = null, body = body,
-                createdAt = now, updatedAt = now,
-                lat = lat, lon = lon, placeLabel = place, accuracyM = accuracyM,
+                title = null,
+                body = body,
+                createdAt = now,
+                updatedAt = now,
+                lat = lat,
+                lon = lon,
+                timeBucket = NoteClassifier.classifyTime(now),
+                placeLabel = classifiedPlace,
+                accuracyM = accuracyM,
                 audioPath = null
             )
         )
+    }
+    
+    suspend fun reclassifyExistingNotes() {
+        // TODO(sprint3): run in background dispatcher and persist refreshed classifications
+    }
+
+    private fun Note.ensureClassified(): Note {
+        val bucket = timeBucket ?: NoteClassifier.classifyTime(createdAt)
+        val storedPlace = placeLabel?.takeIf { it.isNotBlank() }
+        val computedPlace = NoteClassifier.classifyPlace(lat, lon)
+        val finalPlace = storedPlace ?: computedPlace
+        if (bucket == timeBucket && finalPlace == placeLabel) return this
+        return copy(timeBucket = bucket, placeLabel = finalPlace)
+    }
+
+    private fun resolvePlaceLabel(override: String?, lat: Double?, lon: Double?): String? {
+        val normalizedOverride = override?.takeIf { it.isNotBlank() }
+        return normalizedOverride ?: NoteClassifier.classifyPlace(lat, lon)
     }
 }

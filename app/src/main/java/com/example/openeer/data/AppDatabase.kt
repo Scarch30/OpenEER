@@ -10,7 +10,7 @@ import com.example.openeer.data.db.Converters
 
 @Database(
     entities = [Note::class, Attachment::class, BlockEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -74,6 +74,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                var hasTimeBucket = false
+                var hasPlaceLabel = false
+                db.query("PRAGMA table_info(notes)").use { cursor ->
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) {
+                        when (cursor.getString(nameIndex)) {
+                            "timeBucket" -> hasTimeBucket = true
+                            "placeLabel" -> hasPlaceLabel = true
+                        }
+                    }
+                }
+
+                if (!hasTimeBucket) {
+                    db.execSQL("ALTER TABLE notes ADD COLUMN timeBucket TEXT")
+                }
+                if (!hasPlaceLabel) {
+                    db.execSQL("ALTER TABLE notes ADD COLUMN placeLabel TEXT")
+                }
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -81,7 +104,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "openEER.db"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     // ⚠️ on évite fallbackToDestructiveMigration pour ne pas perdre les données
                     .build()
                     .also { INSTANCE = it }

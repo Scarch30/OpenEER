@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.data.Note
 import com.example.openeer.databinding.ItemNoteBinding
+import com.example.openeer.ui.formatClassificationSubtitle
 import com.example.openeer.ui.formatMeta
 
 class NotesAdapter(
@@ -33,6 +34,15 @@ class NotesAdapter(
         h.b.titleOrBody.text =
             n.title?.takeIf { it.isNotBlank() }
                 ?: n.body.ifBlank { "(vide)" }.take(80)
+
+        val subtitle = n.formatClassificationSubtitle(h.b.root.context)
+        if (subtitle != null) {
+            h.b.classificationSubtitle.text = subtitle
+            h.b.classificationSubtitle.visibility = View.VISIBLE
+        } else {
+            h.b.classificationSubtitle.visibility = View.GONE
+        }
+        // TODO(sprint3): polish typography/colors once visual design is available
 
         h.b.meta.text = n.formatMeta()
         h.b.iconReminder.visibility = View.GONE
