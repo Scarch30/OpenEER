@@ -255,6 +255,25 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
         <LinearLayout
+            android:id="@+id/btnCalendar"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent">
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_menu_my_calendar"
+                android:contentDescription="@string/calendar_title" />
+            <TextView
+                android:text="@string/calendar_title"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+        <LinearLayout
             android:id="@+id/btnMap"
             android:orientation="vertical"
             android:gravity="center"

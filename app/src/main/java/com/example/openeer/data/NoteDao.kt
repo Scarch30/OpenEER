@@ -12,6 +12,9 @@ interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY updatedAt DESC")
     fun getAllFlow(): Flow<List<Note>>
 
+    @Query("SELECT * FROM notes ORDER BY updatedAt DESC, id DESC")
+    fun notesOrderedByDate(): Flow<List<Note>>
+
     // --- Sprint 3: text search ---
     @Query(
         "SELECT * FROM notes " +
