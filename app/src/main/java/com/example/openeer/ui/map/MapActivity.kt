@@ -15,8 +15,9 @@ import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.databinding.ActivityMapBinding
 import com.example.openeer.databinding.ItemMapNoteBinding
-import kotlinx.coroutines.launch
+import com.example.openeer.ui.formatClassificationSubtitle
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -75,7 +76,7 @@ private class MapNotesAdapter : ListAdapter<Note, MapNotesAdapter.VH>(DIFF) {
         holder.binding.txtTitle.text =
             note.title?.takeIf { it.isNotBlank() } ?: context.getString(R.string.note_untitled)
 
-        val place = note.placeLabel?.takeIf { it.isNotBlank() }
+        val subtitle = note.formatClassificationSubtitle(context)
         val coordinates = if (note.lat != null && note.lon != null) {
             context.getString(
                 R.string.map_coordinates_format,
@@ -85,7 +86,8 @@ private class MapNotesAdapter : ListAdapter<Note, MapNotesAdapter.VH>(DIFF) {
         } else {
             context.getString(R.string.map_location_unknown)
         }
-        holder.binding.txtPlace.text = place ?: coordinates
+        holder.binding.txtPlace.text = subtitle ?: coordinates
+        // TODO(sprint3): show dedicated chips for classification on the map cards
 
         holder.binding.txtUpdated.text = DATE_FORMAT.format(Date(note.updatedAt))
     }

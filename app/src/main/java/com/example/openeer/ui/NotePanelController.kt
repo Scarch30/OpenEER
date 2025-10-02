@@ -25,6 +25,7 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.SimplePlayer
+import com.example.openeer.ui.formatClassificationSubtitle
 import com.example.openeer.ui.formatMeta
 import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.panel.media.MediaActions
@@ -88,6 +89,8 @@ class NotePanelController(
         // Reset visuel immédiat pour éviter de voir l’ancienne note
         binding.txtBodyDetail.text = ""
         binding.noteMetaFooter.isGone = true
+        binding.noteClassification.isGone = true
+        binding.noteClassification.text = ""
         binding.childBlocksContainer.removeAllViews()
         binding.childBlocksContainer.isGone = true
         blockViews.clear()
@@ -129,6 +132,8 @@ class NotePanelController(
         // RAZ visuelle (aucun placeholder persistant)
         binding.txtBodyDetail.text = ""
         binding.noteMetaFooter.isGone = true
+        binding.noteClassification.isGone = true
+        binding.noteClassification.text = ""
 
         blocksJob?.cancel()
         blocksJob = null
@@ -314,6 +319,16 @@ class NotePanelController(
         if (!keepCurrentStyled) {
             binding.txtBodyDetail.text = note.body
         }
+
+        // Classification rapide (heure / lieu)
+        val subtitle = note.formatClassificationSubtitle(binding.noteClassification.context)
+        if (subtitle.isNullOrBlank()) {
+            binding.noteClassification.isGone = true
+        } else {
+            binding.noteClassification.isVisible = true
+            binding.noteClassification.text = subtitle
+        }
+        // TODO(sprint3): allow user override of subtitle formatting
 
         // Méta
         val meta = note.formatMeta()

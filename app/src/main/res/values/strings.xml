@@ -100,6 +100,7 @@
     <string name="calendar_title">Calendrier</string>
     <string name="map_coordinates_format">(%1\$.4f, %2\$.4f)</string>
     <string name="map_location_unknown">(Localisation inconnue)</string>
+    <string name="note_classification_unknown_place">(lieu inconnu)</string>
 
 
 </resources>
