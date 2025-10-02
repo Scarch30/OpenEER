@@ -5,8 +5,10 @@ import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.sqlite.db.SimpleSQLiteQuery
+import com.example.openeer.rules.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -22,6 +24,10 @@ class NoteDaoSearchTest {
 
     @get:Rule
     val instantTaskExecutorRule = InstantTaskExecutorRule()
+
+    // TODO(sprint3): test harness
+    @get:Rule
+    val dispatcherRule = MainDispatcherRule()
 
     private lateinit var db: AppDatabase
     private lateinit var noteDao: NoteDao
@@ -71,6 +77,8 @@ class NoteDaoSearchTest {
         )
 
         val insertedIds = notes.map { note -> noteDao.insert(note) }
+
+        advanceUntilIdle()
 
         val results = noteDao.searchNotes("apple").first()
 
@@ -125,11 +133,13 @@ class NoteDaoSearchTest {
 
         val insertedIds = notes.map { note -> noteDao.insert(note) }
 
+        advanceUntilIdle()
+
         val appleQuery = SimpleSQLiteQuery(
             """
                 SELECT * FROM notes
                 WHERE tagsCsv IS NOT NULL AND ((',' || tagsCsv || ',') LIKE ?)
-                ORDER BY updatedAt DESC
+                ORDER BY updatedAt DESC, id DESC
             """.trimIndent(),
             arrayOf<Any>("%,apple,%")
         )
@@ -141,7 +151,7 @@ class NoteDaoSearchTest {
             """
                 SELECT * FROM notes
                 WHERE tagsCsv IS NOT NULL AND ((',' || tagsCsv || ',') LIKE ? OR (',' || tagsCsv || ',') LIKE ?)
-                ORDER BY updatedAt DESC
+                ORDER BY updatedAt DESC, id DESC
             """.trimIndent(),
             arrayOf<Any>("%,work,%", "%,apple,%")
         )
