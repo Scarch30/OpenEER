@@ -1,12 +1,14 @@
 package com.example.openeer.ui.calendar
 
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.R
 import com.example.openeer.data.Note
 import com.example.openeer.databinding.ItemCalendarHeaderBinding
 import com.example.openeer.databinding.ItemCalendarNoteBinding
+import com.example.openeer.ui.formatClassificationSubtitle
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -75,6 +77,14 @@ class CalendarAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         fun bind(note: Note) {
             binding.txtTitle.text = note.title?.takeIf { it.isNotBlank() }
                 ?: binding.root.context.getString(R.string.note_untitled)
+            val subtitle = note.formatClassificationSubtitle(binding.root.context)
+            if (subtitle != null) {
+                binding.txtSubtitle.text = subtitle
+                binding.txtSubtitle.visibility = View.VISIBLE
+            } else {
+                binding.txtSubtitle.visibility = View.GONE
+            }
+            // TODO(sprint3): revisit calendar row layout spacing with design
         }
     }
 

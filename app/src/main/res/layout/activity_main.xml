@@ -122,6 +122,17 @@
 
         <!-- Métadonnées de la note -->
         <TextView
+            android:id="@+id/noteClassification"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:textSize="14sp"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/noteMetaFooter"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
