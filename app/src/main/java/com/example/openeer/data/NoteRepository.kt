@@ -6,6 +6,9 @@ class NoteRepository(
 ) {
     val allNotes = noteDao.getAllFlow()
 
+    // --- Sprint 3: expose text search ---
+    fun searchNotes(query: String) = noteDao.searchNotes(query)
+
     fun note(id: Long) = noteDao.getByIdFlow(id)
     suspend fun noteOnce(id: Long) = noteDao.getByIdOnce(id)
 
