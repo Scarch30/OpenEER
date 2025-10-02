@@ -1,5 +1,8 @@
 package com.example.openeer.ui
 
+import android.graphics.Typeface
+import android.text.Spanned
+import android.text.style.StyleSpan
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
@@ -197,7 +200,6 @@ class NotePanelController(
             }
         }
 
-
         container.isGone = !hasRenderable
         if (hasRenderable) {
             pendingHighlightBlockId?.let { tryHighlightBlock(it) }
@@ -300,8 +302,18 @@ class NotePanelController(
         val title = note.title?.takeIf { it.isNotBlank() } ?: "Sans titre"
         binding.txtTitleDetail.text = title
 
-        // Corps : NE PAS injecter de placeholder si vide — nouvelle note = vide
-        binding.txtBodyDetail.text = note.body
+        // Corps :
+        // Si l'UI contient déjà des spans italique (Vosk provisoire),
+        // on NE PASSE PAS par une réassignation brutale du body -> on préserve le styling en cours.
+        val keepCurrentStyled =
+            (binding.txtBodyDetail.text is Spanned) &&
+                    (binding.txtBodyDetail.text as Spanned).getSpans(0,
+                        binding.txtBodyDetail.text.length, StyleSpan::class.java
+                    ).any { it.style == Typeface.ITALIC }
+
+        if (!keepCurrentStyled) {
+            binding.txtBodyDetail.text = note.body
+        }
 
         // Méta
         val meta = note.formatMeta()

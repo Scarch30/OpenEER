@@ -10,8 +10,11 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
- * Shows a minimal loading screen while Vosk + Whisper warm up.
- * Automatically navigates to MainActivity when ready.
+ * Écran de chargement minimal pendant le warm-up de Vosk.
+ * Navigue automatiquement vers MainActivity quand c’est prêt.
+ *
+ * (Option A) Whisper sera préchauffé en arrière-plan depuis MainActivity,
+ * pour ne pas rallonger le temps d’ouverture de l’app.
  */
 class StarterActivity : AppCompatActivity() {
 
@@ -22,10 +25,10 @@ class StarterActivity : AppCompatActivity() {
         binding = ActivityStarterBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Kick off warm-up (idempotent).
+        // Démarre le warm-up (idempotent).
         Startup.ensureInit(applicationContext)
 
-        // Observe readiness and navigate automatically.
+        // Observe la disponibilité et navigue automatiquement.
         lifecycleScope.launch {
             Startup.ready.collectLatest { ready ->
                 if (ready) {

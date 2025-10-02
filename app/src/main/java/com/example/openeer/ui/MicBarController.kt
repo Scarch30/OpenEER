@@ -51,8 +51,8 @@ class MicBarController(
     private var lastWasHandsFree = false
 
     /**
-     * Mapping bloc audio -> range du texte Vosk dans la note (indices sur le body courant).
-     * On s'en sert pour remplacer précisément par le texte Whisper, sans marqueurs.
+     * Mapping bloc audio -> range du texte Vosk dans la note (indices sur le body).
+     * Convention: on stocke [start, endExclusive) donc IntRange.first = start, IntRange.last = endExclusive.
      */
     private val rangesByBlock = mutableMapOf<Long, IntRange>()
 
@@ -170,12 +170,11 @@ class MicBarController(
                 if (!wavPath.isNullOrBlank() && nid != null) {
                     val gid = generateGroupId()
 
-                    // 1) On affiche et PERSISTE le texte Vosk tout de suite,
-                    //    en l’habillant en gris/italique dans l’UI (Spannable),
-                    //    et on mémorise sa plage pour remplacement futur.
+                    // 1) Affichage + persistance du Vosk en italique/gris (UI), plain côté DB.
                     val addNewline = !lastWasHandsFree
                     val blockRange = appendProvisionalToBody(initialVoskText, addNewline)
-                    // On crée l'audio block avec transcription initiale (plain text)
+
+                    // On crée le bloc audio avec la transcription initiale (plain)
                     val newBlockId = withContext(Dispatchers.IO) {
                         blocksRepo.appendAudio(
                             noteId = nid,
@@ -197,7 +196,7 @@ class MicBarController(
                         withContext(Dispatchers.IO) {
                             blocksRepo.updateAudioTranscription(newBlockId, refinedText)
                         }
-                        // 3) Remplacement dans le body si la note est ouverte
+                        // 3) Remplacement dans le body (UI)
                         withContext(Dispatchers.Main) {
                             replaceProvisionalWithRefined(newBlockId, refinedText)
                         }
@@ -224,10 +223,10 @@ class MicBarController(
     // ------------------------------------------------------------
 
     /**
-     * Ajoute le texte Vosk "provisoire" dans le body :
-     * - rendu UI : gris + italique
-     * - persistance : plain text (sans styles, évidemment)
-     * Retourne la plage [start..end) insérée (indices sur la chaîne du body après insertion).
+     * Ajoute le texte Vosk "provisoire" :
+    - UI : gris + italique
+    - DB : plain text
+     * Retourne la plage [start, endExclusive).
      */
     private fun appendProvisionalToBody(text: String, addNewline: Boolean): IntRange? {
         if (text.isBlank()) return null
@@ -235,42 +234,65 @@ class MicBarController(
 
         val current = binding.txtBodyDetail.text?.toString().orEmpty()
         val start = current.length
-        val end = start + toAppend.length
+        val endExclusive = start + toAppend.length
 
         // UI: spans
         val sb = ensureSpannable(current)
         sb.append(toAppend)
-        sb.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        sb.setSpan(ForegroundColorSpan(Color.parseColor("#9AA0A6")), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        // setSpan utilise end exclusif → ok
+        sb.setSpan(StyleSpan(Typeface.ITALIC), start, endExclusive, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(ForegroundColorSpan(Color.parseColor("#9AA0A6")), start, endExclusive, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         binding.txtBodyDetail.text = sb
 
         // Persist (plain)
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(getOpenNoteId() ?: return@launch, sb.toString())
+            val nid = getOpenNoteId() ?: return@launch
+            repo.setBody(nid, sb.toString())
         }
-        return IntRange(start, end)
+
+        // On encode [start, endExclusive) dans IntRange(start, endExclusive)
+        return IntRange(start, endExclusive)
     }
 
     /**
      * Remplace la plage Vosk d’un bloc par le texte Whisper :
-     * - enlève les styles "provisoires"
-     * - applique noir + gras sur la nouvelle plage
-     * - persiste le texte plain
+    - enlève les spans provisoires
+    - applique du gras (noir) sur la nouvelle plage
+    - persiste le texte plain
+    - fallback : si la plage n’existe plus (édition utilisateur), on append en fin.
      */
     private fun replaceProvisionalWithRefined(blockId: Long, refined: String) {
-        val range = rangesByBlock.remove(blockId) ?: return
-        val current = binding.txtBodyDetail.text
-        val sb = if (current is SpannableStringBuilder) current else SpannableStringBuilder(current ?: "")
+        if (refined.isEmpty()) return
+
+        val range = rangesByBlock.remove(blockId)
+        val curText = binding.txtBodyDetail.text
+        val sb = if (curText is SpannableStringBuilder) curText else SpannableStringBuilder(curText ?: "")
+
+        if (range == null || range.first > sb.length) {
+            // fallback sûr : on ajoute à la fin en gras
+            val start = sb.length
+            val end = start + refined.length
+            sb.append(refined)
+            sb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            sb.setSpan(ForegroundColorSpan(Color.BLACK), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            binding.txtBodyDetail.text = sb
+            activity.lifecycleScope.launch(Dispatchers.IO) {
+                val nid = getOpenNoteId() ?: return@launch
+                repo.setBody(nid, sb.toString())
+            }
+            return
+        }
 
         val safeStart = min(max(0, range.first), sb.length)
-        val safeEnd = min(max(0, range.last), sb.length).let { it.coerceAtLeast(safeStart) }
+        // On a stocké endExclusive dans range.last → réutiliser tel quel.
+        val safeEndExclusive = min(max(0, range.last), sb.length).let { it.coerceAtLeast(safeStart) }
 
         // Enlever spans existants sur l’ancienne plage
-        val oldSpans = sb.getSpans<Any>(safeStart, safeEnd)
+        val oldSpans = sb.getSpans<Any>(safeStart, safeEndExclusive)
         for (sp in oldSpans) sb.removeSpan(sp)
 
         // Remplacer le texte
-        sb.replace(safeStart, safeEnd, refined)
+        sb.replace(safeStart, safeEndExclusive, refined)
         val newEnd = safeStart + refined.length
 
         // Style "définitif"
@@ -281,14 +303,18 @@ class MicBarController(
 
         // Persiste (plain)
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(getOpenNoteId() ?: return@launch, sb.toString())
+            val nid = getOpenNoteId() ?: return@launch
+            repo.setBody(nid, sb.toString())
         }
 
         // Ajuster les ranges restants après remplacement (décalage éventuel)
-        val delta = (newEnd - safeStart) - (safeEnd - safeStart)
+        val oldLen = (safeEndExclusive - safeStart)
+        val newLen = (newEnd - safeStart)
+        val delta = newLen - oldLen
         if (delta != 0) {
             val updated = rangesByBlock.mapValues { (_, r) ->
-                if (r.first >= safeEnd) {
+                // Seuls les blocs entièrement après la zone remplacée bougent
+                if (r.first >= safeEndExclusive) {
                     IntRange(r.first + delta, r.last + delta)
                 } else r
             }

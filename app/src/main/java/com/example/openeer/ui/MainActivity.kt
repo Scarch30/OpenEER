@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arrière-plan
+import android.util.Log
 
 class MainActivity : AppCompatActivity() {
 
@@ -230,6 +232,14 @@ class MainActivity : AppCompatActivity() {
                 val nid = ensureOpenNote()
                 b.root.post { editorBody.enterInlineEdit(nid) }
             }
+        }
+
+        // ✅ Option A : warm-up du modèle Whisper en arrière-plan dès que l’UI est prête
+        lifecycleScope.launch(Dispatchers.Default) {
+            Log.d("MainActivity", "Warm-up Whisper en arrière-plan…")
+            runCatching { WhisperService.loadModel(applicationContext) }
+                .onSuccess { Log.d("MainActivity", "Whisper prêt (contexte chargé).") }
+                .onFailure { Log.w("MainActivity", "Warm-up Whisper a échoué (non bloquant).", it) }
         }
     }
 

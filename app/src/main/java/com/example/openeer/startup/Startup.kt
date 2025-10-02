@@ -1,57 +1,48 @@
+// app/src/main/java/com/example/openeer/startup/Startup.kt
 package com.example.openeer.startup
 
 import android.content.Context
 import android.util.Log
 import com.example.openeer.services.WhisperService
-import com.example.openeer.stt.VoskTranscriber
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Orchestrates one-time warm-up for Vosk (copy/load models, JNA) and Whisper (ctx + ggml).
+ * App warm-up: loads Whisper model at startup (with timeout)
+ * and exposes a readiness flag consumed by StarterActivity.
+ *
+ * Vosk is intentionally loaded lazily by LiveTranscriber on first use.
  */
 object Startup {
     private const val TAG = "Startup"
 
+    private val started = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _ready = MutableStateFlow(false)
-    val ready: StateFlow<Boolean> = _ready
+    val ready = _ready.asStateFlow()
 
-    /** Idempotent: safe to call many times. */
     fun ensureInit(appCtx: Context) {
-        if (_ready.value) return
+        if (!started.compareAndSet(false, true)) return
+
         scope.launch {
+            val t0 = System.currentTimeMillis()
             try {
-                // 1) Warm-up Vosk: copy assets -> files, load model/JNA, then close immediately.
-                withContext(Dispatchers.IO) {
-                    val s = VoskTranscriber.startStreaming(appCtx) // ensures model load
-                    s.finish() // no audio fed, just to force native init
+                // Whisper warm-up with safety timeout to avoid blocking the splash.
+                withTimeoutOrNull(3500L) {
+                    WhisperService.loadModel(appCtx)
                 }
-
-                // 2) Warm-up Whisper: create ctx + tiny dry-run (0.5s silence) to init kernels/allocs.
-                withContext(Dispatchers.Default) {
-                    WhisperService.loadModel(appCtx) // no-op if already loaded
-                    val sr = 16_000
-                    val samples = (0.5 * sr).toInt()
-                    val silence = FloatArray(samples) { 0f }
-                    try {
-                        WhisperService.transcribeDataDirect(silence)
-                    } catch (t: Throwable) {
-                        Log.w(TAG, "Whisper warm-up failed (harmless)", t)
-                    }
-                }
-
-                _ready.value = true
-                Log.d(TAG, "Startup ready")
             } catch (t: Throwable) {
-                Log.e(TAG, "Startup failed", t)
-                // don't block UX; allow app to proceed anyway
+                Log.w(TAG, "Warm-up error", t)
+            } finally {
+                val dt = System.currentTimeMillis() - t0
+                Log.d(TAG, "Warm-up finished in ${dt} ms")
                 _ready.value = true
             }
         }

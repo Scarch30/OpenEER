@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Micro + caméra -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -19,12 +20,11 @@
     <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Exact alarms (si tu en as besoin) -->
+    <!-- Exact alarms -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <!-- Foreground services -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- Android 14+: types FGS dédiés -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
@@ -40,7 +40,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar">
 
-        <!-- ✅ Écran de démarrage (warm-up) : unique LAUNCHER -->
+        <!-- ✅ Starter = écran de démarrage (warm-up), unique LAUNCHER -->
         <activity
             android:name=".ui.StarterActivity"
             android:exported="true"
@@ -51,13 +51,13 @@
             </intent-filter>
         </activity>
 
-        <!-- ✅ Écran principal (non-LAUNCHER) -->
+        <!-- ✅ Écran principal -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
 
-        <!-- ⛔ Ancien onboarding : plus LAUNCHER -->
+        <!-- Ancien onboarding : plus de LAUNCHER -->
         <activity
             android:name=".ui.OnboardingActivity"
             android:exported="false"
@@ -102,6 +102,17 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- ⛔ Désactive ProfileInstaller pour éviter les logs et délais -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+                tools:node="remove" />
         </provider>
     </application>
 </manifest>
