@@ -30,6 +30,7 @@ import com.example.openeer.ui.editor.EditorBodyController
 import com.example.openeer.ui.map.MapActivity
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
 import com.example.openeer.ui.calendar.CalendarActivity
+import com.example.openeer.ui.import.ImportLauncher
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
 import com.example.openeer.ui.util.toast
@@ -75,6 +76,7 @@ class MainActivity : AppCompatActivity() {
     // Contrôleurs
     private lateinit var notePanel: NotePanelController
     private lateinit var captureLauncher: CaptureLauncher
+    private lateinit var importLauncher: ImportLauncher
     private lateinit var micCtl: MicBarController
     private lateinit var editorBody: EditorBodyController
 
@@ -112,6 +114,12 @@ class MainActivity : AppCompatActivity() {
             onChildBlockSaved = ::onChildBlockSaved
         )
         captureLauncher.onCreate(savedInstanceState)
+
+        importLauncher = ImportLauncher(
+            activity = this,
+            blocksRepo = blocksRepo,
+            onChildBlockSaved = ::onChildBlockSaved
+        )
 
         // Mic controller
         micCtl = MicBarController(
@@ -224,6 +232,15 @@ class MainActivity : AppCompatActivity() {
             editorBody.commitInlineEdit(notePanel.openNoteId)
             notePanel.close()
             b.recycler.post { b.recycler.requestFocus() }
+        }
+        b.btnLibrary.setOnLongClickListener {
+            lifecycleScope.launch {
+                editorBody.commitInlineEdit(notePanel.openNoteId)
+                val nid = ensureOpenNote()
+                toast("Import…")
+                importLauncher.launchImport(nid)
+            }
+            true
         }
         b.btnCalendar.setOnClickListener {
             startActivity(Intent(this, CalendarActivity::class.java))
