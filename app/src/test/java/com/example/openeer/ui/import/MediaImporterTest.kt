@@ -22,6 +22,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.shadows.ShadowContentResolver
 
 @RunWith(RobolectricTestRunner::class)
@@ -59,36 +60,42 @@ class MediaImporterTest {
     @Test
     fun importImageCreatesPhotoAndPlaceholderText() = runTest {
         val uri = Uri.parse("content://test/image.jpg")
-        ShadowContentResolver.registerInputStream(uri, ByteArrayInputStream(byteArrayOf(1, 2, 3)))
+        val shadowContentResolver: ShadowContentResolver = Shadows.shadowOf(context.contentResolver)
+        ByteArrayInputStream(byteArrayOf(1, 2, 3)).use { inputStream ->
+            shadowContentResolver.registerInputStream(uri, inputStream)
 
-        val result = importer.import(noteId, uri, overrideMimeType = "image/jpeg")
-        assertNotNull(result)
+            val result = importer.import(noteId, uri, overrideMimeType = "image/jpeg")
+            assertNotNull(result)
 
-        val blocks = db.blockDao().observeBlocks(noteId).first()
-        assertEquals(2, blocks.size)
-        assertEquals(BlockType.PHOTO, blocks[0].type)
-        assertEquals(BlockType.TEXT, blocks[1].type)
-        assertEquals(blocks[0].groupId, blocks[1].groupId)
-        assertEquals(OCR_PLACEHOLDER_TEXT, blocks[1].text)
-        assertEquals(blocks[1].id, result?.highlightBlockId)
+            val blocks = db.blockDao().observeBlocks(noteId).first()
+            assertEquals(2, blocks.size)
+            assertEquals(BlockType.PHOTO, blocks[0].type)
+            assertEquals(BlockType.TEXT, blocks[1].type)
+            assertEquals(blocks[0].groupId, blocks[1].groupId)
+            assertEquals(OCR_PLACEHOLDER_TEXT, blocks[1].text)
+            assertEquals(blocks[1].id, result?.highlightBlockId)
+        }
     }
 
     @Test
     fun importAudioCreatesAudioAndTranscribedText() = runTest {
         val uri = Uri.parse("content://test/audio.wav")
-        ShadowContentResolver.registerInputStream(uri, ByteArrayInputStream(ByteArray(8)))
+        val shadowContentResolver: ShadowContentResolver = Shadows.shadowOf(context.contentResolver)
+        ByteArrayInputStream(ByteArray(8)).use { inputStream ->
+            shadowContentResolver.registerInputStream(uri, inputStream)
 
-        val result = importer.import(noteId, uri, overrideMimeType = "audio/wav")
-        assertNotNull(result)
+            val result = importer.import(noteId, uri, overrideMimeType = "audio/wav")
+            assertNotNull(result)
 
-        val blocks = db.blockDao().observeBlocks(noteId).first()
-        assertEquals(2, blocks.size)
-        val audioBlock = blocks.first { it.type == BlockType.AUDIO }
-        val textBlock = blocks.first { it.type == BlockType.TEXT }
-        assertEquals(audioBlock.groupId, textBlock.groupId)
-        assertFalse(textBlock.text.isNullOrBlank())
-        assertEquals("stub transcription", textBlock.text)
-        assertEquals("stub transcription", audioBlock.text)
-        assertEquals(textBlock.id, result?.highlightBlockId)
+            val blocks = db.blockDao().observeBlocks(noteId).first()
+            assertEquals(2, blocks.size)
+            val audioBlock = blocks.first { it.type == BlockType.AUDIO }
+            val textBlock = blocks.first { it.type == BlockType.TEXT }
+            assertEquals(audioBlock.groupId, textBlock.groupId)
+            assertFalse(textBlock.text.isNullOrBlank())
+            assertEquals("stub transcription", textBlock.text)
+            assertEquals("stub transcription", audioBlock.text)
+            assertEquals(textBlock.id, result?.highlightBlockId)
+        }
     }
 }
