@@ -1,5 +1,9 @@
 package com.example.openeer.data
 
+import androidx.sqlite.db.SimpleSQLiteQuery
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+
 class NoteRepository(
     private val noteDao: NoteDao,
     private val attachmentDao: AttachmentDao
@@ -8,6 +12,33 @@ class NoteRepository(
 
     // --- Sprint 3: expose text search ---
     fun searchNotes(query: String) = noteDao.searchNotes(query)
+
+    fun searchNotesByTags(queryTags: List<String>): Flow<List<Note>> {
+        val normalized = queryTags.map { it.trim().lowercase() }.filter { it.isNotBlank() }.distinct()
+        if (normalized.isEmpty()) {
+            return flowOf(emptyList())
+        }
+
+        val clauses = normalized.map { "(',' || tagsCsv || ',') LIKE ?" }
+        val sql = """
+            SELECT * FROM notes
+            WHERE tagsCsv IS NOT NULL AND (${clauses.joinToString(" OR ")})
+            ORDER BY updatedAt DESC
+        """.trimIndent()
+        val args = Array<Any>(normalized.size) { index -> "%," + normalized[index] + ",%" }
+        val query = SimpleSQLiteQuery(sql, args)
+        return noteDao.searchNotesByTags(query)
+    }
+
+    suspend fun setNoteTags(noteId: Long, tags: List<String>) {
+        val normalized = tags.map { it.trim().lowercase() }.filter { it.isNotBlank() }.distinct()
+        val tagsCsv = if (normalized.isEmpty()) {
+            null
+        } else {
+            normalized.joinToString(separator = ",")
+        }
+        noteDao.updateTags(noteId, tagsCsv, System.currentTimeMillis())
+    }
 
     fun note(id: Long) = noteDao.getByIdFlow(id)
     suspend fun noteOnce(id: Long) = noteDao.getByIdOnce(id)

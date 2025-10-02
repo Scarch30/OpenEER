@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import androidx.sqlite.db.SimpleSQLiteQuery
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -79,5 +80,74 @@ class NoteDaoSearchTest {
         val actualOrder = results.map { it.id }
         assertEquals(expectedOrder, actualOrder)
         assertTrue(actualOrder.none { it == insertedIds[2] })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun searchNotesByTagsMatchesAnyTagOrderedByRecency() = runTest {
+        val notes = listOf(
+            Note(
+                title = "Project planning",
+                body = "Outline milestones",
+                createdAt = 1_000L,
+                updatedAt = 5_000L,
+                tagsCsv = "work,project"
+            ),
+            Note(
+                title = "Weekend getaway",
+                body = "Book tickets",
+                createdAt = 2_000L,
+                updatedAt = 4_000L,
+                tagsCsv = "travel,apple"
+            ),
+            Note(
+                title = "Grocery list",
+                body = "Buy milk",
+                createdAt = 3_000L,
+                updatedAt = 3_000L,
+                tagsCsv = "groceries"
+            ),
+            Note(
+                title = "Dessert ideas",
+                body = "Try apple tart",
+                createdAt = 4_000L,
+                updatedAt = 2_000L,
+                tagsCsv = "dessert,apple"
+            ),
+            Note(
+                title = "Tropical recipes",
+                body = "Pineapple smoothie",
+                createdAt = 5_000L,
+                updatedAt = 1_000L,
+                tagsCsv = "pineapple"
+            )
+        )
+
+        val insertedIds = notes.map { note -> noteDao.insert(note) }
+
+        val appleQuery = SimpleSQLiteQuery(
+            """
+                SELECT * FROM notes
+                WHERE tagsCsv IS NOT NULL AND ((',' || tagsCsv || ',') LIKE ?)
+                ORDER BY updatedAt DESC
+            """.trimIndent(),
+            arrayOf<Any>("%,apple,%")
+        )
+        val appleResults = noteDao.searchNotesByTags(appleQuery).first()
+
+        assertEquals(listOf(insertedIds[1], insertedIds[3]), appleResults.map { it.id })
+
+        val multiQuery = SimpleSQLiteQuery(
+            """
+                SELECT * FROM notes
+                WHERE tagsCsv IS NOT NULL AND ((',' || tagsCsv || ',') LIKE ? OR (',' || tagsCsv || ',') LIKE ?)
+                ORDER BY updatedAt DESC
+            """.trimIndent(),
+            arrayOf<Any>("%,work,%", "%,apple,%")
+        )
+        val multiResults = noteDao.searchNotesByTags(multiQuery).first()
+
+        assertEquals(listOf(insertedIds[0], insertedIds[1], insertedIds[3]), multiResults.map { it.id })
+        assertTrue(multiResults.none { it.id == insertedIds[4] })
     }
 }
