@@ -1,6 +1,7 @@
 package com.example.openeer.data
 
 import androidx.room.*
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -32,6 +33,9 @@ interface NoteDao {
     @Query("UPDATE notes SET body = :body, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateBody(id: Long, body: String, updatedAt: Long)
 
+    @Query("UPDATE notes SET tagsCsv = :tagsCsv, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateTags(id: Long, tagsCsv: String?, updatedAt: Long)
+
     @Update
     suspend fun update(note: Note)
 
@@ -44,4 +48,7 @@ interface NoteDao {
         WHERE id = :id
     """)
     suspend fun updateLocation(id: Long, lat: Double?, lon: Double?, place: String?, accuracyM: Float?, updatedAt: Long)
+
+    @RawQuery(observedEntities = [Note::class])
+    fun searchNotesByTags(query: SupportSQLiteQuery): Flow<List<Note>>
 }

@@ -10,7 +10,7 @@ import com.example.openeer.data.db.Converters
 
 @Database(
     entities = [Note::class, Attachment::class, BlockEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -68,6 +68,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE notes ADD COLUMN tagsCsv TEXT")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -75,7 +81,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "openEER.db"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     // ⚠️ on évite fallbackToDestructiveMigration pour ne pas perdre les données
                     .build()
                     .also { INSTANCE = it }
