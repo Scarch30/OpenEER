@@ -15,23 +15,23 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
-private const val DB_NAME = "migration-test.db"
-val V5_CREATE_NOTES_SQL = """
-    CREATE TABLE IF NOT EXISTS notes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT,
-        body TEXT,
-        createdAt INTEGER,
-        updatedAt INTEGER,
-        lat REAL,
-        lon REAL,
-        place TEXT,
-        accuracyM REAL,
-        tagsCsv TEXT
+private const val DB_NAME: String = "migration-test-db"
+private val V5_CREATE_NOTES_SQL = """
+    CREATE TABLE IF NOT EXISTS notes(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT,
+      body TEXT,
+      createdAt INTEGER,
+      updatedAt INTEGER,
+      lat REAL,
+      lon REAL,
+      place TEXT,
+      accuracyM REAL,
+      tagsCsv TEXT
     )
 """.trimIndent()
 
-private const val V5_INSERT_NOTE_SQL = """
+private val V5_INSERT_NOTE_SQL = """
     INSERT INTO notes (id, title, body, createdAt, updatedAt, lat, lon, place, accuracyM, tagsCsv)
     VALUES (1, 'Legacy title', 'Legacy body', 1, 1, NULL, NULL, NULL, NULL, NULL)
 """.trimIndent()
