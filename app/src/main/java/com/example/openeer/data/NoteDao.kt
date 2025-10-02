@@ -11,6 +11,14 @@ interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY updatedAt DESC")
     fun getAllFlow(): Flow<List<Note>>
 
+    // --- Sprint 3: text search ---
+    @Query(
+        "SELECT * FROM notes " +
+            "WHERE (title LIKE '%' || :query || '%' OR body LIKE '%' || :query || '%') " +
+            "ORDER BY updatedAt DESC"
+    )
+    fun searchNotes(query: String): Flow<List<Note>>
+
     // ✅ nouveaux accès par ID
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     fun getByIdFlow(id: Long): Flow<Note?>

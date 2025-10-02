@@ -327,4 +327,9 @@ class MainActivity : AppCompatActivity() {
 
 class NotesVm(private val repo: NoteRepository) : ViewModel() {
     val notes = repo.allNotes
+
+    // --- Sprint 3: propagate search feature ---
+    fun search(query: String) = repo.searchNotes(query)
 }
+
+// TODO(sprint3): Hook up the future search UI component to NotesVm.search(query).
