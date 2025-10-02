@@ -1,11 +1,8 @@
 package com.example.openeer.data
 
-import android.content.Context
-import androidx.room.Room
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -15,26 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
-private const val DB_NAME: String = "migration-test-db"
-private val V5_CREATE_NOTES_SQL = """
-    CREATE TABLE IF NOT EXISTS notes(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT,
-      body TEXT,
-      createdAt INTEGER,
-      updatedAt INTEGER,
-      lat REAL,
-      lon REAL,
-      place TEXT,
-      accuracyM REAL,
-      tagsCsv TEXT
-    )
-""".trimIndent()
-
-private val V5_INSERT_NOTE_SQL = """
-    INSERT INTO notes (id, title, body, createdAt, updatedAt, lat, lon, place, accuracyM, tagsCsv)
-    VALUES (1, 'Legacy title', 'Legacy body', 1, 1, NULL, NULL, NULL, NULL, NULL)
-""".trimIndent()
+private const val DB_NAME = "migration-test-db"
 
 @RunWith(RobolectricTestRunner::class)
 class NoteMigrationTest {
@@ -51,22 +29,40 @@ class NoteMigrationTest {
     fun migrateFrom5To6_preservesRowsAndAddsNullableColumns() {
         var legacyDb: SupportSQLiteDatabase? = null
         var migratedDb: SupportSQLiteDatabase? = null
-        var roomDb: AppDatabase? = null
 
         try {
             legacyDb = helper.createDatabase(DB_NAME, 5)
-            legacyDb.execSQL(V5_CREATE_NOTES_SQL)
-            legacyDb.execSQL(V5_INSERT_NOTE_SQL)
+            legacyDb.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS notes(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  title TEXT,
+                  body TEXT,
+                  createdAt INTEGER NOT NULL,
+                  updatedAt INTEGER NOT NULL,
+                  lat REAL,
+                  lon REAL,
+                  place TEXT,
+                  accuracyM REAL,
+                  tagsCsv TEXT
+                )
+                """.trimIndent()
+            )
+            legacyDb.execSQL(
+                """
+                INSERT INTO notes (title, body, createdAt, updatedAt, lat, lon, place, accuracyM, tagsCsv)
+                VALUES ('v5 title', 'v5 body', 111, 222, 48.85, 2.35, 'Paris', 12.3, 'work,voice')
+                """.trimIndent()
+            )
             legacyDb.close()
             legacyDb = null
 
-            val context: Context = ApplicationProvider.getApplicationContext()
-            roomDb = Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
-                .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
-                .addMigrations(AppDatabase.MIGRATION_5_6)
-                .build()
-
-            migratedDb = roomDb.openHelper.writableDatabase
+            migratedDb = helper.runMigrationsAndValidate(
+                DB_NAME,
+                6,
+                true,
+                AppDatabase.MIGRATION_5_6
+            )
 
             val columns = mutableMapOf<String, Pair<String?, Int>>()
             migratedDb.query("PRAGMA table_info('notes')").use { cursor ->
@@ -96,27 +92,23 @@ class NoteMigrationTest {
                 assertEquals(1, cursor.getInt(0))
             }
 
-            migratedDb.query("SELECT timeBucket, placeLabel FROM notes WHERE id = 1").use { cursor ->
+            migratedDb.query(
+                """
+                SELECT title, body, createdAt, updatedAt, timeBucket, placeLabel
+                FROM notes
+                LIMIT 1
+                """.trimIndent()
+            ).use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertTrue(cursor.isNull(0))
-                assertTrue(cursor.isNull(1))
+                assertEquals("v5 title", cursor.getString(0))
+                assertEquals("v5 body", cursor.getString(1))
+                assertEquals(111, cursor.getLong(2))
+                assertEquals(222, cursor.getLong(3))
+                assertTrue(cursor.isNull(4))
+                assertTrue(cursor.isNull(5))
             }
         } catch (t: Throwable) {
-            val debugDb = migratedDb ?: try {
-                roomDb?.openHelper?.writableDatabase
-            } catch (_: Throwable) {
-                null
-            }
-            try {
-                tryDumpDatabaseState(debugDb)
-            } finally {
-                if (debugDb != null && debugDb !== migratedDb) {
-                    try {
-                        debugDb.close()
-                    } catch (_: Throwable) {
-                    }
-                }
-            }
+            tryDumpDatabaseState(migratedDb)
             throw t
         } finally {
             try {
@@ -125,10 +117,6 @@ class NoteMigrationTest {
             }
             try {
                 migratedDb?.close()
-            } catch (_: Throwable) {
-            }
-            try {
-                roomDb?.close()
             } catch (_: Throwable) {
             }
         }
