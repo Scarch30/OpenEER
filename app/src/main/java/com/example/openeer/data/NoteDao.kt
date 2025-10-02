@@ -16,7 +16,7 @@ interface NoteDao {
     @Query(
         "SELECT * FROM notes " +
             "WHERE (title LIKE '%' || :query || '%' OR body LIKE '%' || :query || '%') " +
-            "ORDER BY updatedAt DESC"
+            "ORDER BY updatedAt DESC, id DESC"
     )
     fun searchNotes(query: String): Flow<List<Note>>
 
