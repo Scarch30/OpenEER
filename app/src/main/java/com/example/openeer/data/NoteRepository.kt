@@ -10,6 +10,8 @@ class NoteRepository(
 ) {
     val allNotes = noteDao.getAllFlow()
 
+    fun notesByDate() = noteDao.notesOrderedByDate()
+
     // --- Sprint 3: expose text search ---
     fun searchNotes(query: String) = noteDao.searchNotes(query)
 

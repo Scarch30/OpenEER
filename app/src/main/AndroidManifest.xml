@@ -62,6 +62,11 @@
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
 
+        <activity
+            android:name=".ui.calendar.CalendarActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
+
         <!-- Ancien onboarding : plus de LAUNCHER -->
         <activity
             android:name=".ui.OnboardingActivity"
