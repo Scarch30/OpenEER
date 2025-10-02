@@ -2,6 +2,7 @@
 package com.example.openeer.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
@@ -27,6 +28,7 @@ import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.capture.CaptureLauncher
 import com.example.openeer.ui.editor.EditorBodyController
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
+import com.example.openeer.ui.map.MapActivity
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
 import com.example.openeer.ui.util.toast
@@ -223,7 +225,7 @@ class MainActivity : AppCompatActivity() {
             b.recycler.post { b.recycler.requestFocus() }
         }
         b.btnMap.setOnClickListener {
-            b.root.snackbar("Carte/Itinéraire — bientôt disponible")
+            startActivity(Intent(this, MapActivity::class.java))
         }
 
         // Clic sur le corps = édition inline

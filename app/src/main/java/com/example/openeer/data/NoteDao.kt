@@ -20,6 +20,15 @@ interface NoteDao {
     )
     fun searchNotes(query: String): Flow<List<Note>>
 
+    // TODO(sprint3): expose geotagged list for map skeleton
+    @Query(
+        "SELECT * FROM notes " +
+            "WHERE ((placeLabel IS NOT NULL AND TRIM(placeLabel) != '') " +
+            "OR (lat IS NOT NULL AND lon IS NOT NULL)) " +
+            "ORDER BY updatedAt DESC, id DESC"
+    )
+    fun geotaggedNotes(): Flow<List<Note>>
+
     // ✅ nouveaux accès par ID
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     fun getByIdFlow(id: Long): Flow<Note?>

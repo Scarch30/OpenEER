@@ -13,6 +13,9 @@ class NoteRepository(
     // --- Sprint 3: expose text search ---
     fun searchNotes(query: String) = noteDao.searchNotes(query)
 
+    // TODO(sprint3): expose geotagged list for map skeleton
+    fun geotaggedNotes() = noteDao.geotaggedNotes()
+
     fun searchNotesByTags(queryTags: List<String>): Flow<List<Note>> {
         val normalized = queryTags.map { it.trim().lowercase() }.filter { it.isNotBlank() }.distinct()
         if (normalized.isEmpty()) {
