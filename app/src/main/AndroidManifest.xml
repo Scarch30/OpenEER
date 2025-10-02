@@ -57,6 +57,11 @@
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
 
+        <activity
+            android:name=".ui.map.MapActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
+
         <!-- Ancien onboarding : plus de LAUNCHER -->
         <activity
             android:name=".ui.OnboardingActivity"
