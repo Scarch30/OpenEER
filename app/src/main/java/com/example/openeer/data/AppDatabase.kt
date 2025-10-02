@@ -76,24 +76,8 @@ abstract class AppDatabase : RoomDatabase() {
 
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                var hasTimeBucket = false
-                var hasPlaceLabel = false
-                db.query("PRAGMA table_info(notes)").use { cursor ->
-                    val nameIndex = cursor.getColumnIndex("name")
-                    while (cursor.moveToNext()) {
-                        when (cursor.getString(nameIndex)) {
-                            "timeBucket" -> hasTimeBucket = true
-                            "placeLabel" -> hasPlaceLabel = true
-                        }
-                    }
-                }
-
-                if (!hasTimeBucket) {
-                    db.execSQL("ALTER TABLE notes ADD COLUMN timeBucket TEXT")
-                }
-                if (!hasPlaceLabel) {
-                    db.execSQL("ALTER TABLE notes ADD COLUMN placeLabel TEXT")
-                }
+                db.execSQL("ALTER TABLE notes ADD COLUMN timeBucket INTEGER")
+                db.execSQL("ALTER TABLE notes ADD COLUMN placeLabel TEXT")
             }
         }
 
