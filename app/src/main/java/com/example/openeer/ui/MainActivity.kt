@@ -38,6 +38,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arrière-plan
 import android.util.Log
+import android.content.Intent
+import com.example.openeer.ui.library.LibraryActivity
+
 
 class MainActivity : AppCompatActivity() {
 
@@ -218,10 +221,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         b.btnLibrary.setOnClickListener {
+            // On sécurise l’état courant puis on ouvre la Bibliothèque
             editorBody.commitInlineEdit(notePanel.openNoteId)
             notePanel.close()
-            b.recycler.post { b.recycler.requestFocus() }
+
+            startActivity(Intent(this, LibraryActivity::class.java))
         }
+
         b.btnMap.setOnClickListener {
             b.root.snackbar("Carte/Itinéraire — bientôt disponible")
         }

@@ -89,6 +89,23 @@
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
 
+        <activity
+            android:name=".ui.library.LibraryActivity"
+            android:exported="false"
+            android:label="Bibliothèque" />
+
+        <activity
+            android:name=".ui.library.DayNotesActivity"
+            android:exported="false"
+            android:label="Notes du jour" />
+
+        <activity
+            android:name=".ui.library.LocationNotesActivity"
+            android:exported="false"
+            android:label="Notes à proximité" />
+
+
+
         <service
             android:name=".audio.RecorderService"
             android:exported="false"

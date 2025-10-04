@@ -94,5 +94,9 @@
     <string name="screenshot_notif_channel_name">Captures d’écran</string>
     <string name="screenshot_notif_channel_desc">Service de capture d’écran</string>
 
+    <string name="zoom_in">Zoom avant</string>
+    <string name="zoom_out">Zoom arrière</string>
+    <string name="recenter">Recentrer</string>
+
 
 </resources>

@@ -1,4 +1,3 @@
-// app/src/main/java/com/example/openeer/startup/Startup.kt
 package com.example.openeer.startup
 
 import android.content.Context
@@ -14,10 +13,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * App warm-up: loads Whisper model at startup (with timeout)
- * and exposes a readiness flag consumed by StarterActivity.
+ * App warm-up: charge le modèle Whisper au démarrage (avec timeout)
+ * et expose un flag "ready" consommé par StarterActivity.
  *
- * Vosk is intentionally loaded lazily by LiveTranscriber on first use.
+ * Vosk est chargé paresseusement par LiveTranscriber lors du premier usage.
  */
 object Startup {
     private const val TAG = "Startup"
@@ -34,7 +33,7 @@ object Startup {
         scope.launch {
             val t0 = System.currentTimeMillis()
             try {
-                // Whisper warm-up with safety timeout to avoid blocking the splash.
+                // Warm-up Whisper avec limite de temps pour ne pas bloquer le splash.
                 withTimeoutOrNull(3500L) {
                     WhisperService.loadModel(appCtx)
                 }

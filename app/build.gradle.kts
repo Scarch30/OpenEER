@@ -114,6 +114,11 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
 
+    // MapLibre GL Android (API v12, simple et stable)
+    implementation("org.maplibre.gl:android-sdk:12.0.0")
+
+
+
     // Tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.12.1")
