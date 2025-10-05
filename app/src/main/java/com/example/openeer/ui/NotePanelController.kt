@@ -1,3 +1,4 @@
+// app/src/main/java/com/example/openeer/ui/NotePanelController.kt
 package com.example.openeer.ui
 
 import android.graphics.Typeface
@@ -55,7 +56,11 @@ class NotePanelController(
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(activity)
-        BlocksRepository(db.blockDao(), db.noteDao())
+        BlocksRepository(
+            blockDao = db.blockDao(),
+            noteDao  = db.noteDao(),
+            linkDao  = db.blockLinkDao()   // ✅ liens AUDIO→TEXTE disponibles
+        )
     }
 
     private val mediaActions = MediaActions(activity, blocksRepo)
@@ -85,7 +90,7 @@ class NotePanelController(
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
 
-        // Reset visuel immédiat pour éviter de voir l’ancienne note
+        // Reset visuel
         binding.txtBodyDetail.text = ""
         binding.noteMetaFooter.isGone = true
         binding.childBlocksContainer.removeAllViews()
@@ -126,7 +131,6 @@ class NotePanelController(
         binding.notePanel.isGone = true
         binding.recycler.isVisible = true
 
-        // RAZ visuelle (aucun placeholder persistant)
         binding.txtBodyDetail.text = ""
         binding.noteMetaFooter.isGone = true
 
@@ -143,7 +147,6 @@ class NotePanelController(
     }
 
     fun onAppendLive(displayBody: String) {
-        // Affichage UI uniquement (non persistant)
         binding.txtBodyDetail.text = displayBody
     }
 
@@ -183,14 +186,10 @@ class NotePanelController(
 
         blocks.forEach { block ->
             val view = when (block.type) {
-                // Texte/Images/Audio/Video → pas affichés dans le corps
                 BlockType.TEXT -> null
                 BlockType.SKETCH, BlockType.PHOTO, BlockType.VIDEO, BlockType.AUDIO -> null
-
-                // Ces blocs seulement affichés en “unsupported” pour debug
                 BlockType.ROUTE, BlockType.FILE ->
                     BlockRenderers.createUnsupportedBlockView(container.context, block, margin)
-
                 BlockType.LOCATION -> null
             }
             if (view != null) {
@@ -206,50 +205,81 @@ class NotePanelController(
         }
     }
 
-    /** Empile PHOTOS + VIDÉOS ensemble dans la pile PHOTO, plus SKETCH, AUDIO, TEXT inchangés. */
+    /**
+     * Piles médias :
+     *  - PHOTO = photos + vidéos
+     *  - AUDIO = audios + textes de transcription (TEXT partageant le groupId d’un audio)
+     *  - TEXT  = textes indépendants (pas liés à un audio)
+     */
     private fun updateMediaStrip(blocks: List<BlockEntity>) {
-        val categorized = blocks.mapNotNull { block ->
+        val audioGroupIds = blocks
+            .filter { it.type == BlockType.AUDIO }
+            .mapNotNull { it.groupId }
+            .toSet()
+
+        val photoItems = mutableListOf<MediaStripItem.Image>()
+        val sketchItems = mutableListOf<MediaStripItem.Image>()
+        val audioItems  = mutableListOf<MediaStripItem.Audio>()
+        val textItems   = mutableListOf<MediaStripItem.Text>()
+        var transcriptsLinkedToAudio = 0
+
+        blocks.forEach { block ->
             when (block.type) {
-                BlockType.PHOTO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                    MediaCategory.PHOTO to MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                BlockType.PHOTO, BlockType.VIDEO -> {
+                    block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                        photoItems += MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                    }
                 }
-                BlockType.VIDEO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                    // ✅ les vidéos rejoignent la même pile que les photos
-                    MediaCategory.PHOTO to MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                BlockType.SKETCH -> {
+                    block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                        sketchItems += MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                    }
                 }
-                BlockType.SKETCH -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                    MediaCategory.SKETCH to MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                BlockType.AUDIO -> {
+                    block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                        audioItems += MediaStripItem.Audio(block.id, uri, block.mimeType, block.durationMs)
+                    }
                 }
-                BlockType.AUDIO -> block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                    MediaCategory.AUDIO to MediaStripItem.Audio(block.id, uri, block.mimeType, block.durationMs)
+                BlockType.TEXT -> {
+                    val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
+                    if (linkedToAudio) {
+                        transcriptsLinkedToAudio += 1
+                    } else {
+                        textItems += MediaStripItem.Text(
+                            blockId = block.id,
+                            noteId = block.noteId,
+                            content = block.text.orEmpty(),
+                        )
+                    }
                 }
-                BlockType.TEXT -> MediaCategory.TEXT to MediaStripItem.Text(
-                    blockId = block.id,
-                    noteId = block.noteId,
-                    content = block.text.orEmpty(),
-                )
-                else -> null
+                else -> Unit
             }
         }
 
-        val piles = categorized
-            .groupBy({ it.first }, { it.second })
-            .map { (category, items) ->
-                val sorted = items.sortedByDescending { it.blockId }
-                MediaStripItem.Pile(
-                    category = category,
-                    count = sorted.size,
-                    cover = sorted.first(),
-                )
+        val piles = buildList {
+            if (photoItems.isNotEmpty()) {
+                val sorted = photoItems.sortedByDescending { it.blockId }
+                add(MediaStripItem.Pile(MediaCategory.PHOTO, sorted.size, sorted.first()))
             }
-            // Conserve ta logique actuelle : la pile “la plus récente” en premier
-            .sortedByDescending { it.cover.blockId }
+            if (sketchItems.isNotEmpty()) {
+                val sorted = sketchItems.sortedByDescending { it.blockId }
+                add(MediaStripItem.Pile(MediaCategory.SKETCH, sorted.size, sorted.first()))
+            }
+            if (audioItems.isNotEmpty()) {
+                val sorted = audioItems.sortedByDescending { it.blockId }
+                val countWithTranscripts = sorted.size + transcriptsLinkedToAudio
+                add(MediaStripItem.Pile(MediaCategory.AUDIO, countWithTranscripts, sorted.first()))
+            }
+            if (textItems.isNotEmpty()) {
+                val sorted = textItems.sortedByDescending { it.blockId }
+                add(MediaStripItem.Pile(MediaCategory.TEXT, sorted.size, sorted.first()))
+            }
+        }.sortedByDescending { it.cover.blockId }
 
         mediaAdapter.submitList(piles)
         binding.mediaStrip.isGone = piles.isEmpty()
     }
 
-    // (fabrique de “rectangle texte” non utilisée mais conservée)
     private fun createTextBlockView(block: BlockEntity, margin: Int): View {
         val ctx = binding.root.context
         val padding = (16 * ctx.resources.displayMetrics.density).toInt()
@@ -298,16 +328,13 @@ class NotePanelController(
     private fun render(note: Note?) {
         if (note == null) return
 
-        // Titre
         val title = note.title?.takeIf { it.isNotBlank() } ?: "Sans titre"
         binding.txtTitleDetail.text = title
 
-        // Corps :
-        // Si l'UI contient déjà des spans italique (Vosk provisoire),
-        // on NE PASSE PAS par une réassignation brutale du body -> on préserve le styling en cours.
         val keepCurrentStyled =
             (binding.txtBodyDetail.text is Spanned) &&
-                    (binding.txtBodyDetail.text as Spanned).getSpans(0,
+                    (binding.txtBodyDetail.text as Spanned).getSpans(
+                        0,
                         binding.txtBodyDetail.text.length, StyleSpan::class.java
                     ).any { it.style == Typeface.ITALIC }
 
@@ -315,7 +342,6 @@ class NotePanelController(
             binding.txtBodyDetail.text = note.body
         }
 
-        // Méta
         val meta = note.formatMeta()
         if (meta.isBlank()) {
             binding.noteMetaFooter.isGone = true

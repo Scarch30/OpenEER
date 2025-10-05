@@ -1,3 +1,4 @@
+// app/src/main/java/com/example/openeer/ui/panel/media/MediaActions.kt
 package com.example.openeer.ui.panel.media
 
 import android.content.Intent
@@ -17,44 +18,32 @@ import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.sheets.ChildTextViewerSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import com.example.openeer.ui.viewer.VideoPlayerActivity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import java.io.File
 
-/**
- * Actions communes pour la strip média et la grille :
- * - Ouverture (image, vidéo, audio, post-it)
- * - Partage / Suppression
- * - Ouverture d’une pile en grille
- */
 class MediaActions(
     private val activity: AppCompatActivity,
     private val blocksRepo: BlocksRepository
 ) {
     private val uiScope = CoroutineScope(Dispatchers.Main)
 
-    /** Ouvre la grille d’une catégorie pour une note donnée. */
     fun handlePileClick(noteId: Long, category: MediaCategory) {
         MediaGridSheet.show(activity.supportFragmentManager, noteId, category)
     }
 
-    /** Gestion du clic sur un item individuel. */
     fun handleClick(item: MediaStripItem) {
         when (item) {
             is MediaStripItem.Pile -> {
-                handlePileClick(item.coverNoteId(), item.category)
+                // Ouvert via NotePanelController.onPileClick(...)
             }
             is MediaStripItem.Image -> {
                 if (item.type == BlockType.VIDEO) {
-                    // ✅ Lecteur vidéo in-app
                     val intent = Intent(activity, VideoPlayerActivity::class.java).apply {
                         putExtra(VideoPlayerActivity.EXTRA_URI, item.mediaUri)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     activity.startActivity(intent)
                 } else {
-                    // Photo / Sketch
                     val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
                         putExtra("path", item.mediaUri)
                     }
@@ -62,28 +51,49 @@ class MediaActions(
                 }
             }
             is MediaStripItem.Audio -> {
-                // ⚠️ Correction : on LIT via l’URI si possible (content:// ou file://). Fallback: chemin absolu.
-                val uriStr: String? = item.mediaUri.takeIf { it.isNotBlank() }
-                if (uriStr == null) {
-                    Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
-                    return
-                }
-
-                SimplePlayer.play(
-                    ctx = activity,
-                    path = uriStr,
-                    onStart = { Toast.makeText(activity, "Lecture…", Toast.LENGTH_SHORT).show() },
-                    onStop  = { Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show() },
-                    onError = { e ->
-                        Toast.makeText(
-                            activity,
-                            "Lecture impossible : ${e?.message ?: "erreur inconnue"}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                // ✅ Interaction croisée : tenter d’ouvrir la transcription liée
+                uiScope.launch {
+                    val triple = withContext(Dispatchers.IO) {
+                        val audioBlock = blocksRepo.getBlock(item.blockId)
+                        val noteId = audioBlock?.noteId
+                        val linkedTextId = audioBlock?.id?.let { blocksRepo.findTextForAudio(it) }
+                        Triple(noteId, linkedTextId, audioBlock?.mediaUri)
                     }
-                )
+                    val noteId = triple.first
+                    val linkedTextId = triple.second
+
+                    if (noteId != null && linkedTextId != null) {
+                        ChildTextViewerSheet.show(
+                            activity.supportFragmentManager,
+                            noteId,
+                            linkedTextId
+                        )
+                        return@launch
+                    }
+
+                    // Fallback : lecture directe
+                    val uriStr: String? = item.mediaUri.takeIf { it.isNotBlank() }
+                    if (uriStr == null) {
+                        Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    SimplePlayer.play(
+                        ctx = activity,
+                        path = uriStr,
+                        onStart = { /* no-op */ },
+                        onStop  = { /* no-op */ },
+                        onError = { e ->
+                            Toast.makeText(
+                                activity,
+                                "Lecture impossible : ${e?.message ?: "erreur inconnue"}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    )
+                }
             }
             is MediaStripItem.Text -> {
+                // (On garde le comportement existant : ouverture du viewer texte)
                 ChildTextViewerSheet.show(
                     activity.supportFragmentManager,
                     item.noteId,
@@ -93,7 +103,6 @@ class MediaActions(
         }
     }
 
-    /** Menu contextuel (long press). */
     fun showMenu(anchor: View, item: MediaStripItem) {
         val popup = PopupMenu(activity, anchor)
         popup.menu.add(0, MENU_SHARE, 0, activity.getString(R.string.media_action_share))
@@ -175,7 +184,7 @@ class MediaActions(
             return
         }
         uiScope.launch {
-            val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     when (item) {
                         is MediaStripItem.Image -> {
@@ -229,15 +238,6 @@ class MediaActions(
             parsed.scheme.equals("content", ignoreCase = true) -> parsed
             else -> parsed
         }
-    }
-
-    private fun MediaStripItem.Pile.coverNoteId(): Long = when (val c = cover) {
-        is MediaStripItem.Image -> c.blockId
-        is MediaStripItem.Audio -> c.blockId
-        is MediaStripItem.Text  -> c.noteId
-        is MediaStripItem.Pile  -> c.coverNoteId()
-    }.let { _ ->
-        (cover as? MediaStripItem.Text)?.noteId ?: 0L
     }
 
     private companion object {

@@ -37,6 +37,21 @@ interface BlockDao {
     @Query("UPDATE blocks SET text = :newText, updatedAt = :updatedAt WHERE id = :blockId")
     suspend fun updateTranscription(blockId: Long, newText: String, updatedAt: Long)
 
+    // ✅ Utilisée par BlocksRepository.find*Linked*(...) via groupId
+    @Query(
+        """
+        SELECT * FROM blocks
+        WHERE noteId = :noteId AND groupId = :groupId AND type = :type
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    )
+    suspend fun findOneByNoteGroupAndType(
+        noteId: Long,
+        groupId: String,
+        type: BlockType
+    ): BlockEntity?
+
     @Transaction
     suspend fun insertAtEnd(noteId: Long, template: BlockEntity): Long {
         val pos = (getMaxPosition(noteId) ?: -1) + 1
@@ -45,9 +60,11 @@ interface BlockDao {
 
     @Transaction
     suspend fun reorder(noteId: Long, orderedBlockIds: List<Long>) {
+        // passe 1 : positions temporaires négatives pour éviter collisions
         orderedBlockIds.forEachIndexed { idx, blockId ->
             updatePosition(blockId, noteId, -(idx + 1))
         }
+        // passe 2 : positions finales 0..n-1
         orderedBlockIds.forEachIndexed { idx, blockId ->
             updatePosition(blockId, noteId, idx)
         }

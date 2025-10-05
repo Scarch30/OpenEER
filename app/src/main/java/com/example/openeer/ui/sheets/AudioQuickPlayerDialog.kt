@@ -52,6 +52,7 @@ class AudioQuickPlayerDialog : BottomSheetDialogFragment() {
         }
         playPause = ImageView(ctx).apply {
             setImageResource(android.R.drawable.ic_media_play)
+            contentDescription = "Lecture / pause"
             layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
         }
         title = TextView(ctx).apply {

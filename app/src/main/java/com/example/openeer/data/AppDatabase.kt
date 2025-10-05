@@ -4,15 +4,21 @@ import android.content.Context
 import androidx.room.*
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.example.openeer.data.block.BlockDao
-import com.example.openeer.data.block.BlockEntity
-import com.example.openeer.data.db.Converters
 import com.example.openeer.data.audio.AudioClipEntity
 import com.example.openeer.data.audio.AudioTranscriptEntity
+import com.example.openeer.data.block.BlockDao
+import com.example.openeer.data.block.BlockEntity
+import com.example.openeer.data.block.BlockReadDao
+import com.example.openeer.data.block.BlockLinkDao
+import com.example.openeer.data.block.BlockLinkEntity
+import com.example.openeer.data.db.Converters
 import com.example.openeer.data.location.NoteLocationEntity
 import com.example.openeer.data.search.SearchIndexFts
 import com.example.openeer.data.tag.NoteTagCrossRef
 import com.example.openeer.data.tag.TagEntity
+import com.example.openeer.data.tag.TagDao
+import com.example.openeer.data.search.SearchDao
+import com.example.openeer.data.audio.AudioDao
 
 @Database(
     entities = [
@@ -25,9 +31,11 @@ import com.example.openeer.data.tag.TagEntity
         NoteLocationEntity::class,
         AudioClipEntity::class,
         AudioTranscriptEntity::class,
-        SearchIndexFts::class
+        SearchIndexFts::class,
+        // 🔗 Liens entre blocs (AUDIO ↔ TEXTE, etc.)
+        BlockLinkEntity::class
     ],
-    version = 8, // ✅ bump pour normaliser audio_transcripts (FK -> audio_clips)
+    version = 9, // 🔼 bump : ajout block_links
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -37,10 +45,13 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun blockDao(): BlockDao
 
     // DAOs Sprint 3
-    abstract fun tagDao(): com.example.openeer.data.tag.TagDao
-    abstract fun searchDao(): com.example.openeer.data.search.SearchDao
-    abstract fun audioDao(): com.example.openeer.data.audio.AudioDao
-    abstract fun blockReadDao(): com.example.openeer.data.block.BlockReadDao
+    abstract fun tagDao(): TagDao
+    abstract fun searchDao(): SearchDao
+    abstract fun audioDao(): AudioDao
+    abstract fun blockReadDao(): BlockReadDao
+
+    // 🔗 Nouveau DAO pour les liens de blocs
+    abstract fun blockLinkDao(): BlockLinkDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -266,6 +277,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // 8 -> 9 : création de block_links (+ index)
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS block_links (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        fromBlockId INTEGER NOT NULL,
+                        toBlockId   INTEGER NOT NULL,
+                        type TEXT NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_fromBlockId ON block_links(fromBlockId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_toBlockId ON block_links(toBlockId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_type ON block_links(type)")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -279,7 +307,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_4_5,
                         MIGRATION_5_6,
                         MIGRATION_6_7,
-                        MIGRATION_7_8
+                        MIGRATION_7_8,
+                        MIGRATION_8_9 // 🔗
                     )
                     .build()
                     .also { INSTANCE = it }

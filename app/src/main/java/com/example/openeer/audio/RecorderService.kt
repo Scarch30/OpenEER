@@ -39,7 +39,12 @@ class RecorderService : Service() {
         super.onCreate()
         val db = AppDatabase.get(this)
         repo = NoteRepository(db.noteDao(), db.attachmentDao())
-        blocksRepo = BlocksRepository(db.blockDao())
+        // ✅ Injection du linkDao pour activer la création des liens AUDIO→TEXTE
+        blocksRepo = BlocksRepository(
+            blockDao = db.blockDao(),
+            noteDao  = null,
+            linkDao  = db.blockLinkDao()
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

@@ -13,8 +13,13 @@ fun generateGroupId(): String = UUID.randomUUID().toString()
 class BlocksRepository(
     private val blockDao: BlockDao,
     private val noteDao: NoteDao? = null,
-    private val io: CoroutineDispatcher = Dispatchers.IO
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val linkDao: BlockLinkDao? = null // 🔗 optionnel pour liens AUDIO↔TEXTE
 ) {
+
+    companion object {
+        const val LINK_AUDIO_TRANSCRIPTION = "AUDIO_TRANSCRIPTION"
+    }
 
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
 
@@ -37,6 +42,22 @@ class BlocksRepository(
             position = 0,
             groupId = groupId,
             text = text,
+            createdAt = now,
+            updatedAt = now
+        )
+        return insert(noteId, block)
+    }
+
+    /** Crée explicitement une “note-fille” texte (transcription immuable et indexable). */
+    suspend fun createTextChild(noteId: Long, text: String): Long {
+        val now = System.currentTimeMillis()
+        val block = BlockEntity(
+            noteId = noteId,
+            type = BlockType.TEXT,
+            position = 0,
+            groupId = null, // indépendante (pile TEXT)
+            text = text,
+            mimeType = "text/transcript",
             createdAt = now,
             updatedAt = now
         )
@@ -113,7 +134,6 @@ class BlocksRepository(
         durationMs: Long?,
         mimeType: String? = "audio/*",
         groupId: String = generateGroupId(),
-        // ✅ MODIFICATION : On ajoute un paramètre pour la transcription initiale
         transcription: String? = null
     ): Long {
         val now = System.currentTimeMillis()
@@ -125,18 +145,19 @@ class BlocksRepository(
             mediaUri = mediaUri,
             mimeType = mimeType,
             durationMs = durationMs,
-            text = transcription, // On stocke la transcription de Vosk ici
+            text = transcription, // Vosk initial si présent
             createdAt = now,
             updatedAt = now
         )
         return insert(noteId, block)
     }
 
-    // ✅ NOUVELLE FONCTION AJOUTÉE
-    // Appelle la fonction correspondante dans le DAO pour la mise à jour par Whisper.
+    /** Met à jour le texte du bloc AUDIO (ex: affinage Whisper) — n’affecte pas les blocs TEXTE. */
     suspend fun updateAudioTranscription(blockId: Long, newText: String) {
         withContext(io) {
-            blockDao.updateTranscription(blockId, newText, System.currentTimeMillis())
+            val audioBlock = blockDao.getById(blockId) ?: return@withContext
+            val now = System.currentTimeMillis()
+            blockDao.update(audioBlock.copy(text = newText, updatedAt = now))
         }
     }
 
@@ -152,6 +173,7 @@ class BlocksRepository(
             position = 0,
             groupId = groupId,
             text = text,
+            mimeType = "text/transcript",
             createdAt = now,
             updatedAt = now
         )
@@ -178,7 +200,6 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
-    // ⚠️ FIX: on délègue au DAO (double passe avec positions temporaires uniques)
     suspend fun reorder(noteId: Long, orderedBlockIds: List<Long>) {
         withContext(io) {
             blockDao.reorder(noteId, orderedBlockIds)
@@ -190,18 +211,11 @@ class BlocksRepository(
             val current = blockDao.getById(blockId) ?: return@withContext
             val now = System.currentTimeMillis()
             blockDao.update(current.copy(text = text, updatedAt = now))
-            // on laisse Note.body inchangé ici (c’est juste un aperçu)
         }
     }
 
-    /**
-     * --- CROQUIS / DESSIN ---
-     * Deux variantes :
-     * - appendSketchImage(...) : stocker un PNG/JPG (mediaUri + mimeType)
-     * - appendSketchVector(...) : stocker le JSON vectoriel dans 'extra' (mimeType=application/json)
-     */
+    /** --- CROQUIS / DESSIN --- */
 
-    // 1) Image (PNG/JPG)
     suspend fun appendSketchImage(
         noteId: Long,
         mediaUri: String,
@@ -234,7 +248,6 @@ class BlocksRepository(
         mimeType: String = "image/png"
     ): Long = appendSketchImage(noteId, mediaUri, width, height, mimeType)
 
-    // Back-compat: conserver l’ancien nom si tu l’appelles déjà ainsi
     @Deprecated("Use appendSketchImage() or appendSketchVector() explicitly")
     suspend fun appendSketch(
         noteId: Long,
@@ -245,7 +258,6 @@ class BlocksRepository(
         groupId: String? = null
     ): Long = appendSketchImage(noteId, mediaUri, width, height, mimeType, groupId)
 
-    // 2) Vectoriel (JSON dans 'extra')
     suspend fun appendSketchVector(
         noteId: Long,
         strokesJson: String,
@@ -302,5 +314,46 @@ class BlocksRepository(
             blockDao.delete(current)
         }
     }
-}
 
+    // --------------------------------------------------------------------
+    // 🔗 Liens AUDIO -> TEXTE (si utilisés explicitement)
+    // --------------------------------------------------------------------
+
+    suspend fun linkAudioToText(audioBlockId: Long, textBlockId: Long) {
+        val dao = linkDao ?: error("BlockLinkDao not provided to BlocksRepository")
+        withContext(io) {
+            dao.insert(
+                BlockLinkEntity(
+                    id = 0L,
+                    fromBlockId = audioBlockId,
+                    toBlockId = textBlockId,
+                    type = LINK_AUDIO_TRANSCRIPTION
+                )
+            )
+        }
+    }
+
+    suspend fun findTextForAudio(audioBlockId: Long): Long? {
+        val dao = linkDao ?: error("BlockLinkDao not provided to BlocksRepository")
+        return withContext(io) { dao.findLinkedTo(audioBlockId, LINK_AUDIO_TRANSCRIPTION) }
+    }
+
+    /** Inverse : retrouver l’AUDIO lié à un bloc TEXTE (fallback groupId si pas de table de liens). */
+    suspend fun findAudioForText(textBlockId: Long): Long? {
+        // 1) Via table de liens (meilleur chemin)
+        linkDao?.let { dao ->
+            return withContext(io) { dao.findLinkedFrom(textBlockId, LINK_AUDIO_TRANSCRIPTION) }
+        }
+
+        // 2) Fallback via groupId (pas besoin d'un “getAllForNote”)
+        return withContext(io) {
+            val textBlock = blockDao.getById(textBlockId) ?: return@withContext null
+            val gid = textBlock.groupId ?: return@withContext null
+            blockDao.findOneByNoteGroupAndType(
+                noteId = textBlock.noteId,
+                groupId = gid,
+                type = BlockType.AUDIO
+            )?.id
+        }
+    }
+}

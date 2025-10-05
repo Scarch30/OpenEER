@@ -56,6 +56,17 @@ class MicBarController(
      */
     private val rangesByBlock = mutableMapOf<Long, IntRange>()
 
+    /**
+     * 🔗 Nouveau : mapping bloc audio -> bloc texte enfant (pour mise à jour Whisper).
+     * On ne l’inscrit que si le bloc texte a effectivement été créé (Vosk non vide).
+     */
+    private val textBlockIdByAudio = mutableMapOf<Long, Long>()
+
+    /**
+     * 🔗 Nouveau : mapping bloc audio -> groupId commun (permet de créer le texte plus tard si Vosk vide).
+     */
+    private val groupIdByAudio = mutableMapOf<Long, String>()
+
     /** Démarre un appui PTT immédiatement. */
     fun beginPress(initialX: Float) {
         downX = initialX
@@ -174,7 +185,7 @@ class MicBarController(
                     val addNewline = !lastWasHandsFree
                     val blockRange = appendProvisionalToBody(initialVoskText, addNewline)
 
-                    // On crée le bloc audio avec la transcription initiale (plain)
+                    // 2) Créer le bloc audio (avec transcription initiale en clair dans le bloc)
                     val newBlockId = withContext(Dispatchers.IO) {
                         blocksRepo.appendAudio(
                             noteId = nid,
@@ -185,18 +196,52 @@ class MicBarController(
                             transcription = initialVoskText
                         )
                     }
+                    // mémoriser le groupId pour ce bloc audio
+                    groupIdByAudio[newBlockId] = gid
                     if (blockRange != null) {
                         rangesByBlock[newBlockId] = blockRange
                     }
 
-                    // 2) Affinage Whisper en arrière-plan
+                    // 3) ✅ Option A : créer TOUT DE SUITE un bloc TEXTE "fils" (même groupId) avec Vosk s'il existe
+                    if (initialVoskText.isNotBlank()) {
+                        val textBlockId = withContext(Dispatchers.IO) {
+                            blocksRepo.appendTranscription(
+                                noteId = nid,
+                                text = initialVoskText,
+                                groupId = gid
+                            )
+                        }
+                        textBlockIdByAudio[newBlockId] = textBlockId
+                    }
+
+                    // 4) Affinage Whisper en arrière-plan
                     activity.lifecycleScope.launch {
                         Log.d("MicCtl", "Lancement de l'affinage Whisper pour le bloc #$newBlockId")
+                        // Sécurise : s'assurer que le modèle est chargé (au cas où le warm-up n'a pas abouti)
+                        runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
                         val refinedText = WhisperService.transcribeWav(File(wavPath))
+
                         withContext(Dispatchers.IO) {
+                            // a) mettre à jour le texte du bloc AUDIO
                             blocksRepo.updateAudioTranscription(newBlockId, refinedText)
+
+                            // b) mettre à jour (ou créer) le bloc TEXTE enfant
+                            val maybeTextId = textBlockIdByAudio[newBlockId]
+                            if (maybeTextId != null) {
+                                blocksRepo.updateText(maybeTextId, refinedText)
+                            } else {
+                                // si Vosk était vide, on crée maintenant le bloc texte
+                                val useGid = groupIdByAudio[newBlockId] ?: generateGroupId()
+                                val createdId = blocksRepo.appendTranscription(
+                                    noteId = nid,
+                                    text = refinedText,
+                                    groupId = useGid
+                                )
+                                textBlockIdByAudio[newBlockId] = createdId
+                            }
                         }
-                        // 3) Remplacement dans le body (UI)
+
+                        // 5) Remplacement dans le body (UI)
                         withContext(Dispatchers.Main) {
                             replaceProvisionalWithRefined(newBlockId, refinedText)
                         }
@@ -224,8 +269,8 @@ class MicBarController(
 
     /**
      * Ajoute le texte Vosk "provisoire" :
-    - UI : gris + italique
-    - DB : plain text
+     * - UI : gris + italique
+     * - DB : plain text
      * Retourne la plage [start, endExclusive).
      */
     private fun appendProvisionalToBody(text: String, addNewline: Boolean): IntRange? {
@@ -256,10 +301,10 @@ class MicBarController(
 
     /**
      * Remplace la plage Vosk d’un bloc par le texte Whisper :
-    - enlève les spans provisoires
-    - applique du gras (noir) sur la nouvelle plage
-    - persiste le texte plain
-    - fallback : si la plage n’existe plus (édition utilisateur), on append en fin.
+     * - enlève les spans provisoires
+     * - applique du gras (noir) sur la nouvelle plage
+     * - persiste le texte plain
+     * - fallback : si la plage n’existe plus (édition utilisateur), on append en fin.
      */
     private fun replaceProvisionalWithRefined(blockId: Long, refined: String) {
         if (refined.isEmpty()) return

@@ -2,13 +2,8 @@ package com.example.openeer.ui.sheets
 
 import android.content.Intent
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.ImageButton
-import android.widget.TextView
-import android.widget.Toast
+import android.view.*
+import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
 import androidx.fragment.app.FragmentManager
@@ -43,15 +38,17 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private val noteId: Long
-        get() = requireArguments().getLong(ARG_NOTE_ID)
-
-    private val blockId: Long
-        get() = requireArguments().getLong(ARG_BLOCK_ID)
+    private val noteId: Long get() = requireArguments().getLong(ARG_NOTE_ID)
+    private val blockId: Long get() = requireArguments().getLong(ARG_BLOCK_ID)
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(requireContext())
-        BlocksRepository(db.blockDao(), db.noteDao())
+        // ✅ on passe linkDao pour activer la résolution AUDIO ↔ TEXTE
+        BlocksRepository(
+            blockDao = db.blockDao(),
+            noteDao  = db.noteDao(),
+            linkDao  = db.blockLinkDao()
+        )
     }
 
     private var currentContent: String = ""
@@ -60,6 +57,12 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     private var btnEdit: Button? = null
     private var btnShare: ImageButton? = null
     private var btnDelete: ImageButton? = null
+
+    // UI dynamique pour l'audio lié
+    private var linkedAudioContainer: LinearLayout? = null
+    private var linkedAudioBtn: Button? = null
+    private var linkedAudioBlockId: Long? = null
+    private var linkedAudioUri: String? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -85,6 +88,26 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
             button.isEnabled = false
         }
 
+        // ✅ Injecte un header si un audio est lié (pas besoin de modifier le layout XML)
+        val root = view as ViewGroup
+        linkedAudioContainer = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(8))
+            visibility = View.GONE
+        }
+        val title = TextView(requireContext()).apply {
+            text = getString(R.string.media_category_audio)
+            textSize = 14f
+        }
+        linkedAudioBtn = Button(requireContext()).apply {
+            text = "Écouter l’audio lié"   // ← libellé en dur pour éviter la ressource manquante
+            setOnClickListener { openLinkedAudio() }
+            isEnabled = false
+        }
+        linkedAudioContainer?.addView(title)
+        linkedAudioContainer?.addView(linkedAudioBtn)
+        root.addView(linkedAudioContainer, 0) // en-tête
+
         refreshContent()
     }
 
@@ -101,6 +124,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
     private fun refreshContent() {
         viewLifecycleOwner.lifecycleScope.launch {
+            // 1) charge le bloc texte
             val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(blockId) }
             if (block == null || block.type != BlockType.TEXT) {
                 currentContent = ""
@@ -111,9 +135,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 context?.let { ctx ->
                     Toast.makeText(ctx, ctx.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
                 }
-                if (isAdded) {
-                    dismiss()
-                }
+                if (isAdded) dismiss()
                 return@launch
             }
 
@@ -122,7 +144,34 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
             btnEdit?.isEnabled = true
             btnShare?.isEnabled = currentContent.isNotBlank()
             btnDelete?.isEnabled = true
+
+            // 2) ✅ tente de résoudre l’audio lié et prépare le bouton d’accès
+            val audioId = withContext(Dispatchers.IO) {
+                blocksRepo.findAudioForText(blockId)
+            }
+            if (audioId != null) {
+                val audioBlock = withContext(Dispatchers.IO) { blocksRepo.getBlock(audioId) }
+                linkedAudioBlockId = audioBlock?.id
+                linkedAudioUri = audioBlock?.mediaUri
+                val hasUri = !linkedAudioUri.isNullOrBlank()
+                linkedAudioBtn?.isEnabled = hasUri
+                linkedAudioContainer?.visibility = if (hasUri) View.VISIBLE else View.GONE
+            } else {
+                linkedAudioBlockId = null
+                linkedAudioUri = null
+                linkedAudioContainer?.visibility = View.GONE
+            }
         }
+    }
+
+    private fun openLinkedAudio() {
+        val uri = linkedAudioUri ?: return
+        val id  = linkedAudioBlockId ?: return
+        AudioQuickPlayerDialog.show(
+            fm = childFragmentManager,
+            id = id,
+            src = uri
+        )
     }
 
     private fun openEditor() {
@@ -170,5 +219,6 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
             }
         }
     }
-}
 
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+}

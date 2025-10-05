@@ -41,7 +41,6 @@ import android.util.Log
 import android.content.Intent
 import com.example.openeer.ui.library.LibraryActivity
 
-
 class MainActivity : AppCompatActivity() {
 
     private lateinit var b: ActivityMainBinding
@@ -69,7 +68,11 @@ class MainActivity : AppCompatActivity() {
     }
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(this)
-        BlocksRepository(db.blockDao(), db.noteDao())
+        BlocksRepository(
+            blockDao = db.blockDao(),
+            noteDao  = db.noteDao(),
+            linkDao  = db.blockLinkDao()   // ✅ injection pour liens AUDIO→TEXTE
+        )
     }
 
     // Contrôleurs
