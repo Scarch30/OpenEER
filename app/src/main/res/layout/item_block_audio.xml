@@ -1,12 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/audioRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:padding="8dp">
+    android:padding="12dp"
+    android:orientation="vertical">
 
+    <!-- Ligne 1: titre/min-info -->
     <TextView
-        android:id="@+id/txtAudio"
-        android:layout_width="wrap_content"
+        android:id="@+id/txtAudioTitle"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Audio"/>
-</FrameLayout>
+        android:text="Audio"
+        android:textStyle="bold"
+        android:textSize="14sp"
+        android:ellipsize="end"
+        android:maxLines="1" />
+
+    <!-- Ligne 2: commandes -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="6dp">
+
+        <ImageButton
+            android:id="@+id/btnPlayPause"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Lire / Pause"
+            android:src="@android:drawable/ic_media_play" />
+
+        <SeekBar
+            android:id="@+id/seek"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:max="1000" />
+
+        <TextView
+            android:id="@+id/txtElapsed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0:00"
+            android:layout_marginStart="8dp" />
+
+        <TextView
+            android:id="@+id/txtDuration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="/ 0:00"
+            android:layout_marginStart="4dp" />
+    </LinearLayout>
+
+    <!-- Ligne 3: aperçu transcription (facultatif) -->
+    <TextView
+        android:id="@+id/txtTranscriptPreview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:layout_marginTop="6dp"
+        android:maxLines="2"
+        android:ellipsize="end" />
+
+</LinearLayout>

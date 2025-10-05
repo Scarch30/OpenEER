@@ -62,23 +62,24 @@ class MediaActions(
                 }
             }
             is MediaStripItem.Audio -> {
-                val path = item.mediaUri
-                if (path.startsWith("content://")) {
+                // ⚠️ Correction : on LIT via l’URI si possible (content:// ou file://). Fallback: chemin absolu.
+                val uriStr: String? = item.mediaUri.takeIf { it.isNotBlank() }
+                if (uriStr == null) {
                     Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
                     return
                 }
-                val file = File(path)
-                if (!file.exists()) {
-                    Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
-                    return
-                }
+
                 SimplePlayer.play(
                     ctx = activity,
-                    path = file.absolutePath,
+                    path = uriStr,
                     onStart = { Toast.makeText(activity, "Lecture…", Toast.LENGTH_SHORT).show() },
-                    onStop = { Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show() },
+                    onStop  = { Toast.makeText(activity, "Lecture terminée", Toast.LENGTH_SHORT).show() },
                     onError = { e ->
-                        Toast.makeText(activity, "Lecture impossible : ${e.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            activity,
+                            "Lecture impossible : ${e?.message ?: "erreur inconnue"}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 )
             }

@@ -39,6 +39,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.example.openeer.ui.sheets.AudioQuickPlayerDialog
 
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
@@ -130,7 +131,20 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         )
 
         val adapter = MediaGridAdapter(
-            onClick = { item -> mediaActions.handleClick(item) },
+            onClick = { item ->
+                if (item is MediaStripItem.Audio) {
+                    val uriStr = item.mediaUri
+                    if (!uriStr.isNullOrBlank()) {
+                        AudioQuickPlayerDialog.show(
+                            fm = childFragmentManager,
+                            id = item.blockId,
+                            src = uriStr
+                        )
+                    }
+                } else {
+                    mediaActions.handleClick(item)
+                }
+            },
             onLongClick = { clickedView, item -> mediaActions.showMenu(clickedView, item) },
         )
 
@@ -318,7 +332,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Image) {
                 Glide.with(image)
-                    .load(item.mediaUri) // Glide gère content:// (thumbnail vidéo OK)
+                    .load(item.mediaUri)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .centerCrop()
                     .into(image)

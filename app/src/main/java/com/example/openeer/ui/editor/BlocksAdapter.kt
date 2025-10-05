@@ -98,10 +98,31 @@ class BlocksAdapter(
     }
 
     inner class AudioHolder(view: View) : RecyclerView.ViewHolder(view) {
-        private val txt: TextView = view.findViewById(R.id.txtAudio)
+
+        private val title: TextView = view.findViewById(R.id.txtAudioTitle)
+        private val preview: TextView = view.findViewById(R.id.txtTranscriptPreview)
+
         fun bind(block: BlockEntity) {
+            // Titre + durée simple
             val dur = block.durationMs ?: 0L
-            txt.text = "Audio - ${'$'}{dur/1000}s"
+            title.text = "Audio – ${dur / 1000}s"
+
+            // Aperçu de texte si dispo (transcription du bloc audio si tu la stockes dans block.text)
+            preview.text = block.text.orEmpty()
+
+            // Binder des contrôles Play/Pause/Seek (défini dans ui/player/AudioBinder.kt)
+            com.example.openeer.ui.player.AudioBinder.bind(itemView, block)
+
+            // Option UX: tap sur toute la carte = Play/Pause aussi
+            itemView.setOnClickListener {
+                val uri = block.mediaUri ?: return@setOnClickListener
+                val ctx = itemView.context
+                if (com.example.openeer.ui.SimplePlayer.isPlaying(block.id)) {
+                    com.example.openeer.ui.SimplePlayer.pause()
+                } else {
+                    com.example.openeer.ui.SimplePlayer.play(ctx, block.id, uri)
+                }
+            }
         }
     }
 }
