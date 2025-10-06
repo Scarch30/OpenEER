@@ -14,11 +14,12 @@ class BlocksRepository(
     private val blockDao: BlockDao,
     private val noteDao: NoteDao? = null,
     private val io: CoroutineDispatcher = Dispatchers.IO,
-    private val linkDao: BlockLinkDao? = null // 🔗 optionnel pour liens AUDIO↔TEXTE
+    private val linkDao: BlockLinkDao? = null // 🔗 optionnel pour liens AUDIO↔TEXTE / VIDEO↔TEXTE
 ) {
 
     companion object {
         const val LINK_AUDIO_TRANSCRIPTION = "AUDIO_TRANSCRIPTION"
+        const val LINK_VIDEO_TRANSCRIPTION = "VIDEO_TRANSCRIPTION"
     }
 
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
@@ -316,7 +317,7 @@ class BlocksRepository(
     }
 
     // --------------------------------------------------------------------
-    // 🔗 Liens AUDIO -> TEXTE (si utilisés explicitement)
+    // 🔗 Liens AUDIO -> TEXTE
     // --------------------------------------------------------------------
 
     suspend fun linkAudioToText(audioBlockId: Long, textBlockId: Long) {
@@ -354,6 +355,72 @@ class BlocksRepository(
                 groupId = gid,
                 type = BlockType.AUDIO
             )?.id
+        }
+    }
+
+    // --------------------------------------------------------------------
+    // 🔗 Liens VIDEO -> TEXTE
+    // --------------------------------------------------------------------
+
+    suspend fun linkVideoToText(videoBlockId: Long, textBlockId: Long) {
+        val dao = linkDao ?: error("BlockLinkDao not provided to BlocksRepository")
+        withContext(io) {
+            dao.insert(
+                BlockLinkEntity(
+                    id = 0L,
+                    fromBlockId = videoBlockId,
+                    toBlockId = textBlockId,
+                    type = LINK_VIDEO_TRANSCRIPTION
+                )
+            )
+        }
+    }
+
+    /** Trouve l’ID du texte lié à une vidéo (table de liens, sinon fallback groupId partagé). */
+    suspend fun findTextForVideo(videoBlockId: Long): Long? {
+        linkDao?.let { dao ->
+            val viaLink = withContext(io) { dao.findLinkedTo(videoBlockId, LINK_VIDEO_TRANSCRIPTION) }
+            if (viaLink != null) return viaLink
+        }
+        return withContext(io) {
+            val video = blockDao.getById(videoBlockId) ?: return@withContext null
+            val gid = video.groupId ?: return@withContext null
+            blockDao.findOneByNoteGroupAndType(
+                noteId = video.noteId,
+                groupId = gid,
+                type = BlockType.TEXT
+            )?.id
+        }
+    }
+
+    /** Retrouve la vidéo liée à un texte (table de liens, sinon fallback groupId partagé). */
+    suspend fun findVideoForText(textBlockId: Long): Long? {
+        linkDao?.let { dao ->
+            val viaLink = withContext(io) { dao.findLinkedFrom(textBlockId, LINK_VIDEO_TRANSCRIPTION) }
+            if (viaLink != null) return viaLink
+        }
+        return withContext(io) {
+            val text = blockDao.getById(textBlockId) ?: return@withContext null
+            val gid = text.groupId ?: return@withContext null
+            blockDao.findOneByNoteGroupAndType(
+                noteId = text.noteId,
+                groupId = gid,
+                type = BlockType.VIDEO
+            )?.id
+        }
+    }
+
+    /** Helper pratique si tu veux filtrer côté UI les textes “liés à une vidéo”. */
+    suspend fun isTextLinkedToVideo(textBlockId: Long): Boolean {
+        return findVideoForText(textBlockId) != null
+    }
+
+    /** Met à jour le texte du bloc VIDEO (ex: transcription liée à la vidéo). */
+    suspend fun updateVideoTranscription(blockId: Long, newText: String) {
+        withContext(io) {
+            val videoBlock = blockDao.getById(blockId) ?: return@withContext
+            val now = System.currentTimeMillis()
+            blockDao.update(videoBlock.copy(text = newText, updatedAt = now))
         }
     }
 }

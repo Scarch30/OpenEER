@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.util.Log
 import android.util.Size
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -36,11 +37,16 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityCameraCaptureBinding
+import com.example.openeer.workers.VideoToTextWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -54,6 +60,7 @@ class CameraCaptureActivity : AppCompatActivity() {
         const val EXTRA_NOTE_ID = "noteId"
         private const val MIME_IMAGE = "image/jpeg"
         private const val MIME_VIDEO = "video/mp4"
+        private const val TAG = "CameraCapture"
     }
 
     private lateinit var binding: ActivityCameraCaptureBinding
@@ -93,7 +100,7 @@ class CameraCaptureActivity : AppCompatActivity() {
     private val requestRecordAudioPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
 
-    // Photo Picker (galerie images + vidéos)
+    // Photo/Video Picker
     private val pickMedia =
         registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
             if (uri != null) importFromUri(uri)
@@ -131,7 +138,7 @@ class CameraCaptureActivity : AppCompatActivity() {
             requestRecordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
 
-        // --- Gestuelle: tap = photo, long tap = vidéo, glisser = lock mains libres ---
+        // Gestuelle: tap = photo, long tap = vidéo, glisser = lock
         binding.btnShutter.setOnClickListener {
             if (activeRecording != null) {
                 if (isLocked) stopVideoRecording()
@@ -169,7 +176,7 @@ class CameraCaptureActivity : AppCompatActivity() {
             false
         }
 
-        // Galerie (Photo Picker)
+        // Galerie
         binding.btnGalleryThumb.setOnClickListener {
             pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
         }
@@ -187,12 +194,12 @@ class CameraCaptureActivity : AppCompatActivity() {
             val type = contentResolver.getType(source) ?: source.toString().lowercase(Locale.US).let {
                 when {
                     it.endsWith(".jpg") || it.endsWith(".jpeg") -> "image/jpeg"
-                    it.endsWith(".png") -> "image/png"
+                    it.endsWith(".png")  -> "image/png"
                     it.endsWith(".webp") -> "image/webp"
-                    it.endsWith(".gif") -> "image/gif"
-                    it.endsWith(".mp4") -> "video/mp4"
-                    it.endsWith(".mkv") -> "video/x-matroska"
-                    it.endsWith(".3gp") -> "video/3gpp"
+                    it.endsWith(".gif")  -> "image/gif"
+                    it.endsWith(".mp4")  -> "video/mp4"
+                    it.endsWith(".mkv")  -> "video/x-matroska"
+                    it.endsWith(".3gp")  -> "video/3gpp"
                     else -> ""
                 }
             }
@@ -228,12 +235,12 @@ class CameraCaptureActivity : AppCompatActivity() {
                 val blocks = BlocksRepository(db.blockDao(), db.noteDao())
                 launch(Dispatchers.IO) {
                     blocks.appendPhoto(
-                        noteId = noteIdArg,
+                        noteId   = noteIdArg,
                         mediaUri = dest.toString(),
-                        width = null,
-                        height = null,
+                        width    = null,
+                        height   = null,
                         mimeType = type.ifBlank { "image/*" },
-                        groupId = null
+                        groupId  = null
                     )
                 }
                 Toast.makeText(this@CameraCaptureActivity, "Import image réussi", Toast.LENGTH_SHORT).show()
@@ -269,15 +276,40 @@ class CameraCaptureActivity : AppCompatActivity() {
                 val db = AppDatabase.get(this@CameraCaptureActivity)
                 val blocks = BlocksRepository(db.blockDao(), db.noteDao())
                 launch(Dispatchers.IO) {
-                    blocks.appendVideo(
-                        noteId = noteIdArg,
-                        mediaUri = dest.toString(),
-                        mimeType = type.ifBlank { "video/*" },
-                        durationMs = null
+                    val gid = generateGroupId()
+                    val videoId = blocks.appendVideo(
+                        noteId     = noteIdArg,
+                        mediaUri   = dest.toString(),
+                        mimeType   = type.ifBlank { "video/*" },
+                        durationMs = null,
+                        groupId    = gid
                     )
+                    Log.d(TAG, "Append VIDEO OK (import): uri=$dest note=$noteIdArg gid=$gid videoId=$videoId")
+
+                    VideoToTextWorker.enqueue(
+                        context      = this@CameraCaptureActivity,
+                        videoUri     = dest,
+                        noteId       = noteIdArg,
+                        groupId      = gid,
+                        videoBlockId = videoId
+                    )
+                    Log.d(TAG, "Enqueued VideoToTextWorker (import). Tag='video_tx'")
+
+                    // Log état WM
+                    runCatching {
+                        val infos = WorkManager.getInstance(this@CameraCaptureActivity)
+                            .getWorkInfosByTag("video_tx").get()
+                        for (wi in infos) Log.d(TAG, "WM(tag=video_tx) id=${wi.id} state=${wi.state}")
+                    }
                 }
+
                 Toast.makeText(this@CameraCaptureActivity, "Import vidéo réussi", Toast.LENGTH_SHORT).show()
-                finish()
+
+                // Attendre ~1s que le FGS soit monté avant de fermer (Android 14)
+                lifecycleScope.launch {
+                    waitWorkerRunning(tag = "video_tx", timeoutMs = 1500L)
+                    finish()
+                }
             } else {
                 Toast.makeText(this@CameraCaptureActivity, "Type non supporté", Toast.LENGTH_LONG).show()
             }
@@ -324,12 +356,12 @@ class CameraCaptureActivity : AppCompatActivity() {
                         val db = AppDatabase.get(this@CameraCaptureActivity)
                         val blocks = BlocksRepository(db.blockDao(), db.noteDao())
                         blocks.appendPhoto(
-                            noteId = noteIdArg,
+                            noteId   = noteIdArg,
                             mediaUri = savedUri.toString(),
-                            width = null,
-                            height = null,
+                            width    = null,
+                            height   = null,
                             mimeType = MIME_IMAGE,
-                            groupId = null
+                            groupId  = null
                         )
                     }.onSuccess {
                         launch(Dispatchers.Main) {
@@ -395,16 +427,39 @@ class CameraCaptureActivity : AppCompatActivity() {
                             runCatching {
                                 val db = AppDatabase.get(this@CameraCaptureActivity)
                                 val blocks = BlocksRepository(db.blockDao(), db.noteDao())
-                                blocks.appendVideo(
-                                    noteId = noteIdArg,
-                                    mediaUri = uri.toString(),
-                                    mimeType = MIME_VIDEO,
-                                    durationMs = durationMs
+
+                                val gid = generateGroupId()
+                                val videoId = blocks.appendVideo(
+                                    noteId     = noteIdArg,
+                                    mediaUri   = uri.toString(),
+                                    mimeType   = MIME_VIDEO,
+                                    durationMs = durationMs,
+                                    groupId    = gid
                                 )
+                                Log.d(TAG, "Append VIDEO OK (capture): uri=$uri note=$noteIdArg gid=$gid videoId=$videoId")
+
+                                VideoToTextWorker.enqueue(
+                                    context      = this@CameraCaptureActivity,
+                                    videoUri     = uri,
+                                    noteId       = noteIdArg,
+                                    groupId      = gid,
+                                    videoBlockId = videoId
+                                )
+                                Log.d(TAG, "Enqueued VideoToTextWorker (capture). Tag='video_tx'")
+
+                                runCatching {
+                                    val infos = WorkManager.getInstance(this@CameraCaptureActivity)
+                                        .getWorkInfosByTag("video_tx").get()
+                                    for (wi in infos) Log.d(TAG, "WM(tag=video_tx) id=${wi.id} state=${wi.state}")
+                                }
                             }.onSuccess {
                                 launch(Dispatchers.Main) {
                                     Toast.makeText(this@CameraCaptureActivity, getString(R.string.video_capture_saved), Toast.LENGTH_SHORT).show()
-                                    finish()
+                                    // Attendre ~1,5s que le FGS soit monté avant de fermer (Android 14)
+                                    lifecycleScope.launch {
+                                        waitWorkerRunning(tag = "video_tx", timeoutMs = 1500L)
+                                        finish()
+                                    }
                                 }
                             }.onFailure {
                                 launch(Dispatchers.Main) {
@@ -419,6 +474,24 @@ class CameraCaptureActivity : AppCompatActivity() {
             }
         }
         updateLockUi()
+    }
+
+    private suspend fun waitWorkerRunning(tag: String, timeoutMs: Long) {
+        try {
+            val wm = WorkManager.getInstance(this)
+            val t0 = System.currentTimeMillis()
+            while (System.currentTimeMillis() - t0 < timeoutMs) {
+                val infos = wm.getWorkInfosByTag(tag).get()
+                val anyRunning = infos.any { it.state == WorkInfo.State.RUNNING }
+                if (anyRunning) {
+                    Log.d(TAG, "WM(tag=$tag) is RUNNING — ok to finish()")
+                    break
+                }
+                delay(100)
+            }
+        } catch (_: Throwable) {
+            // silencieux
+        }
     }
 
     private fun stopVideoRecording() {

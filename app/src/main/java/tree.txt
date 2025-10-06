@@ -1,0 +1,160 @@
+Structure du dossier pour le volume OS
+Le numéro de série du volume est B84C-81C8
+C:.
+¦   tree.txt
+¦   
++---com
+    +---example
+    ¦   +---openeer
+    ¦       ¦   arborescence.txt
+    ¦       ¦   OpenEERApp.kt
+    ¦       ¦   
+    ¦       +---audio
+    ¦       ¦       PcmRecorder.kt
+    ¦       ¦       RecorderService.kt
+    ¦       ¦       
+    ¦       +---core
+    ¦       ¦       LocationUtils.kt
+    ¦       ¦       RecordingState.kt
+    ¦       ¦       
+    ¦       +---data
+    ¦       ¦   ¦   AppDatabase.kt
+    ¦       ¦   ¦   Attachment.kt
+    ¦       ¦   ¦   AttachmentDao.kt
+    ¦       ¦   ¦   Note.kt
+    ¦       ¦   ¦   NoteDao.kt
+    ¦       ¦   ¦   NoteRepository.kt
+    ¦       ¦   ¦   
+    ¦       ¦   +---audio
+    ¦       ¦   ¦       AudioClipEntity.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---block
+    ¦       ¦   ¦       BlockDao.kt
+    ¦       ¦   ¦       BlockEntity.kt
+    ¦       ¦   ¦       BlockExtras.kt
+    ¦       ¦   ¦       BlockLinkDao.kt
+    ¦       ¦   ¦       BlockLinkEntity.kt
+    ¦       ¦   ¦       BlockReadDao.kt
+    ¦       ¦   ¦       BlocksRepository.kt
+    ¦       ¦   ¦       BlockType.kt
+    ¦       ¦   ¦       NoteWithBlocks.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---db
+    ¦       ¦   ¦       Converters.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---location
+    ¦       ¦   ¦       NoteLocationEntity.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---search
+    ¦       ¦   ¦       SearchDao.kt
+    ¦       ¦   ¦       SearchIndexer.kt
+    ¦       ¦   ¦       SearchIndexFts.kt
+    ¦       ¦   ¦       SearchRepository.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---tag
+    ¦       ¦           TagEntity.kt
+    ¦       ¦           
+    ¦       +---media
+    ¦       ¦       AudioFromVideoExtractor.kt
+    ¦       ¦       decodeWaveFile.kt
+    ¦       ¦       WavWriter.kt
+    ¦       ¦       
+    ¦       +---services
+    ¦       ¦       WhisperRefineQueue.kt
+    ¦       ¦       WhisperService.kt
+    ¦       ¦       
+    ¦       +---startup
+    ¦       ¦       Startup.kt
+    ¦       ¦       
+    ¦       +---stt
+    ¦       ¦       AacEncoder.kt
+    ¦       ¦       MicRecorder.kt
+    ¦       ¦       VoskTranscriber.kt
+    ¦       ¦       WavUtil.kt
+    ¦       ¦       WavWriter.kt
+    ¦       ¦       
+    ¦       +---ui
+    ¦       ¦   ¦   KeyboardCaptureActivity.kt
+    ¦       ¦   ¦   LiveTranscriber.kt
+    ¦       ¦   ¦   MainActivity.kt
+    ¦       ¦   ¦   MicBarController.kt
+    ¦       ¦   ¦   NotePanelController.kt
+    ¦       ¦   ¦   NotesAdapter.kt
+    ¦       ¦   ¦   NotesStubAdapter.kt
+    ¦       ¦   ¦   NoteUiFormat.kt
+    ¦       ¦   ¦   OnboardingActivity.kt
+    ¦       ¦   ¦   PhotoViewerActivity.kt
+    ¦       ¦   ¦   SimplePlayer.kt
+    ¦       ¦   ¦   StarterActivity.kt
+    ¦       ¦   ¦   WhisperRefineQueue.kt
+    ¦       ¦   ¦   
+    ¦       ¦   +---camera
+    ¦       ¦   ¦       CameraCaptureActivity.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---capture
+    ¦       ¦   ¦       CaptureLauncher.kt
+    ¦       ¦   ¦       SketchCaptureActivity.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---editor
+    ¦       ¦   ¦       BlocksAdapter.kt
+    ¦       ¦   ¦       EditorBodyController.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---library
+    ¦       ¦   ¦       CalendarFragment.kt
+    ¦       ¦   ¦       CalendarViewModel.kt
+    ¦       ¦   ¦       DayNotesActivity.kt
+    ¦       ¦   ¦       LibraryActivity.kt
+    ¦       ¦   ¦       LibraryFragment.kt
+    ¦       ¦   ¦       LibraryViewModel.kt
+    ¦       ¦   ¦       LocationNotesActivity.kt
+    ¦       ¦   ¦       MapFragment.kt
+    ¦       ¦   ¦       MonthDayAdapter.kt
+    ¦       ¦   ¦       NotesBottomSheet.kt
+    ¦       ¦   ¦       WeekDayAdapter.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---panel
+    ¦       ¦   ¦   +---blocks
+    ¦       ¦   ¦   ¦       BlockRenderers.kt
+    ¦       ¦   ¦   ¦       
+    ¦       ¦   ¦   +---media
+    ¦       ¦   ¦           MediaActions.kt
+    ¦       ¦   ¦           MediaCategory.kt
+    ¦       ¦   ¦           MediaStripAdapter.kt
+    ¦       ¦   ¦           MediaStripItem.kt
+    ¦       ¦   ¦           
+    ¦       ¦   +---player
+    ¦       ¦   ¦       AudioBinder.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---sheets
+    ¦       ¦   ¦       AudioQuickPlayerDialog.kt
+    ¦       ¦   ¦       ChildTextEditorSheet.kt
+    ¦       ¦   ¦       ChildTextViewerSheet.kt
+    ¦       ¦   ¦       MediaGridSheet.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---sketch
+    ¦       ¦   ¦       HsvColorPickerDialog.kt
+    ¦       ¦   ¦       SketchView.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---util
+    ¦       ¦   ¦       ConfigureSystemInsets.kt
+    ¦       ¦   ¦       ImeInsets.kt
+    ¦       ¦   ¦       Snackbar.kt
+    ¦       ¦   ¦       Toast.kt
+    ¦       ¦   ¦       ViewExt.kt
+    ¦       ¦   ¦       
+    ¦       ¦   +---viewer
+    ¦       ¦           VideoPlayerActivity.kt
+    ¦       ¦           
+    ¦       +---workers
+    ¦               VideoToTextWorker.kt
+    ¦               
+    +---whispercpp
+        +---java
+            +---whisper
+                    CpuInfo.java
+                    WhisperContext.java
+                    WhisperCpuConfig.java
+                    WhisperLib.java
+                    WhisperSegment.kt
+                    WhisperUtils.java
+                    

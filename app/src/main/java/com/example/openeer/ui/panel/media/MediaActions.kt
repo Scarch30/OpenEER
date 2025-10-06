@@ -1,4 +1,3 @@
-// app/src/main/java/com/example/openeer/ui/panel/media/MediaActions.kt
 package com.example.openeer.ui.panel.media
 
 import android.content.Intent
@@ -19,6 +18,7 @@ import com.example.openeer.ui.sheets.ChildTextViewerSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import com.example.openeer.ui.viewer.VideoPlayerActivity
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import java.io.File
 
 class MediaActions(
@@ -36,13 +36,43 @@ class MediaActions(
             is MediaStripItem.Pile -> {
                 // Ouvert via NotePanelController.onPileClick(...)
             }
+
             is MediaStripItem.Image -> {
                 if (item.type == BlockType.VIDEO) {
-                    val intent = Intent(activity, VideoPlayerActivity::class.java).apply {
-                        putExtra(VideoPlayerActivity.EXTRA_URI, item.mediaUri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    // ▶️ Miroir de l'audio : si une transcription TEXT partage le même groupId, on ouvre le viewer texte.
+                    uiScope.launch {
+                        val ctx = withContext(Dispatchers.IO) {
+                            val videoBlock = blocksRepo.getBlock(item.blockId)
+                            val noteId = videoBlock?.noteId
+                            val gid = videoBlock?.groupId
+                            // On retombe sur l’existant : observeBlocks(noteId).first() puis on filtre côté client.
+                            val linkedTextId = if (noteId != null && !gid.isNullOrBlank()) {
+                                val all = blocksRepo.observeBlocks(noteId).first()
+                                all.firstOrNull { it.type == BlockType.TEXT && it.groupId == gid }?.id
+                            } else null
+                            Triple(noteId, linkedTextId, videoBlock?.mediaUri)
+                        }
+
+                        val noteId = ctx.first
+                        val linkedTextId = ctx.second
+
+                        if (noteId != null && linkedTextId != null) {
+                            // même ordre d’arguments que pour le cas texte plus bas (fm, noteId, textBlockId)
+                            ChildTextViewerSheet.show(
+                                activity.supportFragmentManager,
+                                noteId,
+                                linkedTextId
+                            )
+                            return@launch
+                        }
+
+                        // Fallback : lecteur vidéo
+                        val intent = Intent(activity, VideoPlayerActivity::class.java).apply {
+                            putExtra(VideoPlayerActivity.EXTRA_URI, item.mediaUri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        activity.startActivity(intent)
                     }
-                    activity.startActivity(intent)
                 } else {
                     val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
                         putExtra("path", item.mediaUri)
@@ -50,6 +80,7 @@ class MediaActions(
                     activity.startActivity(intent)
                 }
             }
+
             is MediaStripItem.Audio -> {
                 // ✅ Interaction croisée : tenter d’ouvrir la transcription liée
                 uiScope.launch {
@@ -92,8 +123,8 @@ class MediaActions(
                     )
                 }
             }
+
             is MediaStripItem.Text -> {
-                // (On garde le comportement existant : ouverture du viewer texte)
                 ChildTextViewerSheet.show(
                     activity.supportFragmentManager,
                     item.noteId,

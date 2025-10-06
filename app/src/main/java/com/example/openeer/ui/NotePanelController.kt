@@ -59,7 +59,7 @@ class NotePanelController(
         BlocksRepository(
             blockDao = db.blockDao(),
             noteDao  = db.noteDao(),
-            linkDao  = db.blockLinkDao()   // ✅ liens AUDIO→TEXTE disponibles
+            linkDao  = db.blockLinkDao()   // ✅ liens AUDIO↔TEXTE / VIDEO↔TEXTE
         )
     }
 
@@ -207,21 +207,26 @@ class NotePanelController(
 
     /**
      * Piles médias :
-     *  - PHOTO = photos + vidéos
+     *  - PHOTO = photos + vidéos (+ transcriptions TEXT liées aux vidéos)
      *  - AUDIO = audios + textes de transcription (TEXT partageant le groupId d’un audio)
-     *  - TEXT  = textes indépendants (pas liés à un audio)
+     *  - TEXT  = textes indépendants (pas liés à un audio ni à une vidéo)
      */
     private fun updateMediaStrip(blocks: List<BlockEntity>) {
-        val audioGroupIds = blocks
-            .filter { it.type == BlockType.AUDIO }
+        // Grouper par liens implicites via groupId
+        val audioGroupIds = blocks.filter { it.type == BlockType.AUDIO }
+            .mapNotNull { it.groupId }
+            .toSet()
+        val videoGroupIds = blocks.filter { it.type == BlockType.VIDEO }
             .mapNotNull { it.groupId }
             .toSet()
 
-        val photoItems = mutableListOf<MediaStripItem.Image>()
+        val photoItems = mutableListOf<MediaStripItem.Image>()   // photos + vidéos
         val sketchItems = mutableListOf<MediaStripItem.Image>()
         val audioItems  = mutableListOf<MediaStripItem.Audio>()
         val textItems   = mutableListOf<MediaStripItem.Text>()
+
         var transcriptsLinkedToAudio = 0
+        var transcriptsLinkedToVideo = 0
 
         blocks.forEach { block ->
             when (block.type) {
@@ -241,11 +246,14 @@ class NotePanelController(
                     }
                 }
                 BlockType.TEXT -> {
-                    val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
-                    if (linkedToAudio) {
-                        transcriptsLinkedToAudio += 1
-                    } else {
-                        textItems += MediaStripItem.Text(
+                    val gid = block.groupId
+                    val linkedToAudio = gid != null && gid in audioGroupIds
+                    val linkedToVideo = gid != null && gid in videoGroupIds
+
+                    when {
+                        linkedToAudio -> transcriptsLinkedToAudio += 1
+                        linkedToVideo -> transcriptsLinkedToVideo += 1
+                        else -> textItems += MediaStripItem.Text(
                             blockId = block.id,
                             noteId = block.noteId,
                             content = block.text.orEmpty(),
@@ -258,8 +266,10 @@ class NotePanelController(
 
         val piles = buildList {
             if (photoItems.isNotEmpty()) {
+                // 👉 Le compteur inclut maintenant les TEXT liés aux VIDÉOS
                 val sorted = photoItems.sortedByDescending { it.blockId }
-                add(MediaStripItem.Pile(MediaCategory.PHOTO, sorted.size, sorted.first()))
+                val countWithVideoTranscripts = sorted.size + transcriptsLinkedToVideo
+                add(MediaStripItem.Pile(MediaCategory.PHOTO, countWithVideoTranscripts, sorted.first()))
             }
             if (sketchItems.isNotEmpty()) {
                 val sorted = sketchItems.sortedByDescending { it.blockId }

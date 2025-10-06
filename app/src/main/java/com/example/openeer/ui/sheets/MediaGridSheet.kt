@@ -86,7 +86,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         BlocksRepository(
             blockDao = db.blockDao(),
             noteDao  = db.noteDao(),
-            linkDao  = db.blockLinkDao()  // injection inchangée
+            linkDao  = db.blockLinkDao()
         )
     }
 
@@ -95,7 +95,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         MediaActions(host, blocksRepo)
     }
 
-    /** Set des blockIds liés (Audio/Text partageant un groupId présent dans les deux). */
+    /** Set des blockIds liés (Audio/Text ou Video/Text selon la pile). */
     private var linkedBlockIds: Set<Long> = emptySet()
 
     /** blockId -> index de paire (01, 02, …) */
@@ -158,19 +158,36 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
         val adapter = MediaGridAdapter(
             onClick = { item ->
-                if (item is MediaStripItem.Audio) {
-                    val uriStr = item.mediaUri
-                    if (!uriStr.isNullOrBlank()) {
-                        AudioQuickPlayerDialog.show(
-                            fm = childFragmentManager,
-                            id = item.blockId,
-                            src = uriStr
-                        )
+                when (item) {
+                    is MediaStripItem.Audio -> {
+                        val uriStr = item.mediaUri
+                        if (!uriStr.isNullOrBlank()) {
+                            AudioQuickPlayerDialog.show(
+                                fm = childFragmentManager,
+                                id = item.blockId,
+                                src = uriStr
+                            )
+                        }
                     }
-                } else {
-                    mediaActions.handleClick(item)
+
+                    is MediaStripItem.Image -> {
+                        if (item.type == BlockType.VIDEO) {
+                            // 🎥 Dans la grille, on ouvre toujours le lecteur vidéo (jamais la transcription)
+                            val intent = android.content.Intent(requireContext(), com.example.openeer.ui.viewer.VideoPlayerActivity::class.java).apply {
+                                putExtra(com.example.openeer.ui.viewer.VideoPlayerActivity.EXTRA_URI, item.mediaUri)
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            startActivity(intent)
+                        } else {
+                            // Pour les photos, comportement normal
+                            mediaActions.handleClick(item)
+                        }
+                    }
+
+                    else -> mediaActions.handleClick(item)
                 }
             },
+
             onLongClick = { clickedView, item -> mediaActions.showMenu(clickedView, item) },
         )
 
@@ -209,28 +226,50 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
     /**
      * Grille :
-     *  - PHOTO = photos + vidéos
+     *  - PHOTO = photos + vidéos + (TEXT liés à une vidéo)
      *  - AUDIO = audios + textes de transcription (TEXT partageant un groupId d’audio)
-     *  - TEXT  = textes indépendants (pas liés à un audio)
+     *  - TEXT  = textes indépendants (pas liés à un audio **ni** à une vidéo)
      */
     private fun buildItems(blocks: List<BlockEntity>, category: MediaCategory): List<MediaStripItem> {
         val audioGroupIds = blocks.filter { it.type == BlockType.AUDIO }.mapNotNull { it.groupId }.toSet()
+        val videoGroupIds = blocks.filter { it.type == BlockType.VIDEO }.mapNotNull { it.groupId }.toSet()
         val textGroupIds  = blocks.filter { it.type == BlockType.TEXT  }.mapNotNull { it.groupId }.toSet()
 
-        // groupId appariés (au moins un audio + un texte)
-        val pairedGroupIds = audioGroupIds.intersect(textGroupIds)
+        // Prépare les appariements + couleurs en fonction de la pile
+        when (category) {
+            MediaCategory.AUDIO -> {
+                // groupIds appariés AUDIO↔TEXT
+                val paired = audioGroupIds.intersect(textGroupIds)
+                linkedBlockIds = blocks.asSequence()
+                    .filter { (it.type == BlockType.AUDIO || it.type == BlockType.TEXT) && it.groupId != null && it.groupId in paired }
+                    .map { it.id }
+                    .toSet()
+                pairIndexByGroupId = paired.sorted().mapIndexed { idx, gid -> gid to (idx + 1) }.toMap()
+                pairIndexByBlockId = blocks.asSequence()
+                    .filter { (it.type == BlockType.AUDIO || it.type == BlockType.TEXT) && !it.groupId.isNullOrBlank() && it.groupId in paired }
+                    .associate { it.id to (pairIndexByGroupId[it.groupId!!] ?: 0) }
+            }
 
-        linkedBlockIds = blocks.asSequence()
-            .filter { (it.type == BlockType.AUDIO || it.type == BlockType.TEXT) && it.groupId != null && it.groupId in pairedGroupIds }
-            .map { it.id }
-            .toSet()
+            MediaCategory.PHOTO -> {
+                // groupIds appariés VIDEO↔TEXT
+                val paired = videoGroupIds.intersect(textGroupIds)
+                linkedBlockIds = blocks.asSequence()
+                    .filter { (it.type == BlockType.VIDEO || it.type == BlockType.TEXT) && it.groupId != null && it.groupId in paired }
+                    .map { it.id }
+                    .toSet()
+                pairIndexByGroupId = paired.sorted().mapIndexed { idx, gid -> gid to (idx + 1) }.toMap()
+                pairIndexByBlockId = blocks.asSequence()
+                    .filter { (it.type == BlockType.VIDEO || it.type == BlockType.TEXT) && !it.groupId.isNullOrBlank() && it.groupId in paired }
+                    .associate { it.id to (pairIndexByGroupId[it.groupId!!] ?: 0) }
+            }
 
-        // Index de paire stable par groupId
-        pairIndexByGroupId = pairedGroupIds.sorted().mapIndexed { idx, gid -> gid to (idx + 1) }.toMap()
-
-        pairIndexByBlockId = blocks.asSequence()
-            .filter { (it.type == BlockType.AUDIO || it.type == BlockType.TEXT) && !it.groupId.isNullOrBlank() && it.groupId in pairedGroupIds }
-            .associate { it.id to (pairIndexByGroupId[it.groupId!!] ?: 0) }
+            else -> {
+                // Piles SKETCH/TEXT : pas d’appariement visuel
+                linkedBlockIds = emptySet()
+                pairIndexByGroupId = emptyMap()
+                pairIndexByBlockId = emptyMap()
+            }
+        }
 
         val items = blocks.mapNotNull { block ->
             when (category) {
@@ -239,6 +278,11 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
                             MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
                         }
+                    BlockType.TEXT -> {
+                        // Inclure les TEXT liés à une VIDEO
+                        val linkedToVideo = block.groupId != null && block.groupId in videoGroupIds
+                        if (linkedToVideo) MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty()) else null
+                    }
                     else -> null
                 }
 
@@ -267,7 +311,9 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 MediaCategory.TEXT -> {
                     if (block.type == BlockType.TEXT) {
                         val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
-                        if (!linkedToAudio) {
+                        val linkedToVideo = block.groupId != null && block.groupId in videoGroupIds
+                        // 🔧 IMPORTANT : on exclut aussi les TEXT liés à une VIDÉO
+                        if (!linkedToAudio && !linkedToVideo) {
                             MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
                         } else null
                     } else null
@@ -296,12 +342,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             return when (viewType) {
                 GRID_TYPE_IMAGE -> {
                     val card = createCard(ctx)
-                    val container = FrameLayout(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                    }
+                    val root = FrameLayout(ctx)
+
                     val image = ImageView(ctx).apply {
                         layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -319,10 +361,41 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         alpha = 0.85f
                         isVisible = false
                     }
-                    container.addView(image)
-                    container.addView(play)
-                    card.addView(container)
-                    ImageHolder(card, image, play)
+
+                    // --- Overlays spécifiques pour VIDEO ---
+                    val badge = ImageView(ctx).apply {
+                        setImageResource(R.drawable.ic_link_small)
+                        layoutParams = FrameLayout.LayoutParams(
+                            dp(ctx, 18),
+                            dp(ctx, 18),
+                            Gravity.TOP or Gravity.END
+                        ).apply { setMargins(0, dp(ctx, 6), dp(ctx, 6), 0) }
+                        alpha = 0.9f
+                        isVisible = false
+                    }
+                    val counter = TextView(ctx).apply {
+                        textSize = 12f
+                        setPadding(dp(ctx, 2), dp(ctx, 1), dp(ctx, 2), dp(ctx, 1))
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            Gravity.TOP or Gravity.END
+                        ).apply { setMargins(0, dp(ctx, 6), dp(ctx, 28), 0) }
+                        isVisible = false
+                    }
+                    // bande colorée à GAUCHE pour VIDEO
+                    val leftStrip = View(ctx).apply {
+                        layoutParams = FrameLayout.LayoutParams(dp(ctx, 4), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START)
+                        isVisible = false
+                    }
+
+                    root.addView(image)
+                    root.addView(play)
+                    root.addView(badge)
+                    root.addView(counter)
+                    root.addView(leftStrip)
+                    card.addView(root)
+                    ImageHolder(card, image, play, badge, counter, leftStrip)
                 }
 
                 GRID_TYPE_AUDIO -> {
@@ -352,7 +425,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     container.addView(icon)
                     container.addView(text)
 
-                    // badge 🔗
                     val badge = ImageView(ctx).apply {
                         setImageResource(R.drawable.ic_link_small)
                         layoutParams = FrameLayout.LayoutParams(
@@ -364,7 +436,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         isVisible = false
                     }
 
-                    // compteur "01"
                     val counter = TextView(ctx).apply {
                         textSize = 12f
                         setPadding(dp(ctx, 2), dp(ctx, 1), dp(ctx, 2), dp(ctx, 1))
@@ -406,7 +477,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         ellipsize = TextUtils.TruncateAt.END
                     }
 
-                    // badge 🔗
                     val badge = ImageView(ctx).apply {
                         setImageResource(R.drawable.ic_link_small)
                         layoutParams = FrameLayout.LayoutParams(
@@ -418,7 +488,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         isVisible = false
                     }
 
-                    // compteur "01"
                     val counter = TextView(ctx).apply {
                         textSize = 12f
                         setPadding(dp(ctx, 2), dp(ctx, 1), dp(ctx, 2), dp(ctx, 1))
@@ -461,6 +530,9 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             private val card: MaterialCardView,
             private val image: ImageView,
             private val play: ImageView,
+            private val badge: ImageView,
+            private val counter: TextView,
+            private val leftStrip: View,
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Image) {
                 Glide.with(image)
@@ -469,7 +541,29 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     .centerCrop()
                     .into(image)
 
-                play.isVisible = item.type == BlockType.VIDEO
+                val isVideo = item.type == BlockType.VIDEO
+                play.isVisible = isVideo
+
+                // Décorations de paire seulement pour VIDEO
+                if (isVideo) {
+                    val isLinked = linkedBlockIds.contains(item.blockId)
+                    badge.isVisible = isLinked
+
+                    val idx = pairIndexByBlockId[item.blockId]
+                    if (isLinked && idx != null && idx > 0) {
+                        counter.isVisible = true
+                        counter.text = formatPairIndex(idx)
+                        leftStrip.isVisible = true
+                        leftStrip.setBackgroundColor(getPairColorForIndex(idx))
+                    } else {
+                        counter.isVisible = false
+                        leftStrip.isVisible = false
+                    }
+                } else {
+                    badge.isVisible = false
+                    counter.isVisible = false
+                    leftStrip.isVisible = false
+                }
 
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {
@@ -496,7 +590,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 if (isLinked && idx != null && idx > 0) {
                     counter.isVisible = true
                     counter.text = formatPairIndex(idx)
-                    // couleur de paire
                     leftStrip.isVisible = true
                     leftStrip.setBackgroundColor(getPairColorForIndex(idx))
                 } else {
@@ -529,7 +622,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 if (isLinked && idx != null && idx > 0) {
                     counter.isVisible = true
                     counter.text = formatPairIndex(idx)
-                    // couleur de paire
                     rightStrip.isVisible = true
                     rightStrip.setBackgroundColor(getPairColorForIndex(idx))
                 } else {
