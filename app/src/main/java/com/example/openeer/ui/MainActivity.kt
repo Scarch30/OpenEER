@@ -413,13 +413,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun incrementPileCount(kind: MediaKind) {
         if (notePanel.openNoteId == null) return
-        val updated = when (kind) {
-            MediaKind.IMAGE, MediaKind.VIDEO -> lastPileCounts.copy(photos = lastPileCounts.photos + 1)
-            MediaKind.AUDIO -> lastPileCounts.copy(audios = lastPileCounts.audios + 1)
-            MediaKind.TEXT -> lastPileCounts.copy(textes = lastPileCounts.textes + 1)
-            MediaKind.PDF, MediaKind.UNKNOWN -> lastPileCounts.copy(files = lastPileCounts.files + 1)
-        }
-        applyPileCounts(updated)
+
+        applyPileCounts(lastPileCounts.increment(kind))
     }
 
     private fun onChildBlockSaved(noteId: Long, blockId: Long?, message: String) {
