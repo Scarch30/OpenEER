@@ -39,10 +39,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.openeer.imports.ImportCoordinator
 import com.example.openeer.imports.ImportEvent
+import com.example.openeer.imports.MediaKind
 import com.example.openeer.ui.library.LibraryActivity
 import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arrière-plan
 import android.util.Log
 import android.content.Intent
+import androidx.core.view.isGone
 
 class MainActivity : AppCompatActivity() {
 
@@ -85,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var captureLauncher: CaptureLauncher
     private lateinit var micCtl: MicBarController
     private lateinit var editorBody: EditorBodyController
+    private lateinit var topBubble: TopBubbleController
 
     // Permissions micro
     private val recordPermLauncher =
@@ -113,6 +116,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    private var lastPileCounts = PileCounts()
+
     private fun hasRecordPerm(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
@@ -131,6 +136,8 @@ class MainActivity : AppCompatActivity() {
             scope = lifecycleScope
         )
 
+        topBubble = TopBubbleController(b, lifecycleScope)
+
         // Liste
         b.recycler.layoutManager = LinearLayoutManager(this)
         b.recycler.adapter = adapter
@@ -140,6 +147,7 @@ class MainActivity : AppCompatActivity() {
 
         // Note panel
         notePanel = NotePanelController(this, b)
+        notePanel.onPileCountsChanged = { counts -> applyPileCounts(counts) }
 
         captureLauncher = CaptureLauncher(
             activity = this,
@@ -304,19 +312,29 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             importCoordinator.events.collect { event ->
                 when (event) {
-                    is ImportEvent.Started -> toast("Import en cours… (${event.total} fichiers)")
-                    is ImportEvent.TranscriptionQueued -> toast("Transcription en file…")
-                    is ImportEvent.OcrAwaiting -> toast("PDF/Image scannée : OCR en attente")
-                    is ImportEvent.Failed -> toast(
-                        event.displayName?.let { "Import impossible pour $it" } ?: "Import impossible",
-                        Toast.LENGTH_LONG
-                    )
+                    is ImportEvent.Started -> {
+                        topBubble.show("Import en cours… (${event.total})")
+                    }
+                    is ImportEvent.TranscriptionQueued -> {
+                        topBubble.show("Transcription en file…")
+                    }
+                    is ImportEvent.OcrAwaiting -> {
+                        val name = event.displayName ?: "élément"
+                        topBubble.show("OCR en attente pour $name")
+                    }
+                    is ImportEvent.Failed -> {
+                        val name = event.displayName ?: "élément"
+                        topBubble.showFailure("Import échoué : $name")
+                    }
                     is ImportEvent.Finished -> {
                         if (event.successCount == event.total) {
-                            toast("Import terminé")
+                            topBubble.show("Import terminé")
                         } else {
-                            toast("Import partiel (${event.successCount}/${event.total})")
+                            topBubble.show("Import partiel : ${event.successCount}/${event.total}")
                         }
+                    }
+                    is ImportEvent.ItemOk -> {
+                        incrementPileCount(event.kind)
                     }
                 }
             }
@@ -381,6 +399,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return newId
+    }
+
+    private fun applyPileCounts(counts: PileCounts) {
+        lastPileCounts = counts
+        val hasOpenNote = notePanel.openNoteId != null
+        b.pileCounterPhotos.text = counts.photos.toString()
+        b.pileCounterAudios.text = counts.audios.toString()
+        b.pileCounterTexts.text = counts.textes.toString()
+        b.pileCounterFiles.text = counts.files.toString()
+        b.pileCounters.isGone = !hasOpenNote
+    }
+
+    private fun incrementPileCount(kind: MediaKind) {
+        if (notePanel.openNoteId == null) return
+        val updated = when (kind) {
+            MediaKind.IMAGE, MediaKind.VIDEO -> lastPileCounts.copy(photos = lastPileCounts.photos + 1)
+            MediaKind.AUDIO -> lastPileCounts.copy(audios = lastPileCounts.audios + 1)
+            MediaKind.TEXT -> lastPileCounts.copy(textes = lastPileCounts.textes + 1)
+            MediaKind.PDF, MediaKind.UNKNOWN -> lastPileCounts.copy(files = lastPileCounts.files + 1)
+        }
+        applyPileCounts(updated)
     }
 
     private fun onChildBlockSaved(noteId: Long, blockId: Long?, message: String) {

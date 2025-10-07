@@ -39,6 +39,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+data class PileCounts(
+    val photos: Int = 0,
+    val audios: Int = 0,
+    val textes: Int = 0,
+    val files: Int = 0,
+)
+
 class NotePanelController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
@@ -79,6 +86,8 @@ class NotePanelController(
         onLongPress = { view, item -> mediaActions.showMenu(view, item) }
     )
 
+    var onPileCountsChanged: ((PileCounts) -> Unit)? = null
+
     init {
         binding.mediaStrip.layoutManager =
             LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
@@ -89,6 +98,8 @@ class NotePanelController(
         openNoteId = noteId
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
+
+        onPileCountsChanged?.invoke(PileCounts())
 
         // Reset visuel
         binding.txtBodyDetail.text = ""
@@ -144,6 +155,8 @@ class NotePanelController(
         binding.mediaStrip.isGone = true
 
         SimplePlayer.stop { }
+
+        onPileCountsChanged?.invoke(PileCounts())
     }
 
     fun onAppendLive(displayBody: String) {
@@ -170,6 +183,14 @@ class NotePanelController(
     }
 
     private fun renderBlocks(blocks: List<BlockEntity>) {
+        val counts = PileCounts(
+            photos = blocks.count { it.type == BlockType.PHOTO || it.type == BlockType.VIDEO },
+            audios = blocks.count { it.type == BlockType.AUDIO },
+            textes = blocks.count { it.type == BlockType.TEXT },
+            files = blocks.count { it.type == BlockType.FILE },
+        )
+        onPileCountsChanged?.invoke(counts)
+
         updateMediaStrip(blocks)
 
         val container = binding.childBlocksContainer
