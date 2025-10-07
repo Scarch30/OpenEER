@@ -5,7 +5,8 @@
     android:padding="12dp"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="?attr/selectableItemBackground"
+    android:background="@drawable/bg_note_item"
+    android:foreground="?attr/selectableItemBackgroundBorderless"
     android:clickable="true"
     android:focusable="true">
 

@@ -50,6 +50,10 @@ import androidx.core.view.isGone
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        const val EXTRA_OPEN_NOTE_ID = "com.example.openeer.extra.OPEN_NOTE_ID"
+    }
+
     private lateinit var b: ActivityMainBinding
 
     // VM / liste
@@ -191,6 +195,8 @@ class MainActivity : AppCompatActivity() {
             onAppendLive = { body -> notePanel.onAppendLive(body) },
             onReplaceFinal = { body, addNewline -> notePanel.onReplaceFinal(body, addNewline) }
         )
+
+        handleOpenNoteIntent(intent)
 
         // Geste micro
         b.btnMicBar.setOnTouchListener { v, ev ->
@@ -475,6 +481,20 @@ class MainActivity : AppCompatActivity() {
                 }
                 counts[i].text = (countFromPiles ?: fallbackCount).toString()
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOpenNoteIntent(intent)
+    }
+
+    private fun handleOpenNoteIntent(intent: Intent?) {
+        val targetId = intent?.getLongExtra(EXTRA_OPEN_NOTE_ID, -1L) ?: -1L
+        if (targetId > 0) {
+            notePanel.open(targetId)
+            intent?.removeExtra(EXTRA_OPEN_NOTE_ID)
         }
     }
 
