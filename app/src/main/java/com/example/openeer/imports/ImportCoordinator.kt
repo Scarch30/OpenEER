@@ -1,8 +1,5 @@
 package com.example.openeer.imports
 
-private const val DEFAULT_DISPLAY_NAME = "imported"
-private const val DEFAULT_MIME = "application/octet-stream"
-
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
@@ -31,6 +28,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val DEFAULT_DISPLAY_NAME = "imported"
+private const val DEFAULT_MIME = "application/octet-stream"
 
 class ImportCoordinator(
     private val context: Context,
