@@ -235,6 +235,10 @@ class MainActivity : AppCompatActivity() {
             b.root.snackbar("Carte/Itinéraire — bientôt disponible")
         }
 
+        b.btnImport.setOnClickListener {
+            toast("Import bientôt…")
+        }
+
         // Clic sur le corps = édition inline
         b.txtBodyDetail.setOnClickListener {
             lifecycleScope.launch {

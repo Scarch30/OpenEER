@@ -274,6 +274,27 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
         <LinearLayout
+            android:id="@+id/btnImport"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:focusable="true"
+            android:importantForAccessibility="yes"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent">
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_menu_add"
+                android:contentDescription="Importer" />
+            <TextView
+                android:text="Importer"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+        <LinearLayout
             android:id="@+id/btnMenu"
             android:orientation="vertical"
             android:gravity="center"
