@@ -14,5 +14,6 @@ data class Note(
     val lon: Double? = null,
     val placeLabel: String? = null,
     val accuracyM: Float? = null,
-    val audioPath: String? = null
+    val audioPath: String? = null,
+    val isMerged: Boolean = false
 )
