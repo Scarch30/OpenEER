@@ -37,6 +37,8 @@ import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -53,6 +55,12 @@ data class PileCounts(
         MediaKind.PDF, MediaKind.UNKNOWN -> copy(files = files + 1)
     }
 }
+
+data class PileUi(
+    val category: MediaCategory,
+    val count: Int,
+    val coverBlockId: Long?,
+)
 
 class NotePanelController(
     private val activity: AppCompatActivity,
@@ -84,6 +92,8 @@ class NotePanelController(
     private val blockViews = mutableMapOf<Long, View>()
     private var pendingHighlightBlockId: Long? = null
 
+    private val pileUiState = MutableStateFlow<List<PileUi>>(emptyList())
+
     private val mediaAdapter = MediaStripAdapter(
         onClick = { item -> mediaActions.handleClick(item) },
         onPileClick = { category ->
@@ -102,12 +112,17 @@ class NotePanelController(
         binding.mediaStrip.adapter = mediaAdapter
     }
 
+    fun observePileUi(): Flow<List<PileUi>> = pileUiState.asStateFlow()
+
+    fun currentPileUi(): List<PileUi> = pileUiState.value
+
     fun open(noteId: Long) {
         openNoteId = noteId
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
 
         onPileCountsChanged?.invoke(PileCounts())
+        pileUiState.value = emptyList()
 
         // Reset visuel
         binding.txtBodyDetail.text = ""
@@ -165,6 +180,7 @@ class NotePanelController(
         SimplePlayer.stop { }
 
         onPileCountsChanged?.invoke(PileCounts())
+        pileUiState.value = emptyList()
     }
 
     fun onAppendLive(displayBody: String) {
@@ -340,6 +356,14 @@ class NotePanelController(
                 add(MediaStripItem.Pile(MediaCategory.TEXT, countStandaloneOnly, sortedAll.first()))
             }
         }.sortedByDescending { it.cover.blockId }
+
+        pileUiState.value = piles.map { pile ->
+            PileUi(
+                category = pile.category,
+                count = pile.count,
+                coverBlockId = pile.cover.blockId,
+            )
+        }
 
         mediaAdapter.submitList(piles)
         binding.mediaStrip.isGone = piles.isEmpty()
