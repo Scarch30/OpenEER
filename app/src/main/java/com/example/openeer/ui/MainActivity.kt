@@ -18,6 +18,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.openeer.core.FeatureFlags
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
@@ -36,12 +37,12 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.openeer.imports.ImportCoordinator
+import com.example.openeer.imports.ImportEvent
+import com.example.openeer.ui.library.LibraryActivity
 import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arrière-plan
 import android.util.Log
 import android.content.Intent
-import com.example.openeer.imports.MediaKind
-import com.example.openeer.imports.MimeResolver
-import com.example.openeer.ui.library.LibraryActivity
 
 class MainActivity : AppCompatActivity() {
 
@@ -77,6 +78,8 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private lateinit var importCoordinator: ImportCoordinator
+
     // Contrôleurs
     private lateinit var notePanel: NotePanelController
     private lateinit var captureLauncher: CaptureLauncher
@@ -93,45 +96,21 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isEmpty()) return@registerForActivityResult
 
-            var imageCount = 0
-            var videoCount = 0
-            var audioCount = 0
-            var textCount = 0
-            var pdfCount = 0
-            var unknownCount = 0
-
-            uris.forEach { uri ->
-                try {
-                    contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                } catch (_: SecurityException) {
-                    // Ignore if permission already granted or persist not possible
-                }
-
-                val mime = MimeResolver.guessMime(contentResolver, uri)
-                val kind = MimeResolver.kindOf(mime)
-                when (kind) {
-                    MediaKind.IMAGE -> imageCount++
-                    MediaKind.VIDEO -> videoCount++
-                    MediaKind.AUDIO -> audioCount++
-                    MediaKind.TEXT -> textCount++
-                    MediaKind.PDF -> pdfCount++
-                    MediaKind.UNKNOWN -> unknownCount++
-                }
-                Log.d("ImportDryRun", "uri=$uri mime=$mime kind=$kind")
+            if (!FeatureFlags.IMPORT_V1_ENABLED) {
+                toast("Import bientôt…")
+                return@registerForActivityResult
             }
 
-            toast(
-                "Sélection : " +
-                    "${imageCount} img • " +
-                    "${videoCount} vid • " +
-                    "${audioCount} aud • " +
-                    "${textCount} txt • " +
-                    "${pdfCount} pdf • " +
-                    "${unknownCount} ?"
-            )
+            lifecycleScope.launch {
+                editorBody.commitInlineEdit(notePanel.openNoteId)
+                val targetNoteId = notePanel.openNoteId ?: ensureOpenNote()
+                runCatching {
+                    importCoordinator.import(targetNoteId, uris)
+                }.onFailure {
+                    Log.e("MainActivity", "Import failed", it)
+                    toast("Import impossible", Toast.LENGTH_LONG)
+                }
+            }
         }
 
     private fun hasRecordPerm(): Boolean =
@@ -143,6 +122,14 @@ class MainActivity : AppCompatActivity() {
         configureSystemInsets(true)
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
+
+        importCoordinator = ImportCoordinator(
+            context = this,
+            resolver = contentResolver,
+            noteRepository = repo,
+            blocksRepository = blocksRepo,
+            scope = lifecycleScope
+        )
 
         // Liste
         b.recycler.layoutManager = LinearLayoutManager(this)
@@ -283,6 +270,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         b.btnImport.setOnClickListener {
+            if (!FeatureFlags.IMPORT_V1_ENABLED) {
+                toast("Import bientôt…")
+                return@setOnClickListener
+            }
             importLauncher.launch(
                 arrayOf(
                     "image/*",
@@ -308,6 +299,27 @@ class MainActivity : AppCompatActivity() {
             runCatching { WhisperService.loadModel(applicationContext) }
                 .onSuccess { Log.d("MainActivity", "Whisper prêt (contexte chargé).") }
                 .onFailure { Log.w("MainActivity", "Warm-up Whisper a échoué (non bloquant).", it) }
+        }
+
+        lifecycleScope.launch {
+            importCoordinator.events.collect { event ->
+                when (event) {
+                    is ImportEvent.Started -> toast("Import en cours… (${event.total} fichiers)")
+                    is ImportEvent.TranscriptionQueued -> toast("Transcription en file…")
+                    is ImportEvent.OcrAwaiting -> toast("PDF/Image scannée : OCR en attente")
+                    is ImportEvent.Failed -> toast(
+                        event.displayName?.let { "Import impossible pour $it" } ?: "Import impossible",
+                        Toast.LENGTH_LONG
+                    )
+                    is ImportEvent.Finished -> {
+                        if (event.successCount == event.total) {
+                            toast("Import terminé")
+                        } else {
+                            toast("Import partiel (${event.successCount}/${event.total})")
+                        }
+                    }
+                }
+            }
         }
     }
 

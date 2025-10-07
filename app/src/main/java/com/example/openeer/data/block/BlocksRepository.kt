@@ -281,6 +281,30 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
+    suspend fun appendFile(
+        noteId: Long,
+        fileUri: String,
+        displayName: String? = null,
+        mimeType: String? = null,
+        groupId: String? = null,
+        extra: String? = null
+    ): Long {
+        val now = System.currentTimeMillis()
+        val block = BlockEntity(
+            noteId = noteId,
+            type = BlockType.FILE,
+            position = 0,
+            groupId = groupId,
+            text = displayName,
+            mediaUri = fileUri,
+            mimeType = mimeType,
+            extra = extra,
+            createdAt = now,
+            updatedAt = now
+        )
+        return insert(noteId, block)
+    }
+
     suspend fun updateSketchVector(
         blockId: Long,
         strokesJson: String
