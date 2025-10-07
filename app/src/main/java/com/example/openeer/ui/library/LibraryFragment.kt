@@ -1,6 +1,9 @@
 package com.example.openeer.ui.library
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -14,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ActionMode
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
@@ -39,6 +43,23 @@ class LibraryFragment : Fragment() {
     private var actionMode: ActionMode? = null
     private val selectedIds = linkedSetOf<Long>()
     private var currentItems: List<Note> = emptyList()
+    private var mergeReceiverRegistered = false
+
+    private val mergeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val ids = intent?.getLongArrayExtra(EXTRA_MERGED_SOURCE_IDS) ?: return
+            if (ids.isEmpty()) return
+            val toHide = ids.toSet()
+            if (currentItems.none { it.id in toHide }) return
+
+            selectedIds.removeAll(toHide)
+            currentItems = currentItems.filterNot { it.id in toHide }
+            adapter.submitList(currentItems)
+            adapter.selectedIds = selectedIds
+            b.emptyView.visibility = if (currentItems.isEmpty()) View.VISIBLE else View.GONE
+            reconcileSelection()
+        }
+    }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _b = FragmentLibraryBinding.inflate(inflater, container, false)
@@ -75,12 +96,23 @@ class LibraryFragment : Fragment() {
 
         vm.search("")
 
+        if (!mergeReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                requireContext(),
+                mergeReceiver,
+                IntentFilter(ACTION_SOURCES_MERGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            mergeReceiverRegistered = true
+        }
+
         viewLifecycleOwner.lifecycleScope.launch {
             vm.items.collectLatest { list ->
-                currentItems = list
-                adapter.submitList(list)
+                val visible = list.filterNot { it.isMerged }
+                currentItems = visible
+                adapter.submitList(visible)
                 adapter.selectedIds = selectedIds
-                b.emptyView.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+                b.emptyView.visibility = if (visible.isEmpty()) View.VISIBLE else View.GONE
                 reconcileSelection()
             }
         }
@@ -242,9 +274,18 @@ class LibraryFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        if (mergeReceiverRegistered) {
+            requireContext().unregisterReceiver(mergeReceiver)
+            mergeReceiverRegistered = false
+        }
         actionMode?.finish()
         _b = null
     }
 
-    companion object { fun newInstance() = LibraryFragment() }
+    companion object {
+        const val ACTION_SOURCES_MERGED = "com.example.openeer.action.SOURCES_MERGED"
+        const val EXTRA_MERGED_SOURCE_IDS = "extra_merged_source_ids"
+
+        fun newInstance() = LibraryFragment()
+    }
 }
