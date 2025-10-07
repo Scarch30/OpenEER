@@ -1,8 +1,11 @@
 package com.example.openeer.data
 
+import com.example.openeer.data.block.BlocksRepository
+
 class NoteRepository(
     private val noteDao: NoteDao,
-    private val attachmentDao: AttachmentDao
+    private val attachmentDao: AttachmentDao,
+    private val blocksRepository: BlocksRepository
 ) {
     val allNotes = noteDao.getAllFlow()
 
@@ -67,5 +70,34 @@ class NoteRepository(
                 audioPath = null
             )
         )
+    }
+
+    data class MergeResult(
+        val mergedCount: Int,
+        val skippedCount: Int,
+        val total: Int
+    )
+
+    suspend fun mergeNotes(sourceIds: List<Long>, targetId: Long): MergeResult {
+        val validSources = sourceIds.filter { it != targetId }
+        var merged = 0
+        var skipped = 0
+
+        for (sid in validSources) {
+            val source = noteDao.getByIdOnce(sid) ?: continue
+            if (source.isMerged) {
+                skipped++
+                continue
+            }
+
+            blocksRepository.reassignBlocksToNote(sid, targetId)
+            noteDao.markMerged(listOf(sid))
+            noteDao.insertMergeMaps(
+                listOf(NoteMergeMapEntity(sid, targetId, System.currentTimeMillis()))
+            )
+            merged++
+        }
+
+        return MergeResult(merged, skipped, validSources.size)
     }
 }

@@ -28,6 +28,12 @@ class BlocksRepository(
         blockDao.getById(blockId)
     }
 
+    suspend fun reassignBlocksToNote(sourceNoteId: Long, targetNoteId: Long) {
+        withContext(io) {
+            blockDao.updateNoteIdForBlocks(sourceNoteId, targetNoteId)
+        }
+    }
+
     private suspend fun insert(noteId: Long, template: BlockEntity): Long =
         withContext(io) { blockDao.insertAtEnd(noteId, template) }
 
