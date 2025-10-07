@@ -10,6 +10,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object FileCopy {
+    fun guessNameFromUri(resolver: ContentResolver, uri: Uri): String? {
+        resolver.query(uri, arrayOf("_display_name"), null, null, null)?.use { c ->
+            if (c.moveToFirst()) return c.getString(0)
+        }
+        return uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+    }
+
     suspend fun toAppSandbox(
         context: Context,
         resolver: ContentResolver,
