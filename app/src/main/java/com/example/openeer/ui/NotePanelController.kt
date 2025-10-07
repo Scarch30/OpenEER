@@ -25,6 +25,7 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.imports.MediaKind
 import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.formatMeta
 import com.example.openeer.ui.panel.blocks.BlockRenderers
@@ -44,7 +45,14 @@ data class PileCounts(
     val audios: Int = 0,
     val textes: Int = 0,
     val files: Int = 0,
-)
+) {
+    fun increment(kind: MediaKind): PileCounts = when (kind) {
+        MediaKind.IMAGE, MediaKind.VIDEO -> copy(photos = photos + 1)
+        MediaKind.AUDIO -> copy(audios = audios + 1)
+        MediaKind.TEXT -> copy(textes = textes + 1)
+        MediaKind.PDF, MediaKind.UNKNOWN -> copy(files = files + 1)
+    }
+}
 
 class NotePanelController(
     private val activity: AppCompatActivity,
