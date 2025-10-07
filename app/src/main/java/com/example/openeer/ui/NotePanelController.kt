@@ -239,6 +239,9 @@ class NotePanelController(
      *  - PHOTO = photos + vidéos (+ transcriptions TEXT liées aux vidéos)
      *  - AUDIO = audios + textes de transcription (TEXT partageant le groupId d’un audio)
      *  - TEXT  = textes indépendants (pas liés à un audio ni à une vidéo)
+     *
+     *  🔧 Ajustement : la pile TEXT prend désormais en compte les TEXT liés
+     *  uniquement pour la COVER/ordre (tri), pas pour le COMPTEUR.
      */
     private fun updateMediaStrip(blocks: List<BlockEntity>) {
         // Grouper par liens implicites via groupId
@@ -252,7 +255,8 @@ class NotePanelController(
         val photoItems = mutableListOf<MediaStripItem.Image>()   // photos + vidéos
         val sketchItems = mutableListOf<MediaStripItem.Image>()
         val audioItems  = mutableListOf<MediaStripItem.Audio>()
-        val textItems   = mutableListOf<MediaStripItem.Text>()
+        val textItems   = mutableListOf<MediaStripItem.Text>()   // textes indépendants
+        val transcriptTextItems = mutableListOf<MediaStripItem.Text>() // textes liés (A/V)
 
         var transcriptsLinkedToAudio = 0
         var transcriptsLinkedToVideo = 0
@@ -280,13 +284,31 @@ class NotePanelController(
                     val linkedToVideo = gid != null && gid in videoGroupIds
 
                     when {
-                        linkedToAudio -> transcriptsLinkedToAudio += 1
-                        linkedToVideo -> transcriptsLinkedToVideo += 1
-                        else -> textItems += MediaStripItem.Text(
-                            blockId = block.id,
-                            noteId = block.noteId,
-                            content = block.text.orEmpty(),
-                        )
+                        linkedToAudio -> {
+                            transcriptsLinkedToAudio += 1
+                            // ➕ on prend en compte pour la cover/ordre de TEXT
+                            transcriptTextItems += MediaStripItem.Text(
+                                blockId = block.id,
+                                noteId = block.noteId,
+                                content = block.text.orEmpty()
+                            )
+                        }
+                        linkedToVideo -> {
+                            transcriptsLinkedToVideo += 1
+                            // ➕ idem
+                            transcriptTextItems += MediaStripItem.Text(
+                                blockId = block.id,
+                                noteId = block.noteId,
+                                content = block.text.orEmpty()
+                            )
+                        }
+                        else -> {
+                            textItems += MediaStripItem.Text(
+                                blockId = block.id,
+                                noteId = block.noteId,
+                                content = block.text.orEmpty(),
+                            )
+                        }
                     }
                 }
                 else -> Unit
@@ -295,7 +317,7 @@ class NotePanelController(
 
         val piles = buildList {
             if (photoItems.isNotEmpty()) {
-                // 👉 Le compteur inclut maintenant les TEXT liés aux VIDÉOS
+                // 👉 Le compteur inclut les TEXT liés aux VIDÉOS
                 val sorted = photoItems.sortedByDescending { it.blockId }
                 val countWithVideoTranscripts = sorted.size + transcriptsLinkedToVideo
                 add(MediaStripItem.Pile(MediaCategory.PHOTO, countWithVideoTranscripts, sorted.first()))
@@ -309,9 +331,13 @@ class NotePanelController(
                 val countWithTranscripts = sorted.size + transcriptsLinkedToAudio
                 add(MediaStripItem.Pile(MediaCategory.AUDIO, countWithTranscripts, sorted.first()))
             }
-            if (textItems.isNotEmpty()) {
-                val sorted = textItems.sortedByDescending { it.blockId }
-                add(MediaStripItem.Pile(MediaCategory.TEXT, sorted.size, sorted.first()))
+            // 🆕 Pile TEXT : cover/ordre sur (text indépendants + transcripts liés),
+            // mais compteur = textes indépendants uniquement.
+            if (textItems.isNotEmpty() || transcriptTextItems.isNotEmpty()) {
+                val allTextForCover = (textItems + transcriptTextItems)
+                val sortedAll = allTextForCover.sortedByDescending { it.blockId }
+                val countStandaloneOnly = textItems.size
+                add(MediaStripItem.Pile(MediaCategory.TEXT, countStandaloneOnly, sortedAll.first()))
             }
         }.sortedByDescending { it.cover.blockId }
 
