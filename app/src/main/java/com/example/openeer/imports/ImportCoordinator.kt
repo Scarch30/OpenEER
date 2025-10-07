@@ -105,6 +105,7 @@ class ImportCoordinator(
             mimeType = safeMime,
             groupId = null
         )
+        _events.emit(ImportEvent.ItemOk(MediaKind.IMAGE))
         true
     }
 
@@ -136,6 +137,7 @@ class ImportCoordinator(
             groupId = groupId
         )
 
+        _events.emit(ImportEvent.ItemOk(MediaKind.VIDEO))
         _events.emit(ImportEvent.TranscriptionQueued(safeName, MediaKind.VIDEO))
         val workUri = Uri.fromFile(file)
         VideoToTextWorker.enqueue(context, workUri, noteId, groupId, videoBlockId)
@@ -168,6 +170,7 @@ class ImportCoordinator(
         val tmpDir = File(context.filesDir, "imports_audio").apply { mkdirs() }
         val wavFile = File(tmpDir, "audio_${audioBlockId}.wav")
         AudioFromVideoExtractor(context).extractToWav(Uri.fromFile(file), wavFile, 16_000)
+        _events.emit(ImportEvent.ItemOk(MediaKind.AUDIO))
         _events.emit(ImportEvent.TranscriptionQueued(safeName, MediaKind.AUDIO))
         runCatching { WhisperService.ensureLoaded(context.applicationContext) }
         WhisperRefineQueue.enqueue(audioBlockId, wavFile.absolutePath) { refined ->
@@ -199,6 +202,7 @@ class ImportCoordinator(
             text = finalText,
             groupId = null
         )
+        _events.emit(ImportEvent.ItemOk(MediaKind.TEXT))
         true
     }
 
@@ -219,6 +223,7 @@ class ImportCoordinator(
             groupId = groupId,
             extra = if (awaiting) awaitingExtra else null
         )
+        _events.emit(ImportEvent.ItemOk(MediaKind.PDF))
         if (awaiting) {
             _events.emit(ImportEvent.OcrAwaiting(safeName))
         } else {
@@ -246,6 +251,7 @@ class ImportCoordinator(
             groupId = null,
             extra = null
         )
+        _events.emit(ImportEvent.ItemOk(MediaKind.UNKNOWN))
         true
     }
 
