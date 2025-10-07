@@ -39,6 +39,8 @@ import kotlinx.coroutines.withContext
 import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arrière-plan
 import android.util.Log
 import android.content.Intent
+import com.example.openeer.imports.MediaKind
+import com.example.openeer.imports.MimeResolver
 import com.example.openeer.ui.library.LibraryActivity
 
 class MainActivity : AppCompatActivity() {
@@ -91,6 +93,13 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isEmpty()) return@registerForActivityResult
 
+            var imageCount = 0
+            var videoCount = 0
+            var audioCount = 0
+            var textCount = 0
+            var pdfCount = 0
+            var unknownCount = 0
+
             uris.forEach { uri ->
                 try {
                     contentResolver.takePersistableUriPermission(
@@ -100,9 +109,29 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: SecurityException) {
                     // Ignore if permission already granted or persist not possible
                 }
+
+                val mime = MimeResolver.guessMime(contentResolver, uri)
+                val kind = MimeResolver.kindOf(mime)
+                when (kind) {
+                    MediaKind.IMAGE -> imageCount++
+                    MediaKind.VIDEO -> videoCount++
+                    MediaKind.AUDIO -> audioCount++
+                    MediaKind.TEXT -> textCount++
+                    MediaKind.PDF -> pdfCount++
+                    MediaKind.UNKNOWN -> unknownCount++
+                }
+                Log.d("ImportDryRun", "uri=$uri mime=$mime kind=$kind")
             }
 
-            toast("${uris.size} fichier(s) sélectionné(s) — import à venir")
+            toast(
+                "Sélection : " +
+                    "${imageCount} img • " +
+                    "${videoCount} vid • " +
+                    "${audioCount} aud • " +
+                    "${textCount} txt • " +
+                    "${pdfCount} pdf • " +
+                    "${unknownCount} ?"
+            )
         }
 
     private fun hasRecordPerm(): Boolean =
