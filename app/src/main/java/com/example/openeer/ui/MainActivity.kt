@@ -58,7 +58,14 @@ class MainActivity : AppCompatActivity() {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val db = AppDatabase.get(this@MainActivity)
-                return NotesVm(NoteRepository(db.noteDao(), db.attachmentDao())) as T
+                val blocksRepo = BlocksRepository(
+                    blockDao = db.blockDao(),
+                    noteDao = db.noteDao(),
+                    linkDao = db.blockLinkDao()
+                )
+                return NotesVm(
+                    NoteRepository(db.noteDao(), db.attachmentDao(), blocksRepo)
+                ) as T
             }
         }
     }
@@ -71,7 +78,7 @@ class MainActivity : AppCompatActivity() {
     // Repos
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(this)
-        NoteRepository(db.noteDao(), db.attachmentDao())
+        NoteRepository(db.noteDao(), db.attachmentDao(), blocksRepo)
     }
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(this)
