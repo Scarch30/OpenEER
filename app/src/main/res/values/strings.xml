@@ -98,5 +98,18 @@
     <string name="zoom_out">Zoom arrière</string>
     <string name="recenter">Recentrer</string>
 
+    <string name="library_action_merge">Fusionner…</string>
+    <string name="library_merge_dialog_title">Choisir la note cible</string>
+    <string name="library_merge_dialog_message">Sélectionnez la note à conserver dans la fusion.</string>
+    <string name="library_merge_positive">Fusionner</string>
+    <string name="library_merge_in_progress">Fusion en cours…</string>
+    <string name="library_merge_success">Fusion réussie</string>
+    <string name="library_merge_partial">Fusion partielle (%1$d/%2$d)</string>
+    <string name="library_merge_failed">Fusion impossible</string>
+    <string name="library_selection_count">%1$d sélectionnée(s)</string>
+    <string name="library_note_meta_merged">%1$s • Fusionnée</string>
+    <string name="library_merge_untitled_placeholder">(vide)</string>
+    <string name="library_note_already_merged">Note déjà fusionnée</string>
+
 
 </resources>

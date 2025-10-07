@@ -1,18 +1,27 @@
 package com.example.openeer.ui.library
 
+import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.view.ActionMode
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.databinding.FragmentLibraryBinding
+import com.example.openeer.ui.MainActivity
 import com.example.openeer.ui.NotesAdapter
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -27,6 +36,9 @@ class LibraryFragment : Fragment() {
     private lateinit var adapter: NotesAdapter
 
     private var debounceJob: Job? = null
+    private var actionMode: ActionMode? = null
+    private val selectedIds = linkedSetOf<Long>()
+    private var currentItems: List<Note> = emptyList()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _b = FragmentLibraryBinding.inflate(inflater, container, false)
@@ -41,8 +53,8 @@ class LibraryFragment : Fragment() {
         vm = LibraryViewModel.create(db)
 
         adapter = NotesAdapter(
-            onClick = { note -> openNote(note) },
-            onLongClick = { _ -> /* no-op pour l’instant */ }
+            onClick = { note -> onItemClicked(note) },
+            onLongClick = { note -> onItemLongClicked(note) }
         )
 
         b.recycler.layoutManager = LinearLayoutManager(requireContext())
@@ -52,25 +64,24 @@ class LibraryFragment : Fragment() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                // debounce 250ms
                 debounceJob?.cancel()
                 debounceJob = viewLifecycleOwner.lifecycleScope.launch {
                     delay(250)
                     val q = s?.toString().orEmpty().trim()
-                    // requête vide => remonte toutes les notes
                     vm.search(if (q.isEmpty()) "" else q)
                 }
             }
         })
 
-        // Chargement initial : toutes les notes
         vm.search("")
 
-        // Collect UI
         viewLifecycleOwner.lifecycleScope.launch {
             vm.items.collectLatest { list ->
+                currentItems = list
                 adapter.submitList(list)
+                adapter.selectedIds = selectedIds
                 b.emptyView.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+                reconcileSelection()
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -80,12 +91,158 @@ class LibraryFragment : Fragment() {
         }
     }
 
+    private fun onItemClicked(note: Note) {
+        if (actionMode != null) {
+            toggleSelection(note)
+            return
+        }
+        if (note.isMerged) {
+            Snackbar.make(b.root, getString(R.string.library_note_already_merged), Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        openNote(note)
+    }
+
+    private fun onItemLongClicked(note: Note) {
+        if (note.isMerged) return
+        if (actionMode == null) {
+            actionMode = (requireActivity() as AppCompatActivity).startSupportActionMode(actionModeCallback)
+        }
+        toggleSelection(note)
+    }
+
+    private fun toggleSelection(note: Note) {
+        if (note.isMerged) return
+        if (selectedIds.contains(note.id)) {
+            selectedIds.remove(note.id)
+        } else {
+            selectedIds.add(note.id)
+        }
+        if (selectedIds.isEmpty()) {
+            actionMode?.finish()
+        } else {
+            actionMode?.title = getString(R.string.library_selection_count, selectedIds.size)
+            adapter.selectedIds = selectedIds
+            actionMode?.invalidate()
+        }
+    }
+
+    private fun reconcileSelection() {
+        val idsInList = currentItems.filterNot { it.isMerged }.map { it.id }.toSet()
+        val removed = selectedIds.removeAll { it !in idsInList }
+        if (removed) {
+            if (selectedIds.isEmpty()) {
+                actionMode?.finish()
+            } else {
+                actionMode?.title = getString(R.string.library_selection_count, selectedIds.size)
+                adapter.selectedIds = selectedIds
+                actionMode?.invalidate()
+            }
+        }
+    }
+
+    private val actionModeCallback = object : ActionMode.Callback {
+        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            mode.menuInflater.inflate(R.menu.menu_library_selection, menu)
+            mode.title = getString(R.string.library_selection_count, selectedIds.size)
+            return true
+        }
+
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            menu.findItem(R.id.action_merge)?.isEnabled = selectedIds.size >= 2
+            return true
+        }
+
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+            return when (item.itemId) {
+                R.id.action_merge -> {
+                    showMergeDialog()
+                    true
+                }
+                else -> false
+            }
+        }
+
+        override fun onDestroyActionMode(mode: ActionMode) {
+            selectedIds.clear()
+            adapter.selectedIds = selectedIds
+            actionMode = null
+        }
+    }
+
+    private fun showMergeDialog() {
+        val notes = currentItems.filter { selectedIds.contains(it.id) && !it.isMerged }
+        if (notes.size < 2) return
+
+        val sorted = notes.sortedByDescending { it.updatedAt }
+        val labels = sorted.map { formatNoteLabel(it) }.toTypedArray()
+        var checkedIndex = 0
+
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.library_merge_dialog_title)
+            .setMessage(R.string.library_merge_dialog_message)
+            .setSingleChoiceItems(labels, checkedIndex) { _, which -> checkedIndex = which }
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.library_merge_positive) { _, _ ->
+                val target = sorted[checkedIndex]
+                val sources = sorted.map { it.id }.filter { it != target.id }
+                if (sources.isEmpty()) {
+                    Snackbar.make(b.root, getString(R.string.library_merge_failed), Snackbar.LENGTH_SHORT).show()
+                } else {
+                    performMerge(target, sources)
+                }
+            }
+            .show()
+    }
+
+    private fun formatNoteLabel(note: Note): String {
+        val title = note.title?.takeIf { it.isNotBlank() }
+        val body = note.body.trim().takeIf { it.isNotEmpty() }
+        val content = title ?: body?.take(80) ?: getString(R.string.library_merge_untitled_placeholder)
+        return "#${note.id} • $content"
+    }
+
+    private fun performMerge(target: Note, sources: List<Long>) {
+        val snackbar = Snackbar.make(b.root, getString(R.string.library_merge_in_progress), Snackbar.LENGTH_INDEFINITE)
+        snackbar.show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            runCatching { vm.mergeNotes(sources, target.id) }
+                .onSuccess { result ->
+                    snackbar.dismiss()
+                    val message = if (result.mergedCount == result.total) {
+                        getString(R.string.library_merge_success)
+                    } else {
+                        getString(R.string.library_merge_partial, result.mergedCount, result.total)
+                    }
+                    Snackbar.make(b.root, message, Snackbar.LENGTH_SHORT).show()
+                    clearSelection()
+                    vm.refresh()
+                    openNote(target)
+                }
+                .onFailure {
+                    snackbar.dismiss()
+                    Snackbar.make(b.root, getString(R.string.library_merge_failed), Snackbar.LENGTH_SHORT).show()
+                }
+        }
+    }
+
+    private fun clearSelection() {
+        selectedIds.clear()
+        adapter.selectedIds = selectedIds
+        actionMode?.finish()
+    }
+
     private fun openNote(n: Note) {
-        // À brancher sur ton écran de détail (intent/fragment) si nécessaire.
+        val intent = Intent(requireContext(), MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_OPEN_NOTE_ID, n.id)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        startActivity(intent)
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
+        actionMode?.finish()
         _b = null
     }
 
