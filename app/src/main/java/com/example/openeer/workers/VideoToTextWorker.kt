@@ -19,10 +19,18 @@ import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.media.AudioFromVideoExtractor
+import com.example.openeer.media.AudioDenoiser
+import com.example.openeer.media.WavWriter
+import com.example.openeer.media.decodeWaveFile
 import com.example.openeer.services.WhisperService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * InputData :
@@ -125,6 +133,10 @@ class VideoToTextWorker(
             return@withContext Result.failure()
         }
 
+        val tmpDir = File(applicationContext.filesDir, "tmp").apply { mkdirs() }
+        val rawWav = File(tmpDir, "${groupId}_video.wav")
+        val denoisedWav = File(tmpDir, "${groupId}_video_denoised.wav")
+
         try {
             // Monter en foreground avant les opérations longues
             setForeground(getForegroundInfo())
@@ -135,25 +147,38 @@ class VideoToTextWorker(
             Log.d(TAG, "Whisper.loadModel() OK")
 
             // Extraction WAV mono 16 kHz
-            val wav = File(applicationContext.filesDir, "tmp/${groupId}_video.wav").also {
-                it.parentFile?.mkdirs()
-            }
-            Log.d(TAG, "ExtractToWav -> ${wav.absolutePath}")
+            Log.d(TAG, "ExtractToWav -> ${rawWav.absolutePath}")
             val srcUri = Uri.parse(videoUriStr)
 
             // Logs internes de l'extracteur
             Log.d("AVExtract", "setDataSource($srcUri)")
             AudioFromVideoExtractor(applicationContext).extractToWav(
                 videoUri = srcUri,
-                outWavFile = wav,
+                outWavFile = rawWav,
                 targetHz = 16_000
             )
-            Log.d(TAG, "WAV OK (${wav.length()} bytes)")
+            Log.d(TAG, "WAV OK (${rawWav.length()} bytes)")
 
-            // Transcription
-            Log.d(TAG, "Whisper.transcribeWav()…")
-            val text = WhisperService.transcribeWav(wav)
-            Log.d(TAG, "Whisper.transcribeWav() OK (${text.length} chars)")
+            // === DÉBRUITAGE centralisé (AudioDenoiser) ===
+            val sr = 16_000
+            val raw = decodeWaveFile(rawWav) // FloatArray [-1,1] @16k mono
+            Log.d(TAG, "🎛 DENOISER ▶ AudioDenoiser: in samples=${raw.size} (~${raw.size * 1000L / sr} ms)")
+            val rmsBefore = frameRmsDb(raw, sr)
+            val tD0 = System.currentTimeMillis()
+            val denoised = AudioDenoiser.denoise(raw, sr)
+            val tD1 = System.currentTimeMillis()
+            val rmsAfter = frameRmsDb(denoised, sr)
+            Log.d(TAG, "🎛 DENOISER ✓ AudioDenoiser done in ${tD1 - tD0} ms | avgRmsDb ${"%.1f".format(rmsBefore)} → ${"%.1f".format(rmsAfter)} (Δ=${"%.1f".format(rmsAfter - rmsBefore)} dB)")
+
+            // (Optionnel mais pratique au debug) : écrire un WAV débruité
+            writeDenoisedWav(denoised, sr, denoisedWav)
+            Log.d(TAG, "WAV (denoised) written -> ${denoisedWav.absolutePath} (${denoisedWav.length()} bytes)")
+
+            // Transcription SILENCE-AWARE sur le WAV débruité
+            Log.d(TAG, "WHISPER ▶ transcribeWavSilenceAware(denoised=true)…")
+            val tW0 = System.currentTimeMillis()
+            val text = WhisperService.transcribeWavSilenceAware(denoisedWav)
+            Log.d(TAG, "WHISPER ✓ done in ${System.currentTimeMillis() - tW0} ms (len=${text.length})")
 
             // MAJ bloc vidéo + création note-fille TEXT
             Log.d(TAG, "Repo.updateVideoTranscription(videoId=$videoBlockId)")
@@ -166,14 +191,6 @@ class VideoToTextWorker(
                 groupId = groupId
             )
 
-            // Nettoyage
-            runCatching {
-                if (wav.exists()) {
-                    val ok = wav.delete()
-                    Log.d(TAG, "Temp WAV delete=${ok}")
-                }
-            }
-
             Result.success()
         } catch (e: SecurityException) {
             Log.e(TAG, "SECURITY fail: ${e.message}", e)
@@ -184,6 +201,65 @@ class VideoToTextWorker(
         } catch (t: Throwable) {
             Log.e(TAG, "FAIL: ${t.message}", t)
             Result.retry()
+        } finally {
+            // Nettoyage
+            runCatching {
+                if (rawWav.exists()) {
+                    val ok = rawWav.delete()
+                    Log.d(TAG, "Temp RAW WAV delete=$ok")
+                }
+            }
+            runCatching {
+                if (denoisedWav.exists()) {
+                    val ok = denoisedWav.delete()
+                    Log.d(TAG, "Temp DENOISED WAV delete=$ok")
+                }
+            }
         }
     }
+
+    // --- Utils ---
+
+    /** Écrit un FloatArray [-1,1] en WAV PCM 16-bit mono @sampleRate via WavWriter. */
+    private fun writeDenoisedWav(samples: FloatArray, sampleRate: Int, outFile: File) {
+        val pcm = floatArrayToPcm16(samples)
+        WavWriter(outFile, sampleRate, /*channels*/1, /*bitsPerSample*/16).use { w ->
+            w.writeSamples(pcm)
+        }
+    }
+
+    /** Conversion FloatArray ([-1,1]) -> ShortArray (PCM16) avec clipping/arrondi. */
+    private fun floatArrayToPcm16(src: FloatArray): ShortArray {
+        val out = ShortArray(src.size)
+        var i = 0
+        while (i < src.size) {
+            val f = src[i].coerceIn(-1f, 1f)
+            val s = (f * 32767f).roundToInt().coerceIn(-32768, 32767)
+            out[i] = s.toShort()
+            i++
+        }
+        return out
+    }
+}
+
+/** Petit util pour log dB moyen (contrôle) */
+private fun frameRmsDb(data: FloatArray, sampleRate: Int, frameMs: Int = 20): Double {
+    val hop = max(1, sampleRate * frameMs / 1000)
+    val frames = max(1, (data.size + hop - 1) / hop)
+    var sum = 0.0
+    for (f in 0 until frames) {
+        val from = f * hop
+        val to = min(from + hop, data.size)
+        val n = (to - from).coerceAtLeast(1)
+        var acc = 0.0
+        var i = from
+        while (i < to) {
+            val v = data[i].toDouble()
+            acc += v * v
+            i++
+        }
+        val rms = sqrt(acc / n).coerceAtLeast(1e-12)
+        sum += 20.0 * ln(rms) / ln(10.0)
+    }
+    return sum / frames
 }

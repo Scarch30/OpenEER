@@ -15,6 +15,10 @@ import kotlinx.coroutines.*
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.stt.VoskTranscriber
 import java.io.File
+import android.util.Log
+import com.example.openeer.media.decodeWaveFile
+import com.example.openeer.media.AudioDenoiser
+import com.example.openeer.services.WhisperService
 
 class RecorderService : Service() {
 
@@ -27,6 +31,8 @@ class RecorderService : Service() {
         const val EXTRA_PATH = "path"
         const val EXTRA_ERROR = "error"
         const val EXTRA_NOTE_ID = "noteId"
+
+        private const val TAG = "RecorderService"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -97,29 +103,87 @@ class RecorderService : Service() {
         scope.launch {
             // Sécurise l’arrêt + conversion WAV
             runCatching { rec.stop() }
-            val wav = runCatching { rec.finalizeToWav() }.getOrNull()
+            val wavPath = runCatching { rec.finalizeToWav() }.getOrNull()
+            val wavFile = wavPath?.let { File(it) }
 
-            if (noteId != 0L && wav != null) {
+            var audioBlockId: Long? = null
+            var groupId: String? = null
+
+            if (noteId != 0L && wavFile != null) {
                 val gid = generateGroupId()
-                runCatching {
-                    repo.updateAudio(noteId, wav)
-                    blocksRepo.appendAudio(noteId, wav, null, "audio/wav", gid)
-                }
-
-                val text = runCatching {
-                    VoskTranscriber.transcribe(this@RecorderService, File(wav))
+                groupId = gid
+                // ➕ Ajoute le bloc AUDIO dans la note (pile = groupId)
+                audioBlockId = runCatching {
+                    blocksRepo.appendAudio(
+                        noteId    = noteId,
+                        mediaUri  = wavPath,
+                        durationMs= null,
+                        mimeType  = "audio/wav",
+                        groupId   = gid
+                    )
                 }.getOrNull()
 
-                if (!text.isNullOrBlank()) {
-                    // IMPORTANT: transcription -> Note.body only, no TEXT blocks.
-                    runCatching { repo.setBody(noteId, text) }
+                // 🔊 Débruitage + Whisper (avec logs)
+                val transcription: String? = runCatching {
+                    // 0) Charge Whisper si besoin
+                    WhisperService.ensureLoaded(applicationContext)
+
+                    // 1) Lecture WAV (FloatArray mono 16 kHz)
+                    val samples = decodeWaveFile(wavFile)
+                    val sr = 16_000
+                    Log.d(TAG, "DENOISER ▶ in: samples=${samples.size}, durMs=${samples.size * 1000L / sr}, file=${wavFile.name}")
+
+                    // 2) Débruitage en mémoire
+                    val t0 = System.currentTimeMillis()
+                    val denoised = AudioDenoiser.denoise(samples)
+                    val t1 = System.currentTimeMillis()
+                    Log.d(TAG, "DENOISER ✓ out: samples=${denoised.size}, took=${t1 - t0}ms")
+
+                    // 3) Transcription Whisper
+                    Log.d(TAG, "WHISPER ▶ start (mic, denoised=true)")
+                    val tW = System.currentTimeMillis()
+                    val text = WhisperService.transcribeDataDirect(denoised)
+                    Log.d(TAG, "WHISPER ✓ done in ${System.currentTimeMillis() - tW}ms (mic)")
+                    text
+                }.getOrElse { e ->
+                    Log.w(TAG, "Whisper fail (fallback Vosk): ${e.message}", e)
+                    null
+                }
+
+                val finalText = transcription ?: runCatching {
+                    // 🔁 Fallback Vosk si Whisper a échoué
+                    Log.d(TAG, "VOSK ▶ fallback start")
+                    val tV = System.currentTimeMillis()
+                    val text = VoskTranscriber.transcribe(this@RecorderService, wavFile)
+                    Log.d(TAG, "VOSK ✓ fallback done in ${System.currentTimeMillis() - tV}ms")
+                    text
+                }.getOrNull()
+
+                if (!finalText.isNullOrBlank()) {
+                    // 4) Mets à jour le corps de la note (affichage principal)
+                    runCatching { repo.setBody(noteId, finalText) }
+
+                    // 5) Mets à jour le bloc AUDIO et ajoute un bloc TEXT lié dans la même pile
+                    audioBlockId?.let { aid ->
+                        runCatching { blocksRepo.updateAudioTranscription(aid, finalText) }
+                    }
+                    runCatching {
+                        // crée un bloc TEXT "transcription" dans la même pile (groupId)
+                        blocksRepo.appendTranscription(
+                            noteId = noteId,
+                            text   = finalText,
+                            groupId= groupId ?: generateGroupId()
+                        )
+                    }
+                } else {
+                    Log.w(TAG, "Aucune transcription obtenue (Whisper et Vosk).")
                 }
             }
 
             // Broadcast retour (noteId + chemin wav)
             sendBroadcast(Intent(BR_DONE).apply {
                 setPackage(packageName)
-                putExtra(EXTRA_PATH, wav)
+                putExtra(EXTRA_PATH, wavPath)
                 putExtra(EXTRA_NOTE_ID, noteId)
             })
 
