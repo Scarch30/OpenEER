@@ -87,6 +87,24 @@ class MainActivity : AppCompatActivity() {
             if (!ok) toast("Permission micro refusée", Toast.LENGTH_LONG)
         }
 
+    private val importLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (uris.isEmpty()) return@registerForActivityResult
+
+            uris.forEach { uri ->
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: SecurityException) {
+                    // Ignore if permission already granted or persist not possible
+                }
+            }
+
+            toast("${uris.size} fichier(s) sélectionné(s) — import à venir")
+        }
+
     private fun hasRecordPerm(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
@@ -236,7 +254,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         b.btnImport.setOnClickListener {
-            toast("Import bientôt…")
+            importLauncher.launch(
+                arrayOf(
+                    "image/*",
+                    "video/*",
+                    "audio/*",
+                    "text/plain",
+                    "application/pdf"
+                )
+            )
         }
 
         // Clic sur le corps = édition inline
