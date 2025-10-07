@@ -142,6 +142,7 @@
             android:visibility="gone">
 
             <LinearLayout
+                android:id="@+id/pileSlot1"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="8dp"
@@ -149,9 +150,10 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
                 <TextView
+                    android:id="@+id/pileLabel1"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Photos/Vidéos"
+                    android:text="—"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textSize="12sp" />
                 <TextView
@@ -166,12 +168,14 @@
                     android:paddingTop="4dp"
                     android:paddingEnd="10dp"
                     android:paddingBottom="4dp"
+                    android:tag="pileCount1"
                     android:text="0"
                     android:textColor="@android:color/black"
                     android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/pileSlot2"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="8dp"
@@ -179,9 +183,10 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
                 <TextView
+                    android:id="@+id/pileLabel2"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Audios"
+                    android:text="—"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textSize="12sp" />
                 <TextView
@@ -196,12 +201,14 @@
                     android:paddingTop="4dp"
                     android:paddingEnd="10dp"
                     android:paddingBottom="4dp"
+                    android:tag="pileCount2"
                     android:text="0"
                     android:textColor="@android:color/black"
                     android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/pileSlot3"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="8dp"
@@ -209,9 +216,10 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
                 <TextView
+                    android:id="@+id/pileLabel3"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Textes"
+                    android:text="—"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textSize="12sp" />
                 <TextView
@@ -226,21 +234,24 @@
                     android:paddingTop="4dp"
                     android:paddingEnd="10dp"
                     android:paddingBottom="4dp"
+                    android:tag="pileCount3"
                     android:text="0"
                     android:textColor="@android:color/black"
                     android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/pileSlot4"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
                 <TextView
+                    android:id="@+id/pileLabel4"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Fichiers"
+                    android:text="—"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textSize="12sp" />
                 <TextView
@@ -255,6 +266,7 @@
                     android:paddingTop="4dp"
                     android:paddingEnd="10dp"
                     android:paddingBottom="4dp"
+                    android:tag="pileCount4"
                     android:text="0"
                     android:textColor="@android:color/black"
                     android:textSize="12sp" />

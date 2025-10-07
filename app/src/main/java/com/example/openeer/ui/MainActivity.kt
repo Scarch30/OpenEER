@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.widget.EditText
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -27,6 +28,7 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.capture.CaptureLauncher
 import com.example.openeer.ui.editor.EditorBodyController
+import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
@@ -89,6 +91,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var editorBody: EditorBodyController
     private lateinit var topBubble: TopBubbleController
 
+    private val pileCountViews by lazy {
+        listOf(
+            requireNotNull(b.root.findViewWithTag("pileCount1")) as TextView,
+            requireNotNull(b.root.findViewWithTag("pileCount2")) as TextView,
+            requireNotNull(b.root.findViewWithTag("pileCount3")) as TextView,
+            requireNotNull(b.root.findViewWithTag("pileCount4")) as TextView,
+        )
+    }
+
     // Permissions micro
     private val recordPermLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -148,6 +159,11 @@ class MainActivity : AppCompatActivity() {
         // Note panel
         notePanel = NotePanelController(this, b)
         notePanel.onPileCountsChanged = { counts -> applyPileCounts(counts) }
+        lifecycleScope.launch {
+            notePanel.observePileUi().collectLatest { piles ->
+                renderPiles(piles)
+            }
+        }
 
         captureLauncher = CaptureLauncher(
             activity = this,
@@ -404,17 +420,55 @@ class MainActivity : AppCompatActivity() {
     private fun applyPileCounts(counts: PileCounts) {
         lastPileCounts = counts
         val hasOpenNote = notePanel.openNoteId != null
-        b.pileCounterPhotos.text = counts.photos.toString()
-        b.pileCounterAudios.text = counts.audios.toString()
-        b.pileCounterTexts.text = counts.textes.toString()
-        b.pileCounterFiles.text = counts.files.toString()
         b.pileCounters.isGone = !hasOpenNote
+        val currentPiles = if (hasOpenNote) notePanel.currentPileUi() else emptyList()
+        renderPiles(currentPiles)
     }
 
     private fun incrementPileCount(kind: MediaKind) {
         if (notePanel.openNoteId == null) return
 
         applyPileCounts(lastPileCounts.increment(kind))
+    }
+
+    private fun renderPiles(piles: List<PileUi>) {
+        val labels = listOf(b.pileLabel1, b.pileLabel2, b.pileLabel3, b.pileLabel4)
+        val counts = pileCountViews
+        val titleByCategory = mapOf(
+            MediaCategory.PHOTO to "Photos/Vidéos",
+            MediaCategory.AUDIO to "Audios",
+            MediaCategory.TEXT to "Textes",
+            MediaCategory.SKETCH to "Fichiers"
+        )
+        val fallbackOrder = listOf(
+            MediaCategory.PHOTO,
+            MediaCategory.AUDIO,
+            MediaCategory.TEXT,
+            MediaCategory.SKETCH
+        )
+        val orderedCategories = buildList {
+            piles.forEach { add(it.category) }
+            fallbackOrder.forEach { category ->
+                if (category !in this) add(category)
+            }
+        }
+        for (i in labels.indices) {
+            val category = orderedCategories.getOrNull(i)
+            if (category == null) {
+                labels[i].text = "—"
+                counts[i].text = "0"
+            } else {
+                labels[i].text = titleByCategory[category] ?: "—"
+                val countFromPiles = piles.firstOrNull { it.category == category }?.count
+                val fallbackCount = when (category) {
+                    MediaCategory.PHOTO -> lastPileCounts.photos
+                    MediaCategory.AUDIO -> lastPileCounts.audios
+                    MediaCategory.TEXT -> lastPileCounts.textes
+                    MediaCategory.SKETCH -> lastPileCounts.files
+                }
+                counts[i].text = (countFromPiles ?: fallbackCount).toString()
+            }
+        }
     }
 
     private fun onChildBlockSaved(noteId: Long, blockId: Long?, message: String) {
