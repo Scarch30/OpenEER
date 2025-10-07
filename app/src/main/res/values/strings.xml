@@ -111,5 +111,12 @@
     <string name="library_merge_untitled_placeholder">(vide)</string>
     <string name="library_note_already_merged">Note déjà fusionnée</string>
 
+    <string name="note_menu_merge_with">Fusionner avec…</string>
+    <string name="note_merge_dialog_title">Fusionner avec…</string>
+    <string name="note_merge_in_progress">Fusion en cours…</string>
+    <string name="note_merge_done">Fusion terminée</string>
+    <string name="note_merge_failed">Fusion impossible</string>
+    <string name="note_merge_empty">Aucune autre note disponible</string>
+
 
 </resources>

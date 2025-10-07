@@ -169,6 +169,7 @@ class MainActivity : AppCompatActivity() {
 
         // Note panel
         notePanel = NotePanelController(this, b)
+        notePanel.attachTopBubble(topBubble)
         notePanel.onPileCountsChanged = { counts -> applyPileCounts(counts) }
         lifecycleScope.launch {
             notePanel.observePileUi().collectLatest { piles ->

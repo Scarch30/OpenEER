@@ -1,6 +1,7 @@
 // app/src/main/java/com/example/openeer/ui/NotePanelController.kt
 package com.example.openeer.ui
 
+import android.content.Intent
 import android.graphics.Typeface
 import android.text.Spanned
 import android.text.style.StyleSpan
@@ -11,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
@@ -18,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
@@ -28,11 +31,13 @@ import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.imports.MediaKind
 import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.formatMeta
-import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
+import com.example.openeer.ui.panel.blocks.BlockRenderers
+import com.example.openeer.ui.library.LibraryFragment
+import com.example.openeer.ui.util.toast
 import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,7 +45,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class PileCounts(
     val photos: Int = 0,
@@ -77,6 +84,8 @@ class NotePanelController(
 
     private var currentNote: Note? = null
 
+    private var topBubble: TopBubbleController? = null
+
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(activity)
         BlocksRepository(
@@ -110,6 +119,13 @@ class NotePanelController(
         binding.mediaStrip.layoutManager =
             LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
         binding.mediaStrip.adapter = mediaAdapter
+        binding.btnNoteMenu.setOnClickListener { view ->
+            showNoteMenu(view)
+        }
+    }
+
+    fun attachTopBubble(controller: TopBubbleController) {
+        topBubble = controller
     }
 
     fun observePileUi(): Flow<List<PileUi>> = pileUiState.asStateFlow()
@@ -181,6 +197,120 @@ class NotePanelController(
 
         onPileCountsChanged?.invoke(PileCounts())
         pileUiState.value = emptyList()
+    }
+
+    private fun showNoteMenu(anchor: View) {
+        val popup = PopupMenu(activity, anchor)
+        popup.menu.add(0, MENU_MERGE_WITH, 0, activity.getString(R.string.note_menu_merge_with)).apply {
+            isEnabled = openNoteId != null
+        }
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_MERGE_WITH -> {
+                    promptMergeSelection()
+                    true
+                }
+                else -> false
+            }
+        }
+        popup.show()
+    }
+
+    private fun promptMergeSelection() {
+        val targetId = openNoteId ?: return
+        activity.lifecycleScope.launch {
+            val candidates = withContext(Dispatchers.IO) {
+                repo.allNotes.first()
+            }.filter { note ->
+                note.id != targetId && !note.isMerged
+            }
+
+            if (candidates.isEmpty()) {
+                activity.toast(R.string.note_merge_empty)
+                return@launch
+            }
+
+            val labels = candidates.map { formatMergeLabel(it) }.toTypedArray()
+            val checked = BooleanArray(labels.size)
+            val selected = mutableSetOf<Long>()
+
+            AlertDialog.Builder(activity)
+                .setTitle(R.string.note_merge_dialog_title)
+                .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                    val id = candidates[which].id
+                    if (isChecked) {
+                        selected += id
+                    } else {
+                        selected -= id
+                    }
+                }
+                .setNegativeButton(R.string.action_cancel, null)
+                .setPositiveButton(R.string.library_merge_positive) { _, _ ->
+                    performMerge(targetId, selected.toList())
+                }
+                .show()
+        }
+    }
+
+    private fun performMerge(targetId: Long, sourceIds: List<Long>) {
+        if (sourceIds.isEmpty()) return
+
+        activity.lifecycleScope.launch {
+            topBubble?.show(activity.getString(R.string.note_merge_in_progress))
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    repo.mergeNotes(sourceIds, targetId)
+                }
+            }.onSuccess { result ->
+                val mergedSources = withContext(Dispatchers.IO) {
+                    sourceIds.filter { sid ->
+                        repo.noteOnce(sid)?.isMerged == true
+                    }
+                }
+                if (mergedSources.isNotEmpty()) {
+                    notifyLibrarySourcesMerged(mergedSources)
+                }
+
+                val message = when {
+                    result.mergedCount == 0 -> activity.getString(R.string.note_merge_failed)
+                    result.mergedCount == result.total -> activity.getString(R.string.note_merge_done)
+                    else -> activity.getString(
+                        R.string.library_merge_partial,
+                        result.mergedCount,
+                        result.total
+                    )
+                }
+
+                if (result.mergedCount == 0) {
+                    topBubble?.showFailure(message)
+                } else {
+                    topBubble?.show(message)
+                }
+            }.onFailure {
+                topBubble?.showFailure(activity.getString(R.string.note_merge_failed))
+                activity.toast(R.string.note_merge_failed)
+            }
+        }
+    }
+
+    private fun formatMergeLabel(note: Note): String {
+        val title = note.title?.takeIf { it.isNotBlank() }
+        val body = note.body.trim().takeIf { it.isNotEmpty() }
+        val content = title ?: body?.take(80) ?: activity.getString(R.string.library_merge_untitled_placeholder)
+        return "#${note.id} • $content"
+    }
+
+    private fun notifyLibrarySourcesMerged(sourceIds: List<Long>) {
+        if (sourceIds.isEmpty()) return
+        val intent = Intent(LibraryFragment.ACTION_SOURCES_MERGED).apply {
+            setPackage(activity.packageName)
+            putExtra(LibraryFragment.EXTRA_MERGED_SOURCE_IDS, sourceIds.toLongArray())
+        }
+        activity.sendBroadcast(intent)
+    }
+
+    companion object {
+        private const val MENU_MERGE_WITH = 1
     }
 
     fun onAppendLive(displayBody: String) {
