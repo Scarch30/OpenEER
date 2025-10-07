@@ -1,5 +1,8 @@
 package com.example.openeer.imports
 
+private const val DEFAULT_DISPLAY_NAME = "imported"
+private const val DEFAULT_MIME = "application/octet-stream"
+
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
@@ -92,13 +95,14 @@ class ImportCoordinator(
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)
         val file = localUri.toFile()
         val dimensions = decodeImageDimensions(file)
+        val safeMime = resolveSafeMime(meta.mime, "image/*")
         noteRepository.addPhoto(noteId, file.absolutePath)
         blocksRepository.appendPhoto(
             noteId = noteId,
             mediaUri = file.absolutePath,
             width = dimensions?.first,
             height = dimensions?.second,
-            mimeType = meta.mime,
+            mimeType = safeMime,
             groupId = null
         )
         true
@@ -107,6 +111,8 @@ class ImportCoordinator(
     private suspend fun handleVideo(noteId: Long, uri: Uri, meta: Meta): Boolean = withContext(Dispatchers.IO) {
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)
         val file = localUri.toFile()
+        val safeName = resolveSafeDisplayName(meta.displayName, uri)
+        val safeMime = resolveSafeMime(meta.mime, "video/*")
         val mmr = MediaMetadataRetriever()
         var duration: Long? = null
         var width: Int? = null
@@ -123,14 +129,14 @@ class ImportCoordinator(
         val videoBlockId = blocksRepository.appendVideo(
             noteId = noteId,
             mediaUri = file.absolutePath,
-            mimeType = meta.mime ?: "video/*",
+            mimeType = safeMime,
             durationMs = duration,
             width = width,
             height = height,
             groupId = groupId
         )
 
-        _events.emit(ImportEvent.TranscriptionQueued(meta.displayName, MediaKind.VIDEO))
+        _events.emit(ImportEvent.TranscriptionQueued(safeName, MediaKind.VIDEO))
         val workUri = Uri.fromFile(file)
         VideoToTextWorker.enqueue(context, workUri, noteId, groupId, videoBlockId)
         true
@@ -139,6 +145,8 @@ class ImportCoordinator(
     private suspend fun handleAudio(noteId: Long, uri: Uri, meta: Meta): Boolean = withContext(Dispatchers.IO) {
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)
         val file = localUri.toFile()
+        val safeName = resolveSafeDisplayName(meta.displayName, uri)
+        val safeMime = resolveSafeMime(meta.mime, "audio/*")
         val mmr = MediaMetadataRetriever()
         var duration: Long? = null
         runCatching {
@@ -152,7 +160,7 @@ class ImportCoordinator(
             noteId = noteId,
             mediaUri = file.absolutePath,
             durationMs = duration,
-            mimeType = meta.mime ?: "audio/*",
+            mimeType = safeMime,
             groupId = groupId,
             transcription = null
         )
@@ -160,7 +168,7 @@ class ImportCoordinator(
         val tmpDir = File(context.filesDir, "imports_audio").apply { mkdirs() }
         val wavFile = File(tmpDir, "audio_${audioBlockId}.wav")
         AudioFromVideoExtractor(context).extractToWav(Uri.fromFile(file), wavFile, 16_000)
-        _events.emit(ImportEvent.TranscriptionQueued(meta.displayName, MediaKind.AUDIO))
+        _events.emit(ImportEvent.TranscriptionQueued(safeName, MediaKind.AUDIO))
         runCatching { WhisperService.ensureLoaded(context.applicationContext) }
         WhisperRefineQueue.enqueue(audioBlockId, wavFile.absolutePath) { refined ->
             scope.launch(Dispatchers.IO) {
@@ -182,9 +190,10 @@ class ImportCoordinator(
     private suspend fun handleText(noteId: Long, uri: Uri, meta: Meta): Boolean = withContext(Dispatchers.IO) {
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)
         val file = localUri.toFile()
+        val safeName = resolveSafeDisplayName(meta.displayName, uri)
         val content = file.readBytes()
         val text = decodeText(content)
-        val finalText = buildTextWithProvenance(meta.displayName, text)
+        val finalText = buildTextWithProvenance(safeName, text)
         blocksRepository.appendText(
             noteId = noteId,
             text = finalText,
@@ -196,26 +205,30 @@ class ImportCoordinator(
     private suspend fun handlePdf(noteId: Long, uri: Uri, meta: Meta): Boolean = withContext(Dispatchers.IO) {
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)
         val file = localUri.toFile()
+        val safeName = resolveSafeDisplayName(meta.displayName, uri)
+        val safeMime = resolveSafeMime(meta.mime, "application/pdf")
         val groupId = generateGroupId()
         val awaitingExtra = "{\"awaitingOcr\":true}"
-        val text = runCatching { extractPdfText(file) }.getOrNull()
-        val awaiting = text.isNullOrBlank()
+        val extractedText = runCatching { extractPdfText(file) }.getOrNull()
+        val awaiting = extractedText.isNullOrBlank()
         blocksRepository.appendFile(
             noteId = noteId,
             fileUri = file.absolutePath,
-            displayName = meta.displayName,
-            mimeType = meta.mime ?: "application/pdf",
+            displayName = safeName,
+            mimeType = safeMime,
             groupId = groupId,
             extra = if (awaiting) awaitingExtra else null
         )
         if (awaiting) {
-            _events.emit(ImportEvent.OcrAwaiting(meta.displayName))
+            _events.emit(ImportEvent.OcrAwaiting(safeName))
         } else {
-            blocksRepository.appendTranscription(
-                noteId = noteId,
-                text = text,
-                groupId = groupId
-            )
+            extractedText?.let { textContent ->
+                blocksRepository.appendTranscription(
+                    noteId = noteId,
+                    text = textContent,
+                    groupId = groupId
+                )
+            }
         }
         true
     }
@@ -223,11 +236,13 @@ class ImportCoordinator(
     private suspend fun handleFile(noteId: Long, uri: Uri, meta: Meta): Boolean = withContext(Dispatchers.IO) {
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)
         val file = localUri.toFile()
+        val safeName = resolveSafeDisplayName(meta.displayName, uri)
+        val safeMime = resolveSafeMime(meta.mime)
         blocksRepository.appendFile(
             noteId = noteId,
             fileUri = file.absolutePath,
-            displayName = meta.displayName,
-            mimeType = meta.mime,
+            displayName = safeName,
+            mimeType = safeMime,
             groupId = null,
             extra = null
         )
@@ -301,6 +316,20 @@ class ImportCoordinator(
     private fun buildKey(noteId: Long, uri: Uri, meta: Meta): String {
         val sizePart = meta.size?.toString() ?: "-"
         return listOf(noteId.toString(), uri.toString(), sizePart).joinToString("|")
+    }
+
+    private fun resolveSafeDisplayName(displayName: String?, uri: Uri): String {
+        val trimmed = displayName?.trim()
+        val candidate = trimmed?.takeIf { it.isNotEmpty() }
+            ?: FileCopy.guessNameFromUri(resolver, uri)?.trim()?.takeIf { it.isNotEmpty() }
+        return candidate ?: DEFAULT_DISPLAY_NAME
+    }
+
+    private fun resolveSafeMime(mime: String?, fallback: String? = null): String {
+        val trimmed = mime?.trim()
+        val candidate = trimmed?.takeIf { it.isNotEmpty() }
+            ?: fallback?.trim()?.takeIf { it.isNotEmpty() }
+        return candidate ?: DEFAULT_MIME
     }
 
     private fun persistPermission(uri: Uri) {
