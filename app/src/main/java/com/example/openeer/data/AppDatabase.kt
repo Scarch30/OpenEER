@@ -31,11 +31,12 @@ import com.example.openeer.data.audio.AudioDao
         NoteLocationEntity::class,
         AudioClipEntity::class,
         AudioTranscriptEntity::class,
+        NoteMergeMapEntity::class,
         SearchIndexFts::class,
         // 🔗 Liens entre blocs (AUDIO ↔ TEXTE, etc.)
         BlockLinkEntity::class
     ],
-    version = 9, // 🔼 bump : ajout block_links
+    version = 10, // 🔼 bump : ajout note_merge_map + flag isMerged
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -294,6 +295,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE notes ADD COLUMN isMerged INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS note_merge_map (
+                        noteId INTEGER PRIMARY KEY NOT NULL,
+                        mergedIntoId INTEGER NOT NULL,
+                        mergedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_note_merge_map_mergedIntoId ON note_merge_map(mergedIntoId)")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -308,7 +323,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9 // 🔗
+                        MIGRATION_8_9, // 🔗
+                        MIGRATION_9_10
                     )
                     .build()
                     .also { INSTANCE = it }

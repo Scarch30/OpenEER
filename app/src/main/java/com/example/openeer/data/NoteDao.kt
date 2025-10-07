@@ -51,4 +51,10 @@ interface NoteDao {
 
 
     suspend fun updateLocation(id: Long, lat: Double?, lon: Double?, place: String?, accuracyM: Float?, updatedAt: Long)
+
+    @Query("UPDATE notes SET isMerged = 1 WHERE id IN (:sourceIds)")
+    suspend fun markMerged(sourceIds: List<Long>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMergeMaps(maps: List<NoteMergeMapEntity>)
 }
