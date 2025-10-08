@@ -1,10 +1,11 @@
-// app/src/main/java/com/example/openeer/ui/MainActivity.kt
 package com.example.openeer.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
+import android.view.Menu
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.widget.EditText
 import android.widget.TextView
@@ -13,7 +14,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.view.ActionMode
 import androidx.core.content.ContextCompat
+import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -27,8 +30,13 @@ import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.imports.ImportCoordinator
+import com.example.openeer.imports.ImportEvent
+import com.example.openeer.imports.MediaKind
+import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arrière-plan
 import com.example.openeer.ui.capture.CaptureLauncher
 import com.example.openeer.ui.editor.EditorBodyController
+import com.example.openeer.ui.library.LibraryActivity
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
 import com.example.openeer.ui.util.configureSystemInsets
@@ -40,14 +48,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.example.openeer.imports.ImportCoordinator
-import com.example.openeer.imports.ImportEvent
-import com.example.openeer.imports.MediaKind
-import com.example.openeer.ui.library.LibraryActivity
-import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arrière-plan
 import android.util.Log
 import android.content.Intent
-import androidx.core.view.isGone
 
 class MainActivity : AppCompatActivity() {
 
@@ -75,13 +77,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val adapter = NotesAdapter(
-        onClick = { note -> onNoteClicked(note) },
-        onLongClick = { note -> promptTitle(note) }
-    )
+    // === Sélection / actions depuis l'écran principal ===
+    private var actionMode: ActionMode? = null
+    private val selectedIds: LinkedHashSet<Long> = linkedSetOf()
 
+    private lateinit var adapter: NotesAdapter
+    // === fin sélection ===
+
+    // ⚠️ latestNotes = liste **filtrée** (sans notes fusionnées)
     private var latestNotes: List<Note> = emptyList()
     private var lastSelectedNoteId: Long? = null
+
+    // ⚓️ Gel/dégel de la sélection pendant un refresh provoqué
+    private var frozenSelectionId: Long? = null
+    private fun freezeSelection() {
+        frozenSelectionId = notePanel.openNoteId ?: lastSelectedNoteId
+    }
+    private fun clearSelectionFreeze() {
+        frozenSelectionId = null
+    }
 
     // Repos
     private val repo: NoteRepository by lazy {
@@ -131,6 +145,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             lifecycleScope.launch {
+                // 🧊 fige la sélection avant de déclencher l'import (qui mettra à jour updatedAt)
+                freezeSelection()
                 editorBody.commitInlineEdit(notePanel.openNoteId)
                 val targetNoteId = notePanel.openNoteId ?: ensureOpenNote()
                 runCatching {
@@ -175,16 +191,44 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // === Adapter (créé après que 'b' soit prêt) ===
+        adapter = NotesAdapter(
+            onClick = { note ->
+                if (actionMode != null) {
+                    toggleSelection(note.id)
+                } else {
+                    onNoteClicked(note)
+                }
+            },
+            onLongClick = { note ->
+                if (actionMode == null) {
+                    actionMode = startSupportActionMode(mainActionModeCb)
+                    adapter.showSelectionUi = true // 👈 affiche les cases dès l’entrée en ActionMode
+                }
+                toggleSelection(note.id)
+            }
+        )
+
         // Liste
         b.recycler.layoutManager = LinearLayoutManager(this)
         b.recycler.adapter = adapter
         lifecycleScope.launch {
             vm.notes.collectLatest { notes ->
-                latestNotes = notes
-                val currentId = notePanel.openNoteId
-                val index = currentId?.let { id -> notes.indexOfFirst { it.id == id } } ?: -1
-                adapter.submitList(notes) {
-                    maintainSelection(currentId, notes, index)
+                // ⛔️ MASQUER les notes fusionnées (isMerged = true)
+                val visible = notes.filterNot { it.isMerged }
+
+                latestNotes = visible
+
+                // On restaure d’abord à partir d’un éventuel gel
+                val restoredIdFromFreeze = frozenSelectionId
+                val currentId = restoredIdFromFreeze ?: notePanel.openNoteId
+                val index = currentId?.let { id -> visible.indexOfFirst { it.id == id } } ?: -1
+
+                adapter.submitList(visible) {
+                    // Restaure la sélection APRÈS le diff
+                    maintainSelection(currentId, visible, index)
+                    // Dégèle si un gel était actif
+                    if (restoredIdFromFreeze != null) clearSelectionFreeze()
                 }
             }
         }
@@ -221,6 +265,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     // Sécurise un éventuel overlay d’édition avant de changer de note
                     runCatching { editorBody.commitInlineEdit(notePanel.openNoteId) }
+
+                    // 🧊 fige la sélection pour éviter un switch pendant la prise
+                    freezeSelection()
 
                     if (notePanel.openNoteId == null) {
                         lifecycleScope.launch {
@@ -297,12 +344,16 @@ class MainActivity : AppCompatActivity() {
         }
         b.btnPhoto.setOnClickListener {
             lifecycleScope.launch {
+                // 🧊 fige la sélection avant la capture (mise à jour updatedAt à venir)
+                freezeSelection()
                 val nid = ensureOpenNote()
                 captureLauncher.launchPhotoCapture(nid)
             }
         }
         b.btnSketch.setOnClickListener {
             lifecycleScope.launch {
+                // 🧊 fige la sélection avant la capture
+                freezeSelection()
                 val nid = ensureOpenNote()
                 captureLauncher.launchSketchCapture(nid)
             }
@@ -324,6 +375,8 @@ class MainActivity : AppCompatActivity() {
                 toast("Import bientôt…")
                 return@setOnClickListener
             }
+            // 🧊 fige la sélection avant l’UI système d’import
+            freezeSelection()
             importLauncher.launch(
                 arrayOf(
                     "image/*",
@@ -402,7 +455,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun maintainSelection(
         noteId: Long?,
-        notes: List<Note> = latestNotes,
+        notes: List<Note> = latestNotes, // ⚠️ latestNotes est filtrée
         presetIndex: Int = -1,
     ) {
         if (noteId == null) {
@@ -438,8 +491,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- Titre rapide ----------
-    private fun promptTitle(note: Note) {
+    // ---------- Renommer depuis la liste (utilisé par ActionMode) ----------
+    private fun promptRename(noteId: Long) {
+        val note = latestNotes.firstOrNull { it.id == noteId } ?: return
         val input = EditText(this).apply {
             hint = "Titre (facultatif)"
             setText(note.title ?: "")
@@ -450,10 +504,13 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Enregistrer") { _, _ ->
                 val t = input.text?.toString()?.trim()
                 lifecycleScope.launch(Dispatchers.IO) {
+                    // 🧊 fige la sélection avant le setTitle (qui bump updatedAt)
+                    freezeSelection()
                     repo.setTitle(note.id, t?.ifBlank { null })
                 }
+                clearMainSelection()
             }
-            .setNegativeButton("Annuler", null)
+            .setNegativeButton("Annuler") { _, _ -> clearMainSelection() }
             .show()
     }
 
@@ -569,6 +626,126 @@ class MainActivity : AppCompatActivity() {
                 .first()
         }
     }
+
+    // ===== Sélection / ActionMode =====
+    private fun toggleSelection(id: Long) {
+        if (selectedIds.contains(id)) selectedIds.remove(id) else selectedIds.add(id)
+        adapter.selectedIds = selectedIds
+        if (selectedIds.isEmpty()) {
+            actionMode?.finish()
+        } else {
+            actionMode?.title = "${selectedIds.size} sélectionnée(s)"
+            actionMode?.invalidate()
+        }
+    }
+
+    private val mainActionModeCb: ActionMode.Callback = object : ActionMode.Callback {
+        private val MENU_MERGE = 1
+        private val MENU_UNMERGE = 2
+        private val MENU_RENAME = 3
+
+        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            adapter.showSelectionUi = true // 👈 active l’UI de sélection (cases/coches + overlay)
+            menu.add(0, MENU_MERGE, 0, "Fusionner")
+            menu.add(0, MENU_UNMERGE, 1, "Défusionner…")
+            menu.add(0, MENU_RENAME, 2, "Renommer")
+            mode.title = "${selectedIds.size} sélectionnée(s)"
+            return true
+        }
+
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            val one = selectedIds.size == 1
+            val many = selectedIds.size >= 2
+            menu.findItem(MENU_MERGE)?.isEnabled = many
+            menu.findItem(MENU_UNMERGE)?.isEnabled = one
+            menu.findItem(MENU_RENAME)?.isEnabled = one
+            return true
+        }
+
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+            when (item.itemId) {
+                MENU_MERGE -> {
+                    val notes = latestNotes.filter { it.id in selectedIds }
+                        .sortedByDescending { it.updatedAt }
+                    if (notes.size >= 2) {
+                        val target = notes.first()
+                        val sources = notes.drop(1).map { it.id }
+                        lifecycleScope.launch {
+                            val res = repo.mergeNotes(sources, target.id)
+                            if (res.mergedCount > 0) {
+                                notePanel.open(target.id)
+                                toast(getString(com.example.openeer.R.string.library_merge_success_with_count, res.mergedCount, res.total))
+                            } else {
+                                toast(res.reason ?: "Fusion impossible")
+                            }
+                            clearMainSelection()
+                        }
+                    }
+                    return true
+                }
+                MENU_UNMERGE -> {
+                    val only = selectedIds.first()
+                    lifecycleScope.launch { performUnmergeFromMain(only) }
+                    return true
+                }
+                MENU_RENAME -> {
+                    val only = selectedIds.first()
+                    promptRename(only)
+                    return true
+                }
+            }
+            return false
+        }
+
+        override fun onDestroyActionMode(mode: ActionMode) {
+            clearMainSelection()
+        }
+    }
+
+    private fun clearMainSelection() {
+        selectedIds.clear()
+        adapter.selectedIds = emptySet()
+        adapter.showSelectionUi = false // 👈 masque l’UI de sélection quand on quitte l’ActionMode
+        actionMode = null
+    }
+
+    private suspend fun performUnmergeFromMain(targetNoteId: Long) {
+        val db = AppDatabase.get(this@MainActivity)
+        val logs = withContext(Dispatchers.IO) { db.noteDao().listMergeLogsUi() }
+            .filter { it.targetId == targetNoteId }
+            .sortedByDescending { it.createdAt }
+
+        if (logs.isEmpty()) {
+            toast("Aucune fusion enregistrée pour cette note")
+            clearMainSelection()
+            return
+        }
+
+        val labels = logs.map { row ->
+            "#${row.id} • source #${row.sourceId} → cible #${row.targetId}"
+        }.toTypedArray()
+
+        var checked = 0
+        AlertDialog.Builder(this)
+            .setTitle("Annuler une fusion")
+            .setSingleChoiceItems(labels, checked) { _, which -> checked = which }
+            .setNegativeButton("Annuler", null)
+            .setPositiveButton("Défusionner") { _, _ ->
+                val logId = logs[checked].id
+                lifecycleScope.launch {
+                    val result = withContext(Dispatchers.IO) { repo.undoMergeById(logId) }
+                    if (result.reassigned + result.recreated > 0) {
+                        toast("Défusion OK (${result.reassigned} réassignés, ${result.recreated} recréés)")
+                        notePanel.open(targetNoteId)
+                    } else {
+                        toast("Défusion impossible")
+                    }
+                    clearMainSelection()
+                }
+            }
+            .show()
+    }
+    // ===== fin sélection / ActionMode =====
 }
 
 class NotesVm(private val repo: NoteRepository) : ViewModel() {

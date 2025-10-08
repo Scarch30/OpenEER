@@ -42,6 +42,10 @@ interface BlockDao {
     @Query("UPDATE blocks SET noteId = :targetNoteId WHERE id IN (:blockIds)")
     suspend fun updateNoteIdForBlockIds(blockIds: List<Long>, targetNoteId: Long)
 
+    // ✅ AJOUT CRUCIAL : MAJ atomique pour éviter la contrainte unique (noteId, position)
+    @Query("UPDATE blocks SET noteId = :targetNoteId, position = :position WHERE id = :id")
+    suspend fun updateNoteIdAndPosition(id: Long, targetNoteId: Long, position: Int)
+
     // ✅ Utilisée par BlocksRepository.updateAudioTranscription(...)
     @Query("UPDATE blocks SET text = :newText, updatedAt = :updatedAt WHERE id = :blockId")
     suspend fun updateTranscription(blockId: Long, newText: String, updatedAt: Long)

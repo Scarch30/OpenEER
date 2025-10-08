@@ -1,3 +1,4 @@
+// app/src/main/java/com/example/openeer/ui/library/LibraryFragment.kt
 package com.example.openeer.ui.library
 
 import android.content.BroadcastReceiver
@@ -245,6 +246,8 @@ class LibraryFragment : Fragment() {
         return "#${note.id} • $content"
     }
 
+    // app/src/main/java/com/example/openeer/ui/library/LibraryFragment.kt
+// ...
     private fun performMerge(target: Note, sources: List<Long>) {
         val snackbar = Snackbar.make(b.root, getString(R.string.library_merge_in_progress), Snackbar.LENGTH_INDEFINITE)
         snackbar.show()
@@ -253,7 +256,8 @@ class LibraryFragment : Fragment() {
                 .onSuccess { result ->
                     snackbar.dismiss()
                     if (result.mergedCount == 0) {
-                        Snackbar.make(b.root, getString(R.string.library_merge_failed), Snackbar.LENGTH_SHORT).show()
+                        val msg = result.reason ?: getString(R.string.library_merge_failed)
+                        Snackbar.make(b.root, msg, Snackbar.LENGTH_SHORT).show()
                         return@launch
                     }
                     val mergedSources = result.mergedSourceIds
@@ -301,12 +305,14 @@ class LibraryFragment : Fragment() {
                         }
                     }.show()
                 }
-                .onFailure {
+                .onFailure { e ->
                     snackbar.dismiss()
+                    android.util.Log.e("MergeDiag", "mergeNotes() UI failed", e)
                     Snackbar.make(b.root, getString(R.string.library_merge_failed), Snackbar.LENGTH_SHORT).show()
                 }
         }
     }
+
 
     private fun clearSelection() {
         selectedIds.clear()

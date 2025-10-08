@@ -32,9 +32,21 @@ class BlocksRepository(
         blockDao.getById(blockId)
     }
 
+    /**
+     * Réassigne TOUS les blocs d'une note source vers une note cible en les
+     * append-ant à la fin de la cible (mise à jour atomique noteId+position).
+     * Évite toute collision sur l'unicité (noteId, position).
+     */
     suspend fun reassignBlocksToNote(sourceNoteId: Long, targetNoteId: Long) {
         withContext(io) {
-            blockDao.updateNoteIdForBlocks(sourceNoteId, targetNoteId)
+            // Ordre stable : positions croissantes dans la source
+            val idsInOrder = blockDao.getBlockIdsForNote(sourceNoteId)
+            if (idsInOrder.isEmpty()) return@withContext
+
+            var nextPos = (blockDao.getMaxPosition(targetNoteId) ?: -1) + 1
+            idsInOrder.forEach { bid ->
+                blockDao.updateNoteIdAndPosition(bid, targetNoteId, nextPos++)
+            }
         }
     }
 
@@ -42,11 +54,16 @@ class BlocksRepository(
         blockDao.getBlockIdsForNote(noteId)
     }
 
+    /**
+     * Réassigne une liste explicite d'IDs vers la cible en les ajoutant en fin.
+     * Si l'ordre importe, fournis les IDs déjà triés. Sinon, on préservera l'ordre fourni.
+     */
     suspend fun reassignBlocksByIds(blockIds: List<Long>, targetNoteId: Long) {
         if (blockIds.isEmpty()) return
         withContext(io) {
-            blockIds.chunked(900).forEach { chunk ->
-                blockDao.updateNoteIdForBlockIds(chunk, targetNoteId)
+            var nextPos = (blockDao.getMaxPosition(targetNoteId) ?: -1) + 1
+            blockIds.forEach { bid ->
+                blockDao.updateNoteIdAndPosition(bid, targetNoteId, nextPos++)
             }
         }
     }

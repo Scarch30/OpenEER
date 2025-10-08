@@ -1,5 +1,6 @@
 package com.example.openeer.data
 
+import android.util.Log
 import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.merge.MergeSnapshot
@@ -84,7 +85,8 @@ class NoteRepository(
         val skippedCount: Int,
         val total: Int,
         val mergedSourceIds: List<Long> = emptyList(),
-        val transactionTimestamp: Long? = null
+        val transactionTimestamp: Long? = null,
+        val reason: String? = null // 👈 explication en cas d'échec
     )
 
     data class UndoResult(val reassigned: Int, val recreated: Int)
@@ -101,59 +103,146 @@ class NoteRepository(
     private val gson = Gson()
 
     suspend fun mergeNotes(sourceIds: List<Long>, targetId: Long): MergeResult {
-        val validSources = sourceIds.filter { it != targetId }
+        val TAG = "MergeDiag"
+
+        val normalizedSources = sourceIds.distinct().filter { it != targetId }
+        if (normalizedSources.isEmpty()) {
+            val r = "Sélection insuffisante (aucune source valide)"
+            Log.w(TAG, "$r — target=$targetId, src=$sourceIds")
+            return MergeResult(0, 0, sourceIds.size, reason = r)
+        }
+
+        val target = noteDao.getByIdOnce(targetId)
+        if (target == null) {
+            val r = "La note cible n'existe pas"
+            Log.w(TAG, "$r — target=$targetId")
+            return MergeResult(0, 0, normalizedSources.size, reason = r)
+        }
+        if (target.isMerged) {
+            val r = "La note cible est déjà fusionnée"
+            Log.w(TAG, "$r — target=$targetId")
+            return MergeResult(0, 0, normalizedSources.size, reason = r)
+        }
+
+        val sourcesEntities = noteDao.getByIds(normalizedSources).associateBy { it.id }
+        val missing = normalizedSources.filter { !sourcesEntities.containsKey(it) }
+        val alreadyMerged = normalizedSources.filter { sourcesEntities[it]?.isMerged == true }
+        if (missing.isNotEmpty()) {
+            val r = "Sources manquantes: $missing"
+            Log.w(TAG, "$r — target=$targetId")
+            return MergeResult(0, 0, normalizedSources.size, reason = r)
+        }
+
         var merged = 0
-        var skipped = 0
+        var skipped = alreadyMerged.size
+        val effectiveSources = normalizedSources - alreadyMerged.toSet()
+        if (effectiveSources.isEmpty()) {
+            val r = "Toutes les sources sont déjà fusionnées"
+            Log.i(TAG, "$r — target=$targetId, sources=$normalizedSources")
+            return MergeResult(0, skipped, normalizedSources.size, mergedSourceIds = emptyList(), reason = r)
+        }
+
+        Log.d(TAG, "mergeNotes() start — target=$targetId, sources=$effectiveSources (total=${normalizedSources.size})")
+
         val mergedSources = mutableListOf<Long>()
         val sourceBlocksSnapshot = mutableMapOf<Long, List<Long>>()
         val targetBlocksBefore = blocksRepository.getBlockIds(targetId)
         val now = System.currentTimeMillis()
 
-        for (sid in validSources) {
-            val blocks = blockReadDao.getBlocksForNote(sid)
-            val snapshots = blocks.map { toSnapshot(sid, it) }
-            val log = NoteMergeLogEntity(
-                sourceId = sid,
-                targetId = targetId,
-                snapshotJson = gson.toJson(MergeSnapshot(sid, targetId, snapshots)),
-                createdAt = System.currentTimeMillis()
-            )
-            noteDao.insertMergeLog(log)
+        var lastError: Throwable? = null
 
-            val source = noteDao.getByIdOnce(sid) ?: continue
-            if (source.isMerged) {
-                skipped++
-                continue
+        // ----------------------------------------------------------------
+        // 0) Normalisation : convertir les body en blocs texte
+        //    - CIBLE : si body non vide -> bloc texte + vider body (éviter doublon)
+        //    - SOURCE(S) : idem AVANT snapshot pour que l'undo connaisse le texte
+        // ----------------------------------------------------------------
+        if (!target.body.isNullOrBlank()) {
+            try {
+                blocksRepository.createTextChild(targetId, target.body!!)
+                noteDao.updateBody(targetId, "", now)
+                Log.d(TAG, "target=$targetId — body converti en bloc texte")
+            } catch (t: Throwable) {
+                Log.w(TAG, "target=$targetId — conversion body->bloc texte a échoué (non bloquant)", t)
             }
+        }
 
-            val sourceBlocks = blocksRepository.getBlockIds(sid)
-            blocksRepository.reassignBlocksToNote(sid, targetId)
-            noteDao.markMerged(listOf(sid))
-            noteDao.insertMergeMaps(
-                listOf(NoteMergeMapEntity(sid, targetId, now))
-            )
-            merged++
-            mergedSources += sid
-            sourceBlocksSnapshot[sid] = sourceBlocks
+        for (sid in effectiveSources) {
+            try {
+                val srcEntity = sourcesEntities[sid]
+                if (srcEntity != null && !srcEntity.body.isNullOrBlank()) {
+                    blocksRepository.createTextChild(sid, srcEntity.body!!)
+                    noteDao.updateBody(sid, "", now)
+                    Log.d(TAG, "source=$sid — body converti en bloc texte")
+                    // IMPORTANT : refresh en mémoire pour la suite (pas nécessaire mais clair)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "source=$sid — conversion body->bloc texte a échoué (non bloquant)", t)
+            }
+        }
+        // ----------------------------------------------------------------
+
+        for (sid in effectiveSources) {
+            try {
+                Log.d(TAG, "source=$sid — begin")
+
+                // 1) Snapshot pour undo (inclut désormais le body converti en bloc)
+                val blocksForLog = blockReadDao.getBlocksForNote(sid)
+                val snapshots = blocksForLog.map { toSnapshot(sid, it) }
+                val log = NoteMergeLogEntity(
+                    sourceId = sid,
+                    targetId = targetId,
+                    snapshotJson = gson.toJson(MergeSnapshot(sid, targetId, snapshots)),
+                    createdAt = System.currentTimeMillis()
+                )
+                noteDao.insertMergeLog(log)
+                Log.d(TAG, "source=$sid — insertMergeLog OK (snapshots=${snapshots.size})")
+
+                // 2) Réassignation des blocs vers la fin de la cible (évite collisions (noteId,position))
+                val srcBefore = blocksRepository.getBlockIds(sid)
+                val tgtBefore = blocksRepository.getBlockIds(targetId)
+                blocksRepository.reassignBlocksToNote(sid, targetId)
+                val srcAfter = blocksRepository.getBlockIds(sid)
+                val tgtAfter = blocksRepository.getBlockIds(targetId)
+                Log.d(TAG, "source=$sid — reassign OK (srcBefore=${srcBefore.size}, srcAfter=${srcAfter.size}, tgtBefore=${tgtBefore.size}, tgtAfter=${tgtAfter.size})")
+
+                // 3) Marquer la source + table de correspondance
+                noteDao.markMerged(listOf(sid))
+                Log.d(TAG, "source=$sid — markMerged OK")
+                noteDao.insertMergeMaps(listOf(NoteMergeMapEntity(sid, targetId, now)))
+                Log.d(TAG, "source=$sid — insertMergeMaps OK")
+
+                merged++
+                mergedSources += sid
+                sourceBlocksSnapshot[sid] = srcBefore
+                Log.d(TAG, "source=$sid — done")
+            } catch (t: Throwable) {
+                lastError = t
+                Log.e(TAG, "source=$sid — FAILED", t)
+                // on continue pour les autres sources, au cas où l'échec soit isolé
+            }
         }
 
         val transaction = if (mergedSources.isNotEmpty()) {
             MergeTransaction(targetId, mergedSources.toList(), now)
-        } else {
-            null
-        }
-
+        } else null
         if (transaction != null) {
             lastMergeSnapshot = MergeUndoSnapshot(transaction, targetBlocksBefore, sourceBlocksSnapshot)
         }
 
-        return MergeResult(
+        val reason = if (merged == 0 && lastError != null) {
+            "Erreur pendant la fusion: ${lastError.message ?: lastError::class.java.simpleName}"
+        } else null
+
+        val result = MergeResult(
             mergedCount = merged,
             skippedCount = skipped,
-            total = validSources.size,
+            total = normalizedSources.size,
             mergedSourceIds = mergedSources.toList(),
-            transactionTimestamp = transaction?.timestamp
+            transactionTimestamp = transaction?.timestamp,
+            reason = reason
         )
+        Log.d(TAG, "mergeNotes() done — result=$result")
+        return result
     }
 
     suspend fun undoMerge(tx: MergeTransaction): Boolean {
@@ -161,14 +250,14 @@ class NoteRepository(
         if (snapshot.transaction != tx) return false
 
         for (sourceId in tx.sources) {
+            // on rapatrie d'abord tout dans la source
             blocksRepository.reassignBlocksToNote(tx.targetId, sourceId)
 
+            // puis on remet dans la cible uniquement ce qui appartenait à la cible + aux autres sources
             val keepInTarget = buildList {
                 addAll(snapshot.targetBlocks)
                 snapshot.sourceBlocks.forEach { (otherId, blocks) ->
-                    if (otherId != sourceId) {
-                        addAll(blocks)
-                    }
+                    if (otherId != sourceId) addAll(blocks)
                 }
             }
             blocksRepository.reassignBlocksByIds(keepInTarget, tx.targetId)

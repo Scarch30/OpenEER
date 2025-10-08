@@ -1,3 +1,4 @@
+// app/src/main/java/com/example/openeer/data/NoteDao.kt
 package com.example.openeer.data
 
 import androidx.room.*
@@ -20,16 +21,18 @@ interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY updatedAt DESC")
     fun getAllFlow(): Flow<List<Note>>
 
-    // ✅ one-shot pour lister tout (Bibliothèque)
     @Query("SELECT * FROM notes ORDER BY updatedAt DESC")
     suspend fun getAllOnce(): List<Note>
 
-    // ✅ nouveaux accès par ID
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     fun getByIdFlow(id: Long): Flow<Note?>
 
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     suspend fun getByIdOnce(id: Long): Note?
+
+    // 👇👇 AJOUT : charger un lot de notes par IDs (validation merge)
+    @Query("SELECT * FROM notes WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<Long>): List<Note>
 
     @Query("UPDATE notes SET audioPath = :path, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateAudioPath(id: Long, path: String, updatedAt: Long)
@@ -57,8 +60,6 @@ interface NoteDao {
         SET lat = :lat, lon = :lon, placeLabel = :place, accuracyM = :accuracyM, updatedAt = :updatedAt
         WHERE id = :id
     """)
-
-
     suspend fun updateLocation(id: Long, lat: Double?, lon: Double?, place: String?, accuracyM: Float?, updatedAt: Long)
 
     @Query("UPDATE notes SET isMerged = 1 WHERE id IN (:sourceIds)")

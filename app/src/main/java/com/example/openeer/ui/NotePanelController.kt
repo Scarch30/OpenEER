@@ -49,6 +49,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.util.Log
+
 
 data class PileCounts(
     val photos: Int = 0,
@@ -99,6 +101,9 @@ class NotePanelController(
     private val mediaActions = MediaActions(activity, blocksRepo)
 
     private var blocksJob: Job? = null
+    // 🧊 Nouveau : on garde un handle pour l’observation de la note et on l’annule lors d’un open() suivant
+    private var noteJob: Job? = null
+
     private val blockViews = mutableMapOf<Long, View>()
     private var pendingHighlightBlockId: Long? = null
 
@@ -153,10 +158,13 @@ class NotePanelController(
         mediaAdapter.submitList(emptyList())
         binding.mediaStrip.isGone = true
 
-        // Observe la note
-        activity.lifecycleScope.launch {
+        // 🔁 Annule l’observation précédente de la note (évite les écritures UI d’une ancienne note)
+        noteJob?.cancel()
+        noteJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 noteFlow(noteId).collectLatest { note ->
+                    // Garde-fou : si l’onglet a changé entre temps, on ignore
+                    if (openNoteId != noteId) return@collectLatest
                     currentNote = note
                     render(note)
                 }
@@ -168,6 +176,8 @@ class NotePanelController(
         blocksJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 blocksRepo.observeBlocks(noteId).collectLatest { blocks ->
+                    // Garde-fou : si l’onglet a changé entre temps, on ignore
+                    if (openNoteId != noteId) return@collectLatest
                     renderBlocks(blocks)
                 }
             }
@@ -188,8 +198,12 @@ class NotePanelController(
         binding.txtBodyDetail.text = ""
         binding.noteMetaFooter.isGone = true
 
+        // 🔚 Coupe proprement les collecteurs
+        noteJob?.cancel()
+        noteJob = null
         blocksJob?.cancel()
         blocksJob = null
+
         blockViews.clear()
         pendingHighlightBlockId = null
         binding.childBlocksContainer.removeAllViews()
@@ -261,15 +275,15 @@ class NotePanelController(
 
         activity.lifecycleScope.launch {
             topBubble?.show(activity.getString(R.string.note_merge_in_progress))
+            Log.d(TAG, "mergeNotes() from panel — target=$targetId, sources=$sourceIds")
+
             runCatching {
-                withContext(Dispatchers.IO) {
-                    repo.mergeNotes(sourceIds, targetId)
-                }
+                withContext(Dispatchers.IO) { repo.mergeNotes(sourceIds, targetId) }
             }.onSuccess { result ->
                 if (result.mergedCount == 0) {
-                    val failure = activity.getString(R.string.note_merge_failed)
-                    topBubble?.showFailure(failure)
-                    activity.toast(R.string.note_merge_failed)
+                    val msg = result.reason ?: activity.getString(R.string.note_merge_failed)
+                    topBubble?.showFailure(msg)
+                    Snackbar.make(binding.root, msg, Snackbar.LENGTH_SHORT).show()
                     return@onSuccess
                 }
 
@@ -283,19 +297,18 @@ class NotePanelController(
                     result.mergedCount,
                     result.total
                 )
-
                 topBubble?.show(message)
 
-                val transaction = result.transactionTimestamp?.let { timestamp ->
-                    NoteRepository.MergeTransaction(targetId, result.mergedSourceIds, timestamp)
+                val transaction = result.transactionTimestamp?.let { ts ->
+                    NoteRepository.MergeTransaction(targetId, result.mergedSourceIds, ts)
                 }
-
                 if (transaction != null) {
                     showUndoSnackbar(message, transaction)
                 }
-            }.onFailure {
+            }.onFailure { e ->
+                Log.e(TAG, "mergeNotes() UI failed", e)
                 topBubble?.showFailure(activity.getString(R.string.note_merge_failed))
-                activity.toast(R.string.note_merge_failed)
+                Snackbar.make(binding.root, activity.getString(R.string.note_merge_failed), Snackbar.LENGTH_SHORT).show()
             }
         }
     }
@@ -355,6 +368,7 @@ class NotePanelController(
 
     companion object {
         private const val MENU_MERGE_WITH = 1
+        private const val TAG = "MergeDiag"
     }
 
     fun onAppendLive(displayBody: String) {
@@ -381,6 +395,9 @@ class NotePanelController(
     }
 
     private fun renderBlocks(blocks: List<BlockEntity>) {
+        // 🛡 Garde-fou : si entre temps on a changé de note, on ne touche pas à l’UI
+        val nid = openNoteId ?: return
+
         val counts = PileCounts(
             photos = blocks.count { it.type == BlockType.PHOTO || it.type == BlockType.VIDEO },
             audios = blocks.count { it.type == BlockType.AUDIO },
@@ -589,7 +606,9 @@ class NotePanelController(
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
 
     private fun render(note: Note?) {
-        if (note == null) return
+        // 🛡 Ignore toute émission d’une note qui n’est plus ouverte (possible si réordonnancement)
+        val openId = openNoteId
+        if (note == null || openId == null || note.id != openId) return
 
         val title = note.title?.takeIf { it.isNotBlank() } ?: "Sans titre"
         binding.txtTitleDetail.text = title

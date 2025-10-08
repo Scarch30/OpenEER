@@ -6,24 +6,54 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_note_item"
-    android:foreground="?attr/selectableItemBackgroundBorderless"
+
+    android:foreground="?attr/selectableItemBackground"
     android:clickable="true"
-    android:focusable="true">
+    android:focusable="true"
+    android:longClickable="true"
+    android:descendantFocusability="blocksDescendants">
 
+    <TextView
+        android:id="@+id/titleOrBody"
+        android:text="Titre ou début du corps"
+        android:textStyle="bold"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
 
-    <TextView android:id="@+id/titleOrBody"
-        android:text="Titre ou début du corps" android:textStyle="bold"
-        android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
 
-    <LinearLayout android:orientation="horizontal"
-        android:layout_width="match_parent" android:layout_height="wrap_content">
-        <TextView android:id="@+id/meta"
+        <TextView
+            android:id="@+id/meta"
             android:text="30 août 2025 • 19:42:07 • 13013 Marseille"
-            android:layout_width="0dp" android:layout_weight="1"
+            android:layout_width="0dp"
+            android:layout_weight="1"
             android:layout_height="wrap_content"/>
-        <ImageView android:id="@+id/iconReminder"
+
+        <ImageView
+            android:id="@+id/iconReminder"
             android:visibility="gone"
             android:src="@android:drawable/ic_lock_idle_alarm"
-            android:layout_width="20dp" android:layout_height="20dp"/>
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:clickable="false"
+            android:focusable="false"/>
     </LinearLayout>
+
+    <!-- ✅ check visuel (ne capte pas les clics) -->
+    <ImageView
+        android:id="@+id/checkOverlay"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_gravity="end"
+        android:layout_marginTop="6dp"
+        android:src="@drawable/ic_check_circle_24"
+        android:visibility="gone"
+        android:alpha="0.95"
+        android:clickable="false"
+        android:focusable="false"
+        android:importantForAccessibility="no"
+        android:contentDescription="@null"/>
 </LinearLayout>
