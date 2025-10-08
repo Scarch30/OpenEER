@@ -19,6 +19,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.data.AppDatabase
@@ -78,6 +79,9 @@ class MainActivity : AppCompatActivity() {
         onClick = { note -> onNoteClicked(note) },
         onLongClick = { note -> promptTitle(note) }
     )
+
+    private var latestNotes: List<Note> = emptyList()
+    private var lastSelectedNoteId: Long? = null
 
     // Repos
     private val repo: NoteRepository by lazy {
@@ -160,20 +164,28 @@ class MainActivity : AppCompatActivity() {
 
         topBubble = TopBubbleController(b, lifecycleScope)
 
-        // Liste
-        b.recycler.layoutManager = LinearLayoutManager(this)
-        b.recycler.adapter = adapter
-        lifecycleScope.launch {
-            vm.notes.collectLatest { adapter.submitList(it) }
-        }
-
         // Note panel
         notePanel = NotePanelController(this, b)
         notePanel.attachTopBubble(topBubble)
+        notePanel.onOpenNoteChanged = { id -> maintainSelection(id) }
         notePanel.onPileCountsChanged = { counts -> applyPileCounts(counts) }
         lifecycleScope.launch {
             notePanel.observePileUi().collectLatest { piles ->
                 renderPiles(piles)
+            }
+        }
+
+        // Liste
+        b.recycler.layoutManager = LinearLayoutManager(this)
+        b.recycler.adapter = adapter
+        lifecycleScope.launch {
+            vm.notes.collectLatest { notes ->
+                latestNotes = notes
+                val currentId = notePanel.openNoteId
+                val index = currentId?.let { id -> notes.indexOfFirst { it.id == id } } ?: -1
+                adapter.submitList(notes) {
+                    maintainSelection(currentId, notes, index)
+                }
             }
         }
 
@@ -386,6 +398,44 @@ class MainActivity : AppCompatActivity() {
         // Sécurise l’overlay avant de changer de note
         runCatching { editorBody.commitInlineEdit(notePanel.openNoteId) }
         notePanel.open(note.id)
+    }
+
+    private fun maintainSelection(
+        noteId: Long?,
+        notes: List<Note> = latestNotes,
+        presetIndex: Int = -1,
+    ) {
+        if (noteId == null) {
+            if (lastSelectedNoteId != null || adapter.selectedIds.isNotEmpty()) {
+                lastSelectedNoteId = null
+                adapter.selectedIds = emptySet()
+            }
+            return
+        }
+
+        val id = noteId
+        val index = if (presetIndex >= 0) presetIndex else notes.indexOfFirst { it.id == id }
+
+        if (lastSelectedNoteId != id || !adapter.selectedIds.contains(id)) {
+            lastSelectedNoteId = id
+            adapter.selectedIds = setOf(id)
+        }
+
+        if (index == -1) return
+
+        b.recycler.post {
+            when (val layoutManager = b.recycler.layoutManager) {
+                is LinearLayoutManager -> {
+                    val first = layoutManager.findFirstVisibleItemPosition()
+                    val last = layoutManager.findLastVisibleItemPosition()
+                    if (first == RecyclerView.NO_POSITION || index < first || index > last) {
+                        layoutManager.scrollToPositionWithOffset(index, 0)
+                    }
+                }
+                null -> Unit
+                else -> layoutManager.scrollToPosition(index)
+            }
+        }
     }
 
     // ---------- Titre rapide ----------
