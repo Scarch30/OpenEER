@@ -48,7 +48,7 @@ class SketchCaptureActivity : AppCompatActivity() {
 
     private val repository: BlocksRepository by lazy {
         val db = AppDatabase.get(this)
-        BlocksRepository(db)
+        BlocksRepository(db.blockDao(), db.noteDao())
     }
 
     private var noteId: Long? = null

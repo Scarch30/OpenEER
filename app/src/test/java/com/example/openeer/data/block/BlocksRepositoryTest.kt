@@ -30,7 +30,7 @@ class BlocksRepositoryTest {
         db = Room.inMemoryDatabaseBuilder(ctx, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        repo = BlocksRepository(db)
+        repo = BlocksRepository(db.blockDao())
 
         noteId = runBlocking {
             db.noteDao().insert(Note())

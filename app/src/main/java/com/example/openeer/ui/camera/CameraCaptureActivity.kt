@@ -232,7 +232,7 @@ class CameraCaptureActivity : AppCompatActivity() {
                     return@launch
                 }
                 val db = AppDatabase.get(this@CameraCaptureActivity)
-                val blocks = BlocksRepository(db)
+                val blocks = BlocksRepository(db.blockDao(), db.noteDao())
                 launch(Dispatchers.IO) {
                     blocks.appendPhoto(
                         noteId   = noteIdArg,
@@ -274,7 +274,7 @@ class CameraCaptureActivity : AppCompatActivity() {
                     return@launch
                 }
                 val db = AppDatabase.get(this@CameraCaptureActivity)
-                val blocks = BlocksRepository(db)
+                val blocks = BlocksRepository(db.blockDao(), db.noteDao())
                 launch(Dispatchers.IO) {
                     val gid = generateGroupId()
                     val videoId = blocks.appendVideo(
@@ -354,7 +354,7 @@ class CameraCaptureActivity : AppCompatActivity() {
                 lifecycleScope.launch(Dispatchers.IO) {
                     runCatching {
                         val db = AppDatabase.get(this@CameraCaptureActivity)
-                        val blocks = BlocksRepository(db)
+                        val blocks = BlocksRepository(db.blockDao(), db.noteDao())
                         blocks.appendPhoto(
                             noteId   = noteIdArg,
                             mediaUri = savedUri.toString(),
@@ -426,7 +426,7 @@ class CameraCaptureActivity : AppCompatActivity() {
                         lifecycleScope.launch(Dispatchers.IO) {
                             runCatching {
                                 val db = AppDatabase.get(this@CameraCaptureActivity)
-                                val blocks = BlocksRepository(db)
+                                val blocks = BlocksRepository(db.blockDao(), db.noteDao())
 
                                 val gid = generateGroupId()
                                 val videoId = blocks.appendVideo(

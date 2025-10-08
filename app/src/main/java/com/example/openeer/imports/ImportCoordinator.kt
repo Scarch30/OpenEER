@@ -178,10 +178,9 @@ class ImportCoordinator(
                 runCatching { blocksRepository.updateAudioTranscription(audioBlockId, refined) }
                 runCatching {
                     val textId = blocksRepository.appendTranscription(
-                        targetNoteId = noteId,
+                        noteId = noteId,
                         text = refined,
-                        groupId = groupId,
-                        sourceMediaBlockId = audioBlockId
+                        groupId = groupId
                     )
                     runCatching { blocksRepository.linkAudioToText(audioBlockId, textId) }
                 }
@@ -230,7 +229,7 @@ class ImportCoordinator(
         } else {
             extractedText?.let { textContent ->
                 blocksRepository.appendTranscription(
-                    targetNoteId = noteId,
+                    noteId = noteId,
                     text = textContent,
                     groupId = groupId
                 )
