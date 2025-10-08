@@ -98,6 +98,7 @@
     <string name="zoom_out">Zoom arrière</string>
     <string name="recenter">Recentrer</string>
 
+    <string name="library_title">Bibliothèque</string>
     <string name="library_action_merge">Fusionner…</string>
     <string name="library_merge_dialog_title">Choisir la note cible</string>
     <string name="library_merge_dialog_message">Sélectionnez la note à conserver dans la fusion.</string>
@@ -122,5 +123,16 @@
     <string name="note_merge_empty">Aucune autre note disponible</string>
     <string name="action_undo">Annuler</string>
 
+    <string name="merge_history_title">Historique des fusions</string>
+    <string name="merge_history_menu_item">Historique des fusions…</string>
+    <string name="merge_history_empty">Aucune fusion enregistrée.</string>
+    <string name="merge_history_action_undo">Annuler</string>
+    <string name="merge_history_item_format">%1$s → %2$s · %3$s</string>
+    <string name="merge_history_untitled">Sans titre (#%1$d)</string>
+    <string name="merge_history_confirm_title">Annuler cette fusion ?</string>
+    <string name="merge_history_confirm_message">Annuler la fusion « %1$s → %2$s » ?</string>
+    <string name="merge_history_confirm_positive">Défusionner</string>
+    <string name="merge_history_undo_success">Défusion effectuée</string>
+    <string name="merge_history_undo_failed">Impossible d’annuler</string>
 
 </resources>

@@ -3,6 +3,15 @@ package com.example.openeer.data
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
+data class MergeLogUiRow(
+    val id: Long,
+    val sourceId: Long,
+    val sourceTitle: String?,
+    val targetId: Long,
+    val targetTitle: String?,
+    val createdAt: Long
+)
+
 @Dao
 interface NoteDao {
     @Insert
@@ -78,4 +87,15 @@ interface NoteDao {
 
     @Query("DELETE FROM note_merge_log WHERE id = :id")
     suspend fun deleteMergeLog(id: Long)
+
+    @Query(
+        """
+        SELECT l.id, l.sourceId, s.title AS sourceTitle, l.targetId, t.title AS targetTitle, l.createdAt
+        FROM note_merge_log l
+        LEFT JOIN notes s ON s.id = l.sourceId
+        LEFT JOIN notes t ON t.id = l.targetId
+        ORDER BY l.createdAt DESC
+        """
+    )
+    suspend fun listMergeLogsUi(): List<MergeLogUiRow>
 }
