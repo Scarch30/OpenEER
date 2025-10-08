@@ -68,7 +68,7 @@ class MainActivity : AppCompatActivity() {
                     linkDao = db.blockLinkDao()
                 )
                 return NotesVm(
-                    NoteRepository(db.noteDao(), db.attachmentDao(), blocksRepo)
+                    NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
                 ) as T
             }
         }
@@ -82,7 +82,7 @@ class MainActivity : AppCompatActivity() {
     // Repos
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(this)
-        NoteRepository(db.noteDao(), db.attachmentDao(), blocksRepo)
+        NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
     }
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(this)

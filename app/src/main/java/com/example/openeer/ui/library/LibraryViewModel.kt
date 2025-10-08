@@ -65,7 +65,7 @@ class LibraryViewModel(
                 noteDao = db.noteDao(),
                 linkDao = db.blockLinkDao()
             )
-            val noteRepo = NoteRepository(db.noteDao(), db.attachmentDao(), blocksRepo)
+            val noteRepo = NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
             return LibraryViewModel(repo, noteRepo)
         }
     }
