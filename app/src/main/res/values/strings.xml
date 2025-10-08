@@ -106,6 +106,9 @@
     <string name="library_merge_success">Fusion réussie</string>
     <string name="library_merge_partial">Fusion partielle (%1$d/%2$d)</string>
     <string name="library_merge_failed">Fusion impossible</string>
+    <string name="library_merge_success_with_count">Fusion réussie (%1$d/%2$d)</string>
+    <string name="library_merge_undo_success">Fusion annulée</string>
+    <string name="library_merge_undo_failed">Annulation impossible</string>
     <string name="library_selection_count">%1$d sélectionnée(s)</string>
     <string name="library_note_meta_merged">%1$s • Fusionnée</string>
     <string name="library_merge_untitled_placeholder">(vide)</string>
@@ -117,6 +120,7 @@
     <string name="note_merge_done">Fusion terminée</string>
     <string name="note_merge_failed">Fusion impossible</string>
     <string name="note_merge_empty">Aucune autre note disponible</string>
+    <string name="action_undo">Annuler</string>
 
 
 </resources>

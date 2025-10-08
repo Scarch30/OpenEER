@@ -48,6 +48,12 @@ class LibraryViewModel(
         }
     }
 
+    suspend fun undoMerge(tx: NoteRepository.MergeTransaction): Boolean {
+        return withContext(Dispatchers.IO) {
+            noteRepo.undoMerge(tx)
+        }
+    }
+
     companion object {
         fun create(db: AppDatabase): LibraryViewModel {
             val repo = SearchRepository(

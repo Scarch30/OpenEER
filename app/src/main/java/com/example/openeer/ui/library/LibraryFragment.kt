@@ -16,12 +16,13 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ActionMode
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
+import com.example.openeer.data.NoteRepository
 import com.example.openeer.databinding.FragmentLibraryBinding
 import com.example.openeer.ui.MainActivity
 import com.example.openeer.ui.NotesAdapter
@@ -47,17 +48,24 @@ class LibraryFragment : Fragment() {
 
     private val mergeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val ids = intent?.getLongArrayExtra(EXTRA_MERGED_SOURCE_IDS) ?: return
-            if (ids.isEmpty()) return
-            val toHide = ids.toSet()
-            if (currentItems.none { it.id in toHide }) return
+            when (intent?.action) {
+                ACTION_SOURCES_MERGED -> {
+                    val ids = intent.getLongArrayExtra(EXTRA_MERGED_SOURCE_IDS) ?: return
+                    if (ids.isEmpty()) return
+                    val toHide = ids.toSet()
+                    if (currentItems.none { it.id in toHide }) return
 
-            selectedIds.removeAll(toHide)
-            currentItems = currentItems.filterNot { it.id in toHide }
-            adapter.submitList(currentItems)
-            adapter.selectedIds = selectedIds
-            b.emptyView.visibility = if (currentItems.isEmpty()) View.VISIBLE else View.GONE
-            reconcileSelection()
+                    selectedIds.removeAll(toHide)
+                    currentItems = currentItems.filterNot { it.id in toHide }
+                    adapter.submitList(currentItems)
+                    adapter.selectedIds = selectedIds
+                    b.emptyView.visibility = if (currentItems.isEmpty()) View.VISIBLE else View.GONE
+                    reconcileSelection()
+                }
+                ACTION_REFRESH_LIBRARY -> {
+                    vm.refresh()
+                }
+            }
         }
     }
 
@@ -100,7 +108,10 @@ class LibraryFragment : Fragment() {
             ContextCompat.registerReceiver(
                 requireContext(),
                 mergeReceiver,
-                IntentFilter(ACTION_SOURCES_MERGED),
+                IntentFilter().apply {
+                    addAction(ACTION_SOURCES_MERGED)
+                    addAction(ACTION_REFRESH_LIBRARY)
+                },
                 ContextCompat.RECEIVER_NOT_EXPORTED
             )
             mergeReceiverRegistered = true
@@ -132,7 +143,7 @@ class LibraryFragment : Fragment() {
             Snackbar.make(b.root, getString(R.string.library_note_already_merged), Snackbar.LENGTH_SHORT).show()
             return
         }
-        openNote(note)
+        openNote(note.id)
     }
 
     private fun onItemLongClicked(note: Note) {
@@ -241,15 +252,54 @@ class LibraryFragment : Fragment() {
             runCatching { vm.mergeNotes(sources, target.id) }
                 .onSuccess { result ->
                     snackbar.dismiss()
-                    val message = if (result.mergedCount == result.total) {
-                        getString(R.string.library_merge_success)
-                    } else {
-                        getString(R.string.library_merge_partial, result.mergedCount, result.total)
+                    if (result.mergedCount == 0) {
+                        Snackbar.make(b.root, getString(R.string.library_merge_failed), Snackbar.LENGTH_SHORT).show()
+                        return@launch
                     }
-                    Snackbar.make(b.root, message, Snackbar.LENGTH_SHORT).show()
+                    val mergedSources = result.mergedSourceIds
+                    val txTimestamp = result.transactionTimestamp
+                    val transaction = if (mergedSources.isNotEmpty() && txTimestamp != null) {
+                        NoteRepository.MergeTransaction(target.id, mergedSources, txTimestamp)
+                    } else {
+                        null
+                    }
+
                     clearSelection()
                     vm.refresh()
-                    openNote(target)
+                    openNote(target.id)
+
+                    val undoMessage = getString(
+                        R.string.library_merge_success_with_count,
+                        result.mergedCount,
+                        result.total
+                    )
+
+                    Snackbar.make(b.root, undoMessage, Snackbar.LENGTH_LONG).apply {
+                        if (transaction != null) {
+                            setAction(R.string.action_undo) {
+                                viewLifecycleOwner.lifecycleScope.launch {
+                                    val success = runCatching { vm.undoMerge(transaction) }.getOrDefault(false)
+                                    if (success) {
+                                        vm.refresh()
+                                        if (transaction.sources.size == 1) {
+                                            openNote(transaction.sources.first())
+                                        }
+                                        Snackbar.make(
+                                            b.root,
+                                            getString(R.string.library_merge_undo_success),
+                                            Snackbar.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        Snackbar.make(
+                                            b.root,
+                                            getString(R.string.library_merge_undo_failed),
+                                            Snackbar.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            }
+                        }
+                    }.show()
                 }
                 .onFailure {
                     snackbar.dismiss()
@@ -264,9 +314,9 @@ class LibraryFragment : Fragment() {
         actionMode?.finish()
     }
 
-    private fun openNote(n: Note) {
+    private fun openNote(noteId: Long) {
         val intent = Intent(requireContext(), MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_OPEN_NOTE_ID, n.id)
+            putExtra(MainActivity.EXTRA_OPEN_NOTE_ID, noteId)
             addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         startActivity(intent)
@@ -285,6 +335,7 @@ class LibraryFragment : Fragment() {
     companion object {
         const val ACTION_SOURCES_MERGED = "com.example.openeer.action.SOURCES_MERGED"
         const val EXTRA_MERGED_SOURCE_IDS = "extra_merged_source_ids"
+        const val ACTION_REFRESH_LIBRARY = "com.example.openeer.action.REFRESH_LIBRARY"
 
         fun newInstance() = LibraryFragment()
     }
