@@ -77,7 +77,7 @@ class NotePanelController(
 
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(activity)
-        NoteRepository(db.noteDao(), db.attachmentDao(), blocksRepo)
+        NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
     }
 
     var openNoteId: Long? = null

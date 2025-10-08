@@ -1,11 +1,16 @@
 package com.example.openeer.data
 
+import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.merge.MergeSnapshot as MergeLogSnapshot
+import com.example.openeer.data.merge.toSnapshot
+import com.google.gson.Gson
 import kotlin.collections.buildList
 
 class NoteRepository(
     private val noteDao: NoteDao,
     private val attachmentDao: AttachmentDao,
+    private val blockReadDao: BlockReadDao,
     private val blocksRepository: BlocksRepository
 ) {
     val allNotes = noteDao.getAllFlow()
@@ -83,13 +88,14 @@ class NoteRepository(
 
     data class MergeTransaction(val targetId: Long, val sources: List<Long>, val timestamp: Long)
 
-    private data class MergeSnapshot(
+    private data class MergeUndoSnapshot(
         val transaction: MergeTransaction,
         val targetBlocks: List<Long>,
         val sourceBlocks: Map<Long, List<Long>>
     )
 
-    private var lastMergeSnapshot: MergeSnapshot? = null
+    private var lastMergeSnapshot: MergeUndoSnapshot? = null
+    private val gson = Gson()
 
     suspend fun mergeNotes(sourceIds: List<Long>, targetId: Long): MergeResult {
         val validSources = sourceIds.filter { it != targetId }
@@ -101,6 +107,16 @@ class NoteRepository(
         val now = System.currentTimeMillis()
 
         for (sid in validSources) {
+            val blocks = blockReadDao.getBlocksForNote(sid)
+            val snapshots = blocks.map { toSnapshot(sid, it) }
+            val log = NoteMergeLogEntity(
+                sourceId = sid,
+                targetId = targetId,
+                snapshotJson = gson.toJson(MergeLogSnapshot(sid, targetId, snapshots)),
+                createdAt = System.currentTimeMillis()
+            )
+            noteDao.insertMergeLog(log)
+
             val source = noteDao.getByIdOnce(sid) ?: continue
             if (source.isMerged) {
                 skipped++
@@ -125,7 +141,7 @@ class NoteRepository(
         }
 
         if (transaction != null) {
-            lastMergeSnapshot = MergeSnapshot(transaction, targetBlocksBefore, sourceBlocksSnapshot)
+            lastMergeSnapshot = MergeUndoSnapshot(transaction, targetBlocksBefore, sourceBlocksSnapshot)
         }
 
         return MergeResult(
