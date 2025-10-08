@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface BlockDao {
     @Insert
-    suspend fun insert(block: BlockEntity): Long
+    suspend fun insert(entity: BlockEntity): Long
 
     @Insert
     suspend fun insertAll(blocks: List<BlockEntity>): List<Long>
@@ -25,7 +25,10 @@ interface BlockDao {
     fun observeNoteWithBlocks(noteId: Long): Flow<NoteWithBlocks>
 
     @Query("SELECT * FROM blocks WHERE id = :id LIMIT 1")
-    suspend fun getById(id: Long): BlockEntity?
+    suspend fun getBlockById(id: Long): BlockEntity?
+
+    @Query("SELECT * FROM blocks WHERE noteId = :noteId ORDER BY position ASC")
+    suspend fun getBlocksForNote(noteId: Long): List<BlockEntity>
 
     @Query("SELECT MAX(position) FROM blocks WHERE noteId = :noteId")
     suspend fun getMaxPosition(noteId: Long): Int?
@@ -40,7 +43,7 @@ interface BlockDao {
     suspend fun getBlockIdsForNote(noteId: Long): List<Long>
 
     @Query("UPDATE blocks SET noteId = :targetNoteId WHERE id IN (:blockIds)")
-    suspend fun updateNoteIdForBlockIds(blockIds: List<Long>, targetNoteId: Long)
+    suspend fun reassignBlocksByIds(blockIds: List<Long>, targetNoteId: Long): Int
 
     // ✅ Utilisée par BlocksRepository.updateAudioTranscription(...)
     @Query("UPDATE blocks SET text = :newText, updatedAt = :updatedAt WHERE id = :blockId")

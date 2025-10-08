@@ -78,17 +78,19 @@ class MergeHistoryFragment : Fragment() {
     }
 
     private fun reload() {
-        viewLifecycleOwner.lifecycleScope.launch {
-            binding.progress.visibility = View.VISIBLE
+        binding.progress.visibility = View.VISIBLE
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val rows = withContext(Dispatchers.IO) {
-                    noteDao.listMergeLogsUi()
+                val rows = noteDao.listMergeLogsUi()
+                withContext(Dispatchers.Main) {
+                    adapter.submitList(rows)
+                    binding.recycler.visibility = if (rows.isEmpty()) View.GONE else View.VISIBLE
+                    binding.emptyView.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
                 }
-                adapter.submitList(rows)
-                binding.recycler.visibility = if (rows.isEmpty()) View.GONE else View.VISIBLE
-                binding.emptyView.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
             } finally {
-                binding.progress.visibility = View.GONE
+                withContext(Dispatchers.Main) {
+                    binding.progress.visibility = View.GONE
+                }
             }
         }
     }
@@ -107,19 +109,18 @@ class MergeHistoryFragment : Fragment() {
     }
 
     private fun undoMerge(mergeId: Long) {
-        viewLifecycleOwner.lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { noteRepository.undoMergeById(mergeId) }
-            }
-
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            val result = runCatching { noteRepository.undoMergeById(mergeId) }
             val undoResult = result.getOrNull()
-            if (undoResult != null && (undoResult.reassigned > 0 || undoResult.recreated > 0)) {
-                reload()
-                Snackbar.make(binding.root, R.string.merge_history_undo_success, Snackbar.LENGTH_SHORT).show()
-            } else {
-                Snackbar.make(binding.root, R.string.merge_history_undo_failed, Snackbar.LENGTH_SHORT).show()
-                if (undoResult != null) {
+            withContext(Dispatchers.Main) {
+                if (undoResult != null && (undoResult.reassigned > 0 || undoResult.recreated > 0)) {
                     reload()
+                    Snackbar.make(binding.root, R.string.merge_history_undo_success, Snackbar.LENGTH_SHORT).show()
+                } else {
+                    Snackbar.make(binding.root, R.string.merge_history_undo_failed, Snackbar.LENGTH_SHORT).show()
+                    if (undoResult != null) {
+                        reload()
+                    }
                 }
             }
         }

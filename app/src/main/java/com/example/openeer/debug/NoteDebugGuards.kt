@@ -1,7 +1,7 @@
 package com.example.openeer.debug
 
 import android.util.Log
-import com.example.openeer.BuildConfig
+import com.example.openeer.util.isDebug
 import java.util.ArrayDeque
 
 object NoteDebugGuards {
@@ -15,7 +15,7 @@ object NoteDebugGuards {
     }
 
     fun logTitleUpdate(noteId: Long) {
-        if (!BuildConfig.DEBUG) return
+        if (!isDebug) return
         val snapshot = currentNoteId
         synchronized(titleUpdates) {
             titleUpdates.addLast(TitleUpdateLog(noteId, snapshot, System.currentTimeMillis()))
@@ -37,7 +37,7 @@ object NoteDebugGuards {
     fun requireNoteId(noteId: Long?): Long {
         if (noteId == null || noteId <= 0) {
             val message = "Invalid noteId=$noteId"
-            if (BuildConfig.DEBUG) {
+            if (isDebug) {
                 throw IllegalStateException(message)
             } else {
                 Log.w("NoteGuards", message)

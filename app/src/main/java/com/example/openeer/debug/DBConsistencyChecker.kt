@@ -1,14 +1,15 @@
 package com.example.openeer.debug
 
 import android.util.Log
+import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
-import com.example.openeer.BuildConfig
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlockLinkEntity
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.BlockType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.example.openeer.util.isDebug
 
 class DBConsistencyChecker(private val db: AppDatabase) {
 
@@ -226,7 +227,7 @@ class DBConsistencyChecker(private val db: AppDatabase) {
     }
 
     suspend fun fix(report: ConsistencyReport): FixSummary = withContext(Dispatchers.IO) {
-        if (!BuildConfig.DEBUG) {
+        if (!isDebug) {
             Log.w("DBCheck", "Auto-fix skipped (not in debug build)")
             return@withContext FixSummary(emptyMap(), report)
         }
@@ -249,7 +250,7 @@ class DBConsistencyChecker(private val db: AppDatabase) {
                         if (cursor.moveToFirst()) cursor.getLong(0) else null
                     }
                     if (mapping != null) {
-                        val block = blockDao.getById(issue.blockId) ?: continue
+                        val block = blockDao.getBlockById(issue.blockId) ?: continue
                         val now = System.currentTimeMillis()
                         blockDao.update(block.copy(noteId = mapping, updatedAt = now))
                         reassigned++
@@ -271,7 +272,7 @@ class DBConsistencyChecker(private val db: AppDatabase) {
                     conflict.blockIdsByNote.forEach { (noteId, ids) ->
                         if (noteId == majority) return@forEach
                         ids.forEach { blockId ->
-                            val block = blockDao.getById(blockId) ?: return@forEach
+                            val block = blockDao.getBlockById(blockId) ?: return@forEach
                             blockDao.update(block.copy(noteId = majority, updatedAt = now))
                             moved++
                         }
@@ -286,9 +287,9 @@ class DBConsistencyChecker(private val db: AppDatabase) {
                 var relinked = 0
                 var tagged = 0
                 for (orphan in report.orphanTranscriptions) {
-                    val block = blockDao.getById(orphan.textBlockId) ?: continue
+                    val block = blockDao.getBlockById(orphan.textBlockId) ?: continue
                     val now = System.currentTimeMillis()
-                    val candidate = orphan.candidateMediaId?.let { blockDao.getById(it) }
+                    val candidate = orphan.candidateMediaId?.let { blockDao.getBlockById(it) }
                     if (candidate != null) {
                         blockDao.update(block.copy(noteId = candidate.noteId, updatedAt = now))
                         linkDao?.insert(
@@ -296,7 +297,7 @@ class DBConsistencyChecker(private val db: AppDatabase) {
                                 id = 0L,
                                 fromBlockId = candidate.id,
                                 toBlockId = block.id,
-                                type = if (candidate.type == BlockType.VIDEO.name) {
+                                type = if (candidate.type == BlockType.VIDEO) {
                                     BlocksRepository.LINK_VIDEO_TRANSCRIPTION
                                 } else {
                                     BlocksRepository.LINK_AUDIO_TRANSCRIPTION

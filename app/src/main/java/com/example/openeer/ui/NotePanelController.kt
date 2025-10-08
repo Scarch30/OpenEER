@@ -20,7 +20,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.openeer.BuildConfig
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
@@ -31,6 +30,7 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.debug.DBConsistencyChecker
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.imports.MediaKind
+import com.example.openeer.util.isDebug
 import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.formatMeta
 import com.example.openeer.ui.panel.media.MediaActions
@@ -213,7 +213,7 @@ class NotePanelController(
         popup.menu.add(0, MENU_MERGE_WITH, 0, activity.getString(R.string.note_menu_merge_with)).apply {
             isEnabled = openNoteId != null
         }
-        if (BuildConfig.DEBUG) {
+        if (isDebug) {
             val devMenu = popup.menu.addSubMenu("Outils dev")
             devMenu.add(0, MENU_DEV_SCAN, 0, "Scanner DB")
             devMenu.add(0, MENU_DEV_FIX, 1, "Auto-fix (debug)")
@@ -275,34 +275,38 @@ class NotePanelController(
     }
 
     private fun runDbScan() {
-        activity.lifecycleScope.launch {
-            val report = withContext(Dispatchers.IO) { dbChecker.scan() }
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            val report = dbChecker.scan()
             lastConsistencyReport = report
             val summary = "Audit DB → ${report.totals}"
-            if (report.totalIssues > 0) {
-                topBubble?.show(summary)
+            withContext(Dispatchers.Main) {
+                if (report.totalIssues > 0) {
+                    topBubble?.show(summary)
+                }
+                activity.toast(summary)
             }
-            activity.toast(summary)
         }
     }
 
     private fun runDbFix() {
-        if (!BuildConfig.DEBUG) return
-        activity.lifecycleScope.launch {
-            val before = lastConsistencyReport ?: withContext(Dispatchers.IO) { dbChecker.scan() }
-            val summary = withContext(Dispatchers.IO) { dbChecker.fix(before) }
-            lastConsistencyReport = summary.rescanned
-            val appliedText = if (summary.applied.isEmpty()) {
+        if (!isDebug) return
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            val before = lastConsistencyReport ?: dbChecker.scan()
+            val fixSummary = dbChecker.fix(before)
+            lastConsistencyReport = fixSummary.rescanned
+            val appliedText = if (fixSummary.applied.isEmpty()) {
                 "aucune correction"
             } else {
-                summary.applied.entries.joinToString(", ") { "${it.key}=${it.value}" }
+                fixSummary.applied.entries.joinToString(", ") { "${it.key}=${it.value}" }
             }
-            val message = "Auto-fix → $appliedText | Reste=${summary.rescanned.totals}"
-            activity.toast(message)
-            if (summary.rescanned.totalIssues > 0) {
-                topBubble?.show(message)
-            } else {
-                topBubble?.show("Base OK")
+            val message = "Auto-fix → $appliedText | Reste=${fixSummary.rescanned.totals}"
+            withContext(Dispatchers.Main) {
+                activity.toast(message)
+                if (fixSummary.rescanned.totalIssues > 0) {
+                    topBubble?.show(message)
+                } else {
+                    topBubble?.show("Base OK")
+                }
             }
         }
     }
@@ -310,43 +314,45 @@ class NotePanelController(
     private fun performMerge(targetId: Long, sourceIds: List<Long>) {
         if (sourceIds.isEmpty()) return
 
-        activity.lifecycleScope.launch {
-            topBubble?.show(activity.getString(R.string.note_merge_in_progress))
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    repo.mergeNotes(sourceIds, targetId)
-                }
-            }.onSuccess { result ->
-                if (result.mergedCount == 0) {
-                    val failure = activity.getString(R.string.note_merge_failed)
-                    topBubble?.showFailure(failure)
-                    activity.toast(R.string.note_merge_failed)
-                    return@onSuccess
-                }
+        topBubble?.show(activity.getString(R.string.note_merge_in_progress))
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            val result = runCatching { repo.mergeNotes(sourceIds, targetId) }
+            withContext(Dispatchers.Main) {
+                result.fold(
+                    onSuccess = { mergeResult ->
+                        if (mergeResult.mergedCount == 0) {
+                            val failure = activity.getString(R.string.note_merge_failed)
+                            topBubble?.showFailure(failure)
+                            activity.toast(R.string.note_merge_failed)
+                            return@fold
+                        }
 
-                val mergedSources = result.mergedSourceIds
-                if (mergedSources.isNotEmpty()) {
-                    notifyLibrarySourcesMerged(mergedSources)
-                }
+                        val mergedSources = mergeResult.mergedSourceIds
+                        if (mergedSources.isNotEmpty()) {
+                            notifyLibrarySourcesMerged(mergedSources)
+                        }
 
-                val message = activity.getString(
-                    R.string.library_merge_success_with_count,
-                    result.mergedCount,
-                    result.total
+                        val message = activity.getString(
+                            R.string.library_merge_success_with_count,
+                            mergeResult.mergedCount,
+                            mergeResult.total
+                        )
+
+                        topBubble?.show(message)
+
+                        val transaction = mergeResult.transactionTimestamp?.let { timestamp ->
+                            NoteRepository.MergeTransaction(targetId, mergeResult.mergedSourceIds, timestamp)
+                        }
+
+                        if (transaction != null) {
+                            showUndoSnackbar(message, transaction)
+                        }
+                    },
+                    onFailure = {
+                        topBubble?.showFailure(activity.getString(R.string.note_merge_failed))
+                        activity.toast(R.string.note_merge_failed)
+                    }
                 )
-
-                topBubble?.show(message)
-
-                val transaction = result.transactionTimestamp?.let { timestamp ->
-                    NoteRepository.MergeTransaction(targetId, result.mergedSourceIds, timestamp)
-                }
-
-                if (transaction != null) {
-                    showUndoSnackbar(message, transaction)
-                }
-            }.onFailure {
-                topBubble?.showFailure(activity.getString(R.string.note_merge_failed))
-                activity.toast(R.string.note_merge_failed)
             }
         }
     }
@@ -354,27 +360,27 @@ class NotePanelController(
     private fun showUndoSnackbar(message: String, tx: NoteRepository.MergeTransaction) {
         Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG)
             .setAction(R.string.action_undo) {
-                activity.lifecycleScope.launch {
-                    val success = runCatching {
-                        withContext(Dispatchers.IO) { repo.undoMerge(tx) }
-                    }.getOrDefault(false)
-                    if (success) {
-                        if (tx.sources.size == 1) {
-                            open(tx.sources.first())
+                activity.lifecycleScope.launch(Dispatchers.IO) {
+                    val success = runCatching { repo.undoMerge(tx) }.getOrDefault(false)
+                    withContext(Dispatchers.Main) {
+                        if (success) {
+                            if (tx.sources.size == 1) {
+                                open(tx.sources.first())
+                            }
+                            notifyLibraryMergeUndone()
+                            topBubble?.show(activity.getString(R.string.library_merge_undo_success))
+                            Snackbar.make(
+                                binding.root,
+                                activity.getString(R.string.library_merge_undo_success),
+                                Snackbar.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Snackbar.make(
+                                binding.root,
+                                activity.getString(R.string.library_merge_undo_failed),
+                                Snackbar.LENGTH_SHORT
+                            ).show()
                         }
-                        notifyLibraryMergeUndone()
-                        topBubble?.show(activity.getString(R.string.library_merge_undo_success))
-                        Snackbar.make(
-                            binding.root,
-                            activity.getString(R.string.library_merge_undo_success),
-                            Snackbar.LENGTH_SHORT
-                        ).show()
-                    } else {
-                        Snackbar.make(
-                            binding.root,
-                            activity.getString(R.string.library_merge_undo_failed),
-                            Snackbar.LENGTH_SHORT
-                        ).show()
                     }
                 }
             }

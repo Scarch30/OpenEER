@@ -1,7 +1,7 @@
 package com.example.openeer.data.block
 
 import android.util.Log
-import com.example.openeer.BuildConfig
+import androidx.room.withTransaction
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteDao
@@ -12,15 +12,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import com.google.gson.Gson
+import com.example.openeer.util.isDebug
 
 fun generateGroupId(): String = UUID.randomUUID().toString()
 
 class BlocksRepository @JvmOverloads constructor(
-    private val database: AppDatabase,
-    private val blockDao: BlockDao = database.blockDao(),
-    private val noteDao: NoteDao? = database.noteDao(),
+    private val db: AppDatabase,
+    private val blockDao: BlockDao = db.blockDao(),
+    private val noteDao: NoteDao? = db.noteDao(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
-    private val linkDao: BlockLinkDao? = runCatching { database.blockLinkDao() }.getOrNull() // 🔗 optionnel pour liens AUDIO↔TEXTE / VIDEO↔TEXTE
+    private val linkDao: BlockLinkDao? = runCatching { db.blockLinkDao() }.getOrNull() // 🔗 optionnel pour liens AUDIO↔TEXTE / VIDEO↔TEXTE
 ) {
 
     private val snapshotGson by lazy { Gson() }
@@ -31,7 +32,7 @@ class BlocksRepository @JvmOverloads constructor(
     }
 
     private suspend fun <T> runDb(block: suspend () -> T): T {
-        return if (database.inTransaction()) {
+        return if (db.inTransaction()) {
             block()
         } else {
             withContext(io) { block() }
@@ -40,10 +41,14 @@ class BlocksRepository @JvmOverloads constructor(
 
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
 
-    suspend fun getBlock(blockId: Long): BlockEntity? = runDb { blockDao.getById(blockId) }
+    suspend fun getBlock(blockId: Long): BlockEntity? = runDb { blockDao.getBlockById(blockId) }
 
     suspend fun reassignBlocksToNote(sourceNoteId: Long, targetNoteId: Long) {
-        runDb { blockDao.updateNoteIdForBlocks(sourceNoteId, targetNoteId) }
+        runDb {
+            db.withTransaction {
+                blockDao.updateNoteIdForBlocks(sourceNoteId, targetNoteId)
+            }
+        }
     }
 
     suspend fun getBlockIds(noteId: Long): List<Long> = runDb { blockDao.getBlockIdsForNote(noteId) }
@@ -51,19 +56,29 @@ class BlocksRepository @JvmOverloads constructor(
     suspend fun reassignBlocksByIds(blockIds: List<Long>, targetNoteId: Long) {
         if (blockIds.isEmpty()) return
         runDb {
-            blockIds.chunked(900).forEach { chunk ->
-                blockDao.updateNoteIdForBlockIds(chunk, targetNoteId)
+            db.withTransaction {
+                blockIds.chunked(900).forEach { chunk ->
+                    blockDao.reassignBlocksByIds(chunk, targetNoteId)
+                }
             }
         }
     }
 
     private suspend fun insert(noteId: Long, template: BlockEntity): Long =
-        runDb { blockDao.insertAtEnd(noteId, template) }
+        runDb {
+            db.withTransaction {
+                blockDao.insertAtEnd(noteId, template)
+            }
+        }
 
     suspend fun insertFromSnapshot(noteId: Long, snapshot: BlockSnapshot): Long {
         val block = snapshotGson.fromJson(snapshot.rawJson, BlockEntity::class.java)
         val sanitized = block.copy(id = 0L, noteId = noteId)
-        return insert(noteId, sanitized)
+        return runDb {
+            db.withTransaction {
+                blockDao.insert(sanitized)
+            }
+        }
     }
 
     suspend fun appendText(
@@ -191,7 +206,7 @@ class BlocksRepository @JvmOverloads constructor(
     /** Met à jour le texte du bloc AUDIO (ex: affinage Whisper) — n’affecte pas les blocs TEXTE. */
     suspend fun updateAudioTranscription(blockId: Long, newText: String) {
         runDb {
-            val audioBlock = blockDao.getById(blockId) ?: return@runDb
+            val audioBlock = blockDao.getBlockById(blockId) ?: return@runDb
             val now = System.currentTimeMillis()
             blockDao.update(audioBlock.copy(text = newText, updatedAt = now))
         }
@@ -204,9 +219,9 @@ class BlocksRepository @JvmOverloads constructor(
         sourceMediaBlockId: Long? = null
     ): Long {
         return runDb {
-            database.withTransaction {
-                if (BuildConfig.DEBUG && sourceMediaBlockId != null) {
-                    val audioBlock = blockDao.getById(sourceMediaBlockId)
+            db.withTransaction {
+                if (isDebug && sourceMediaBlockId != null) {
+                    val audioBlock = blockDao.getBlockById(sourceMediaBlockId)
                     if (audioBlock != null && audioBlock.noteId != targetNoteId) {
                         Log.w(
                             "BlocksRepo",
@@ -257,7 +272,7 @@ class BlocksRepository @JvmOverloads constructor(
 
     suspend fun updateText(blockId: Long, text: String) {
         runDb {
-            val current = blockDao.getById(blockId) ?: return@runDb
+            val current = blockDao.getBlockById(blockId) ?: return@runDb
             val now = System.currentTimeMillis()
             blockDao.update(current.copy(text = text, updatedAt = now))
         }
@@ -358,7 +373,7 @@ class BlocksRepository @JvmOverloads constructor(
         strokesJson: String
     ) {
         runDb {
-            val current = blockDao.getById(blockId) ?: return@runDb
+            val current = blockDao.getBlockById(blockId) ?: return@runDb
             val now = System.currentTimeMillis()
             if (current.type == BlockType.SKETCH) {
                 blockDao.update(
@@ -383,7 +398,7 @@ class BlocksRepository @JvmOverloads constructor(
 
     suspend fun deleteBlock(blockId: Long) {
         runDb {
-            val current = blockDao.getById(blockId) ?: return@runDb
+            val current = blockDao.getBlockById(blockId) ?: return@runDb
             blockDao.delete(current)
         }
     }
@@ -420,7 +435,7 @@ class BlocksRepository @JvmOverloads constructor(
 
         // 2) Fallback via groupId (pas besoin d'un “getAllForNote”)
         return runDb {
-            val textBlock = blockDao.getById(textBlockId) ?: return@runDb null
+            val textBlock = blockDao.getBlockById(textBlockId) ?: return@runDb null
             val gid = textBlock.groupId ?: return@runDb null
             blockDao.findOneByNoteGroupAndType(
                 noteId = textBlock.noteId,
@@ -455,7 +470,7 @@ class BlocksRepository @JvmOverloads constructor(
             if (viaLink != null) return viaLink
         }
         return runDb {
-            val video = blockDao.getById(videoBlockId) ?: return@runDb null
+            val video = blockDao.getBlockById(videoBlockId) ?: return@runDb null
             val gid = video.groupId ?: return@runDb null
             blockDao.findOneByNoteGroupAndType(
                 noteId = video.noteId,
@@ -472,7 +487,7 @@ class BlocksRepository @JvmOverloads constructor(
             if (viaLink != null) return viaLink
         }
         return runDb {
-            val text = blockDao.getById(textBlockId) ?: return@runDb null
+            val text = blockDao.getBlockById(textBlockId) ?: return@runDb null
             val gid = text.groupId ?: return@runDb null
             blockDao.findOneByNoteGroupAndType(
                 noteId = text.noteId,
@@ -490,7 +505,7 @@ class BlocksRepository @JvmOverloads constructor(
     /** Met à jour le texte du bloc VIDEO (ex: transcription liée à la vidéo). */
     suspend fun updateVideoTranscription(blockId: Long, newText: String) {
         runDb {
-            val videoBlock = blockDao.getById(blockId) ?: return@runDb
+            val videoBlock = blockDao.getBlockById(blockId) ?: return@runDb
             val now = System.currentTimeMillis()
             blockDao.update(videoBlock.copy(text = newText, updatedAt = now))
         }

@@ -1,7 +1,7 @@
 package com.example.openeer.data
 
 import android.util.Log
-import com.example.openeer.BuildConfig
+import androidx.room.withTransaction
 import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.debug.NoteDebugGuards
@@ -12,13 +12,14 @@ import com.example.openeer.data.merge.computeBlockHash
 import com.example.openeer.data.merge.toSnapshot
 import com.google.gson.Gson
 import kotlin.collections.buildList
+import com.example.openeer.util.isDebug
 
 class NoteRepository(
-    private val database: AppDatabase,
+    private val db: AppDatabase,
     private val blocksRepository: BlocksRepository,
-    private val noteDao: NoteDao = database.noteDao(),
-    private val attachmentDao: AttachmentDao = database.attachmentDao(),
-    private val blockReadDao: BlockReadDao = database.blockReadDao()
+    private val noteDao: NoteDao = db.noteDao(),
+    private val attachmentDao: AttachmentDao = db.attachmentDao(),
+    private val blockReadDao: BlockReadDao = db.blockReadDao()
 ) {
     val allNotes = noteDao.getAllFlow()
 
@@ -57,8 +58,8 @@ class NoteRepository(
 
     suspend fun updateTitle(id: Long, title: String?) {
         withContext(Dispatchers.IO) {
-            database.withTransaction {
-                if (BuildConfig.DEBUG && !noteDao.exists(id)) {
+            db.withTransaction {
+                if (isDebug && !noteDao.exists(id)) {
                     Log.w("NoteRepo", "updateTitle on missing noteId=$id")
                 }
                 noteDao.updateTitle(id, title, System.currentTimeMillis())
@@ -117,7 +118,7 @@ class NoteRepository(
     private val gson = Gson()
 
     suspend fun mergeNotes(sourceIds: List<Long>, targetId: Long): MergeResult = withContext(Dispatchers.IO) {
-        database.withTransaction {
+        db.withTransaction {
             val validSources = sourceIds.filter { it != targetId }
             var merged = 0
             var skipped = 0
@@ -175,7 +176,7 @@ class NoteRepository(
     }
 
     suspend fun undoMerge(tx: MergeTransaction): Boolean = withContext(Dispatchers.IO) {
-        database.withTransaction {
+        db.withTransaction {
             val snapshot = lastMergeSnapshot ?: return@withTransaction false
             if (snapshot.transaction != tx) return@withTransaction false
 
@@ -201,7 +202,7 @@ class NoteRepository(
     }
 
     suspend fun undoMergeById(mergeId: Long): UndoResult = withContext(Dispatchers.IO) {
-        database.withTransaction {
+        db.withTransaction {
             val log = noteDao.getMergeLogById(mergeId) ?: return@withTransaction UndoResult(0, 0)
             val snapshot = gson.fromJson(log.snapshotJson, MergeSnapshot::class.java)
             val groups = snapshot.blocks.groupBy { it.groupId ?: "solo_${it.id}" }
