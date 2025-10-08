@@ -57,4 +57,10 @@ interface NoteDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMergeMaps(maps: List<NoteMergeMapEntity>)
+
+    @Query("UPDATE notes SET isMerged = 0 WHERE id IN (:sourceIds)")
+    suspend fun unmarkMerged(sourceIds: List<Long>)
+
+    @Query("DELETE FROM note_merge_map WHERE noteId IN (:sourceIds)")
+    suspend fun deleteMergeMaps(sourceIds: List<Long>)
 }

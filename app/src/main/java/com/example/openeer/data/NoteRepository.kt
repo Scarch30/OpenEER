@@ -1,6 +1,7 @@
 package com.example.openeer.data
 
 import com.example.openeer.data.block.BlocksRepository
+import kotlin.collections.buildList
 
 class NoteRepository(
     private val noteDao: NoteDao,
@@ -75,13 +76,29 @@ class NoteRepository(
     data class MergeResult(
         val mergedCount: Int,
         val skippedCount: Int,
-        val total: Int
+        val total: Int,
+        val mergedSourceIds: List<Long> = emptyList(),
+        val transactionTimestamp: Long? = null
     )
+
+    data class MergeTransaction(val targetId: Long, val sources: List<Long>, val timestamp: Long)
+
+    private data class MergeSnapshot(
+        val transaction: MergeTransaction,
+        val targetBlocks: List<Long>,
+        val sourceBlocks: Map<Long, List<Long>>
+    )
+
+    private var lastMergeSnapshot: MergeSnapshot? = null
 
     suspend fun mergeNotes(sourceIds: List<Long>, targetId: Long): MergeResult {
         val validSources = sourceIds.filter { it != targetId }
         var merged = 0
         var skipped = 0
+        val mergedSources = mutableListOf<Long>()
+        val sourceBlocksSnapshot = mutableMapOf<Long, List<Long>>()
+        val targetBlocksBefore = blocksRepository.getBlockIds(targetId)
+        val now = System.currentTimeMillis()
 
         for (sid in validSources) {
             val source = noteDao.getByIdOnce(sid) ?: continue
@@ -90,14 +107,57 @@ class NoteRepository(
                 continue
             }
 
+            val sourceBlocks = blocksRepository.getBlockIds(sid)
             blocksRepository.reassignBlocksToNote(sid, targetId)
             noteDao.markMerged(listOf(sid))
             noteDao.insertMergeMaps(
-                listOf(NoteMergeMapEntity(sid, targetId, System.currentTimeMillis()))
+                listOf(NoteMergeMapEntity(sid, targetId, now))
             )
             merged++
+            mergedSources += sid
+            sourceBlocksSnapshot[sid] = sourceBlocks
         }
 
-        return MergeResult(merged, skipped, validSources.size)
+        val transaction = if (mergedSources.isNotEmpty()) {
+            MergeTransaction(targetId, mergedSources.toList(), now)
+        } else {
+            null
+        }
+
+        if (transaction != null) {
+            lastMergeSnapshot = MergeSnapshot(transaction, targetBlocksBefore, sourceBlocksSnapshot)
+        }
+
+        return MergeResult(
+            merged = merged,
+            skippedCount = skipped,
+            total = validSources.size,
+            mergedSourceIds = mergedSources.toList(),
+            transactionTimestamp = transaction?.timestamp
+        )
+    }
+
+    suspend fun undoMerge(tx: MergeTransaction): Boolean {
+        val snapshot = lastMergeSnapshot ?: return false
+        if (snapshot.transaction != tx) return false
+
+        for (sourceId in tx.sources) {
+            blocksRepository.reassignBlocksToNote(tx.targetId, sourceId)
+
+            val keepInTarget = buildList {
+                addAll(snapshot.targetBlocks)
+                snapshot.sourceBlocks.forEach { (otherId, blocks) ->
+                    if (otherId != sourceId) {
+                        addAll(blocks)
+                    }
+                }
+            }
+            blocksRepository.reassignBlocksByIds(keepInTarget, tx.targetId)
+        }
+
+        noteDao.unmarkMerged(tx.sources)
+        noteDao.deleteMergeMaps(tx.sources)
+        lastMergeSnapshot = null
+        return true
     }
 }

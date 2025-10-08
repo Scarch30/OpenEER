@@ -34,6 +34,19 @@ class BlocksRepository(
         }
     }
 
+    suspend fun getBlockIds(noteId: Long): List<Long> = withContext(io) {
+        blockDao.getBlockIdsForNote(noteId)
+    }
+
+    suspend fun reassignBlocksByIds(blockIds: List<Long>, targetNoteId: Long) {
+        if (blockIds.isEmpty()) return
+        withContext(io) {
+            blockIds.chunked(900).forEach { chunk ->
+                blockDao.updateNoteIdForBlockIds(chunk, targetNoteId)
+            }
+        }
+    }
+
     private suspend fun insert(noteId: Long, template: BlockEntity): Long =
         withContext(io) { blockDao.insertAtEnd(noteId, template) }
 

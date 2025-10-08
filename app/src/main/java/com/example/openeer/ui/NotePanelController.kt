@@ -38,6 +38,7 @@ import com.example.openeer.ui.panel.media.MediaStripItem
 import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.library.LibraryFragment
 import com.example.openeer.ui.util.toast
+import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -262,35 +263,68 @@ class NotePanelController(
                     repo.mergeNotes(sourceIds, targetId)
                 }
             }.onSuccess { result ->
-                val mergedSources = withContext(Dispatchers.IO) {
-                    sourceIds.filter { sid ->
-                        repo.noteOnce(sid)?.isMerged == true
-                    }
+                if (result.mergedCount == 0) {
+                    val failure = activity.getString(R.string.note_merge_failed)
+                    topBubble?.showFailure(failure)
+                    activity.toast(R.string.note_merge_failed)
+                    return@onSuccess
                 }
+
+                val mergedSources = result.mergedSourceIds
                 if (mergedSources.isNotEmpty()) {
                     notifyLibrarySourcesMerged(mergedSources)
                 }
 
-                val message = when {
-                    result.mergedCount == 0 -> activity.getString(R.string.note_merge_failed)
-                    result.mergedCount == result.total -> activity.getString(R.string.note_merge_done)
-                    else -> activity.getString(
-                        R.string.library_merge_partial,
-                        result.mergedCount,
-                        result.total
-                    )
+                val message = activity.getString(
+                    R.string.library_merge_success_with_count,
+                    result.mergedCount,
+                    result.total
+                )
+
+                topBubble?.show(message)
+
+                val transaction = result.transactionTimestamp?.let { timestamp ->
+                    NoteRepository.MergeTransaction(targetId, result.mergedSourceIds, timestamp)
                 }
 
-                if (result.mergedCount == 0) {
-                    topBubble?.showFailure(message)
-                } else {
-                    topBubble?.show(message)
+                if (transaction != null) {
+                    showUndoSnackbar(message, transaction)
                 }
             }.onFailure {
                 topBubble?.showFailure(activity.getString(R.string.note_merge_failed))
                 activity.toast(R.string.note_merge_failed)
             }
         }
+    }
+
+    private fun showUndoSnackbar(message: String, tx: NoteRepository.MergeTransaction) {
+        Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG)
+            .setAction(R.string.action_undo) {
+                activity.lifecycleScope.launch {
+                    val success = runCatching {
+                        withContext(Dispatchers.IO) { repo.undoMerge(tx) }
+                    }.getOrDefault(false)
+                    if (success) {
+                        if (tx.sources.size == 1) {
+                            open(tx.sources.first())
+                        }
+                        notifyLibraryMergeUndone()
+                        topBubble?.show(activity.getString(R.string.library_merge_undo_success))
+                        Snackbar.make(
+                            binding.root,
+                            activity.getString(R.string.library_merge_undo_success),
+                            Snackbar.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        Snackbar.make(
+                            binding.root,
+                            activity.getString(R.string.library_merge_undo_failed),
+                            Snackbar.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+            .show()
     }
 
     private fun formatMergeLabel(note: Note): String {
@@ -305,6 +339,13 @@ class NotePanelController(
         val intent = Intent(LibraryFragment.ACTION_SOURCES_MERGED).apply {
             setPackage(activity.packageName)
             putExtra(LibraryFragment.EXTRA_MERGED_SOURCE_IDS, sourceIds.toLongArray())
+        }
+        activity.sendBroadcast(intent)
+    }
+
+    private fun notifyLibraryMergeUndone() {
+        val intent = Intent(LibraryFragment.ACTION_REFRESH_LIBRARY).apply {
+            setPackage(activity.packageName)
         }
         activity.sendBroadcast(intent)
     }
