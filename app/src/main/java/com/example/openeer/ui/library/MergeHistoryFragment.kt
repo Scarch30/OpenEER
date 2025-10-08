@@ -27,6 +27,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private object MergeLogDiff : DiffUtil.ItemCallback<MergeLogUiRow>() {
+    override fun areItemsTheSame(oldItem: MergeLogUiRow, newItem: MergeLogUiRow): Boolean {
+        return oldItem.id == newItem.id
+    }
+
+    override fun areContentsTheSame(oldItem: MergeLogUiRow, newItem: MergeLogUiRow): Boolean {
+        return oldItem == newItem
+    }
+}
+
 class MergeHistoryFragment : Fragment() {
 
     private var _binding: FragmentMergeHistoryBinding? = null
@@ -136,7 +146,7 @@ class MergeHistoryFragment : Fragment() {
 
     private inner class MergeHistoryAdapter(
         private val onUndo: (MergeLogUiRow) -> Unit
-    ) : ListAdapter<MergeLogUiRow, MergeHistoryViewHolder>(DiffCallback) {
+    ) : ListAdapter<MergeLogUiRow, MergeHistoryViewHolder>(MergeLogDiff) {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MergeHistoryViewHolder {
             val inflater = LayoutInflater.from(parent.context)
@@ -150,15 +160,6 @@ class MergeHistoryFragment : Fragment() {
             holder.binding.undoButton.setOnClickListener { onUndo(item) }
         }
 
-        private object DiffCallback : DiffUtil.ItemCallback<MergeLogUiRow>() {
-            override fun areItemsTheSame(oldItem: MergeLogUiRow, newItem: MergeLogUiRow): Boolean {
-                return oldItem.id == newItem.id
-            }
-
-            override fun areContentsTheSame(oldItem: MergeLogUiRow, newItem: MergeLogUiRow): Boolean {
-                return oldItem == newItem
-            }
-        }
     }
 
     private class MergeHistoryViewHolder(val binding: ItemMergeHistoryBinding) :
