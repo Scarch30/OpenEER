@@ -117,6 +117,8 @@ dependencies {
     // MapLibre GL Android (API v12, simple et stable)
     implementation("org.maplibre.gl:android-sdk:12.0.0")
 
+    implementation("com.google.code.gson:gson:2.11.0")
+
 
 
     // Tests
