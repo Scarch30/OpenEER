@@ -129,7 +129,7 @@ class NoteRepository(
         }
 
         return MergeResult(
-            merged = merged,
+            mergedCount = merged,
             skippedCount = skipped,
             total = validSources.size,
             mergedSourceIds = mergedSources.toList(),
