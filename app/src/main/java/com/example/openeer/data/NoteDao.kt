@@ -63,4 +63,13 @@ interface NoteDao {
 
     @Query("DELETE FROM note_merge_map WHERE noteId IN (:sourceIds)")
     suspend fun deleteMergeMaps(sourceIds: List<Long>)
+
+    @Insert
+    suspend fun insertMergeLog(entry: NoteMergeLogEntity): Long
+
+    @Query("SELECT * FROM note_merge_log WHERE id = :id LIMIT 1")
+    suspend fun getMergeLogById(id: Long): NoteMergeLogEntity?
+
+    @Query("DELETE FROM note_merge_log WHERE id = :id")
+    suspend fun deleteMergeLog(id: Long)
 }
