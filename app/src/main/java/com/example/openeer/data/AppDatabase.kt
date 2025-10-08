@@ -32,11 +32,12 @@ import com.example.openeer.data.audio.AudioDao
         AudioClipEntity::class,
         AudioTranscriptEntity::class,
         NoteMergeMapEntity::class,
+        NoteMergeLogEntity::class,
         SearchIndexFts::class,
         // 🔗 Liens entre blocs (AUDIO ↔ TEXTE, etc.)
         BlockLinkEntity::class
     ],
-    version = 10, // 🔼 bump : ajout note_merge_map + flag isMerged
+    version = 11, // 🔼 bump : ajout note_merge_map + flag isMerged + table note_merge_log
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -309,6 +310,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS note_merge_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sourceId INTEGER NOT NULL,
+                        targetId INTEGER NOT NULL,
+                        snapshotJson TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_note_merge_log_sourceId ON note_merge_log(sourceId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_note_merge_log_targetId ON note_merge_log(targetId)")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -324,7 +341,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_6_7,
                         MIGRATION_7_8,
                         MIGRATION_8_9, // 🔗
-                        MIGRATION_9_10
+                        MIGRATION_9_10,
+                        MIGRATION_10_11
                     )
                     .build()
                     .also { INSTANCE = it }
