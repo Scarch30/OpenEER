@@ -14,10 +14,15 @@
         app:showAsAction="always"
         android:icon="@android:drawable/ic_menu_month" />
 
-<item
-    android:id="@+id/action_map"
-    android:title="Carte"
-    android:showAsAction="always"
-    android:icon="@android:drawable/ic_dialog_map" />
+    <item
+        android:id="@+id/action_map"
+        android:title="Carte"
+        android:showAsAction="always"
+        android:icon="@android:drawable/ic_dialog_map" />
+
+    <item
+        android:id="@+id/action_merge_history"
+        android:title="@string/merge_history_menu_item"
+        app:showAsAction="never" />
 
 </menu>
