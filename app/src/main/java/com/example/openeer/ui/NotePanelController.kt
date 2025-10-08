@@ -115,6 +115,7 @@ class NotePanelController(
     )
 
     var onPileCountsChanged: ((PileCounts) -> Unit)? = null
+    var onOpenNoteChanged: ((Long?) -> Unit)? = null
 
     init {
         binding.mediaStrip.layoutManager =
@@ -135,6 +136,7 @@ class NotePanelController(
 
     fun open(noteId: Long) {
         openNoteId = noteId
+        onOpenNoteChanged?.invoke(noteId)
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
 
@@ -179,6 +181,7 @@ class NotePanelController(
     fun close() {
         openNoteId = null
         currentNote = null
+        onOpenNoteChanged?.invoke(null)
         binding.notePanel.isGone = true
         binding.recycler.isVisible = true
 
