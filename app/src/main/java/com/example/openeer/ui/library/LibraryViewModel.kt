@@ -60,8 +60,12 @@ class LibraryViewModel(
                 searchDao = db.searchDao(),
                 tagDao = db.tagDao()
             )
-            val blocksRepo = BlocksRepository(db)
-            val noteRepo = NoteRepository(db, blocksRepo)
+            val blocksRepo = BlocksRepository(
+                blockDao = db.blockDao(),
+                noteDao = db.noteDao(),
+                linkDao = db.blockLinkDao()
+            )
+            val noteRepo = NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
             return LibraryViewModel(repo, noteRepo)
         }
     }

@@ -45,8 +45,12 @@ class RecorderService : Service() {
         super.onCreate()
         val db = AppDatabase.get(this)
         // ✅ Injection du linkDao pour activer la création des liens AUDIO→TEXTE
-        val blocks = BlocksRepository(db)
-        repo = NoteRepository(db, blocks)
+        val blocks = BlocksRepository(
+            blockDao = db.blockDao(),
+            noteDao  = null,
+            linkDao  = db.blockLinkDao()
+        )
+        repo = NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocks)
         blocksRepo = blocks
     }
 
@@ -167,10 +171,9 @@ class RecorderService : Service() {
                     runCatching {
                         // crée un bloc TEXT "transcription" dans la même pile (groupId)
                         blocksRepo.appendTranscription(
-                            targetNoteId = noteId,
+                            noteId = noteId,
                             text   = finalText,
-                            groupId= groupId ?: generateGroupId(),
-                            sourceMediaBlockId = audioBlockId
+                            groupId= groupId ?: generateGroupId()
                         )
                     }
                 } else {

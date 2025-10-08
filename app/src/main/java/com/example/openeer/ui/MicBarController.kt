@@ -206,10 +206,9 @@ class MicBarController(
                     if (initialVoskText.isNotBlank()) {
                         val textBlockId = withContext(Dispatchers.IO) {
                             blocksRepo.appendTranscription(
-                                targetNoteId = nid,
+                                noteId = nid,
                                 text = initialVoskText,
-                                groupId = gid,
-                                sourceMediaBlockId = newBlockId
+                                groupId = gid
                             )
                         }
                         textBlockIdByAudio[newBlockId] = textBlockId
@@ -234,10 +233,9 @@ class MicBarController(
                                 // si Vosk était vide, on crée maintenant le bloc texte
                                 val useGid = groupIdByAudio[newBlockId] ?: generateGroupId()
                                 val createdId = blocksRepo.appendTranscription(
-                                    targetNoteId = nid,
+                                    noteId = nid,
                                     text = refinedText,
-                                    groupId = useGid,
-                                    sourceMediaBlockId = newBlockId
+                                    groupId = useGid
                                 )
                                 textBlockIdByAudio[newBlockId] = createdId
                             }

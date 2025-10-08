@@ -83,7 +83,11 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(requireContext())
-        BlocksRepository(db)
+        BlocksRepository(
+            blockDao = db.blockDao(),
+            noteDao  = db.noteDao(),
+            linkDao  = db.blockLinkDao()
+        )
     }
 
     private val mediaActions: MediaActions by lazy {

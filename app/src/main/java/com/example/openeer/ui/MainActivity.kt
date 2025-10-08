@@ -32,7 +32,6 @@ import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
-import com.example.openeer.ui.util.CurrentNoteState
 import com.example.openeer.ui.util.toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -63,9 +62,13 @@ class MainActivity : AppCompatActivity() {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val db = AppDatabase.get(this@MainActivity)
-                val blocksRepo = BlocksRepository(db)
+                val blocksRepo = BlocksRepository(
+                    blockDao = db.blockDao(),
+                    noteDao = db.noteDao(),
+                    linkDao = db.blockLinkDao()
+                )
                 return NotesVm(
-                    NoteRepository(db, blocksRepo)
+                    NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
                 ) as T
             }
         }
@@ -79,11 +82,15 @@ class MainActivity : AppCompatActivity() {
     // Repos
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(this)
-        NoteRepository(db, blocksRepo)
+        NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
     }
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(this)
-        BlocksRepository(db)
+        BlocksRepository(
+            blockDao = db.blockDao(),
+            noteDao  = db.noteDao(),
+            linkDao  = db.blockLinkDao()   // ✅ injection pour liens AUDIO→TEXTE
+        )
     }
 
     private lateinit var importCoordinator: ImportCoordinator
@@ -120,8 +127,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             lifecycleScope.launch {
-                editorBody.commitInlineEdit(CurrentNoteState.value())
-                val targetNoteId = CurrentNoteState.value() ?: ensureOpenNote()
+                editorBody.commitInlineEdit(notePanel.openNoteId)
+                val targetNoteId = notePanel.openNoteId ?: ensureOpenNote()
                 runCatching {
                     importCoordinator.import(targetNoteId, uris)
                 }.onFailure {
@@ -185,7 +192,7 @@ class MainActivity : AppCompatActivity() {
             binding = b,
             repo = repo,
             blocksRepo = blocksRepo,
-            getOpenNoteId = { CurrentNoteState.value() },
+            getOpenNoteId = { notePanel.openNoteId },
             onAppendLive = { body -> notePanel.onAppendLive(body) },
             onReplaceFinal = { body, addNewline -> notePanel.onReplaceFinal(body, addNewline) }
         )
@@ -201,9 +208,9 @@ class MainActivity : AppCompatActivity() {
                         recordPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                     // Sécurise un éventuel overlay d’édition avant de changer de note
-                    runCatching { editorBody.commitInlineEdit(CurrentNoteState.value()) }
+                    runCatching { editorBody.commitInlineEdit(notePanel.openNoteId) }
 
-                    if (CurrentNoteState.value() == null) {
+                    if (notePanel.openNoteId == null) {
                         lifecycleScope.launch {
                             val newId = withContext(Dispatchers.IO) {
                                 // IMPORTANT : créer une note VIERGE
@@ -255,7 +262,7 @@ class MainActivity : AppCompatActivity() {
         // Boutons barre du bas
         b.btnKeyboard.setOnClickListener {
             lifecycleScope.launch {
-                val openId = CurrentNoteState.value()
+                val openId = notePanel.openNoteId
                 if (openId != null) {
                     // NOTE OUVERTE -> éditeur de post-it (BottomSheet)
                     editorBody.commitInlineEdit(openId)
@@ -290,7 +297,7 @@ class MainActivity : AppCompatActivity() {
         }
         b.btnLibrary.setOnClickListener {
             // On sécurise l’état courant puis on ouvre la Bibliothèque
-            editorBody.commitInlineEdit(CurrentNoteState.value())
+            editorBody.commitInlineEdit(notePanel.openNoteId)
             notePanel.close()
 
             startActivity(Intent(this, LibraryActivity::class.java))
@@ -371,13 +378,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        editorBody.commitInlineEdit(CurrentNoteState.value())
+        editorBody.commitInlineEdit(notePanel.openNoteId)
     }
 
     // ---------- Ouvrir une note ----------
     private fun onNoteClicked(note: Note) {
         // Sécurise l’overlay avant de changer de note
-        runCatching { editorBody.commitInlineEdit(CurrentNoteState.value()) }
+        runCatching { editorBody.commitInlineEdit(notePanel.openNoteId) }
         notePanel.open(note.id)
     }
 
@@ -393,7 +400,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Enregistrer") { _, _ ->
                 val t = input.text?.toString()?.trim()
                 lifecycleScope.launch(Dispatchers.IO) {
-                    repo.updateTitle(note.id, t?.ifBlank { null })
+                    repo.setTitle(note.id, t?.ifBlank { null })
                 }
             }
             .setNegativeButton("Annuler", null)
@@ -401,7 +408,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun ensureOpenNote(): Long {
-        CurrentNoteState.value()?.let { return it }
+        notePanel.openNoteId?.let { return it }
         val newId = withContext(Dispatchers.IO) {
             // IMPORTANT : créer une note VIERGE
             repo.createTextNote("")
@@ -426,14 +433,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyPileCounts(counts: PileCounts) {
         lastPileCounts = counts
-        val hasOpenNote = CurrentNoteState.value() != null
+        val hasOpenNote = notePanel.openNoteId != null
         b.pileCounters.isGone = !hasOpenNote
         val currentPiles = if (hasOpenNote) notePanel.currentPileUi() else emptyList()
         renderPiles(currentPiles)
     }
 
     private fun incrementPileCount(kind: MediaKind) {
-        if (CurrentNoteState.value() == null) return
+        if (notePanel.openNoteId == null) return
 
         applyPileCounts(lastPileCounts.increment(kind))
     }
@@ -497,7 +504,7 @@ class MainActivity : AppCompatActivity() {
             if (blockId != null) {
                 awaitBlock(noteId, blockId)
             }
-            if (CurrentNoteState.value() != noteId) {
+            if (notePanel.openNoteId != noteId) {
                 notePanel.open(noteId)
             }
             blockId?.let { notePanel.highlightBlock(it) }
