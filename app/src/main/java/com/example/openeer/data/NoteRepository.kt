@@ -2,7 +2,8 @@ package com.example.openeer.data
 
 import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlocksRepository
-import com.example.openeer.data.merge.MergeSnapshot as MergeLogSnapshot
+import com.example.openeer.data.merge.MergeSnapshot
+import com.example.openeer.data.merge.computeBlockHash
 import com.example.openeer.data.merge.toSnapshot
 import com.google.gson.Gson
 import kotlin.collections.buildList
@@ -86,6 +87,8 @@ class NoteRepository(
         val transactionTimestamp: Long? = null
     )
 
+    data class UndoResult(val reassigned: Int, val recreated: Int)
+
     data class MergeTransaction(val targetId: Long, val sources: List<Long>, val timestamp: Long)
 
     private data class MergeUndoSnapshot(
@@ -112,7 +115,7 @@ class NoteRepository(
             val log = NoteMergeLogEntity(
                 sourceId = sid,
                 targetId = targetId,
-                snapshotJson = gson.toJson(MergeLogSnapshot(sid, targetId, snapshots)),
+                snapshotJson = gson.toJson(MergeSnapshot(sid, targetId, snapshots)),
                 createdAt = System.currentTimeMillis()
             )
             noteDao.insertMergeLog(log)
@@ -175,5 +178,40 @@ class NoteRepository(
         noteDao.deleteMergeMaps(tx.sources)
         lastMergeSnapshot = null
         return true
+    }
+
+    suspend fun undoMergeById(mergeId: Long): UndoResult {
+        val log = noteDao.getMergeLogById(mergeId) ?: return UndoResult(0, 0)
+        val snapshot = gson.fromJson(log.snapshotJson, MergeSnapshot::class.java)
+        val groups = snapshot.blocks.groupBy { it.groupId ?: "solo_${it.id}" }
+
+        var reassigned = 0
+        var recreated = 0
+
+        for (group in groups.values) {
+            val ids = group.map { it.id }
+            val snapshotById = group.associateBy { it.id }
+            val unchanged = ids.all { id ->
+                val block = blocksRepository.getBlock(id)
+                val snapBlock = snapshotById[id]
+                block != null && snapBlock != null && computeBlockHash(block) == snapBlock.hash
+            }
+
+            if (unchanged) {
+                blocksRepository.reassignBlocksByIds(ids, snapshot.sourceId)
+                reassigned++
+            } else {
+                for (snapBlock in group.sortedBy { it.createdAt }) {
+                    blocksRepository.insertFromSnapshot(snapshot.sourceId, snapBlock)
+                }
+                recreated++
+            }
+        }
+
+        noteDao.updateIsMerged(snapshot.sourceId, false)
+        noteDao.deleteMergeMapForSource(snapshot.sourceId)
+        noteDao.deleteMergeLog(mergeId)
+
+        return UndoResult(reassigned, recreated)
     }
 }

@@ -2,11 +2,13 @@ package com.example.openeer.data.block
 
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteDao
+import com.example.openeer.data.merge.BlockSnapshot
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import com.google.gson.Gson
 
 fun generateGroupId(): String = UUID.randomUUID().toString()
 
@@ -16,6 +18,8 @@ class BlocksRepository(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val linkDao: BlockLinkDao? = null // 🔗 optionnel pour liens AUDIO↔TEXTE / VIDEO↔TEXTE
 ) {
+
+    private val snapshotGson by lazy { Gson() }
 
     companion object {
         const val LINK_AUDIO_TRANSCRIPTION = "AUDIO_TRANSCRIPTION"
@@ -49,6 +53,12 @@ class BlocksRepository(
 
     private suspend fun insert(noteId: Long, template: BlockEntity): Long =
         withContext(io) { blockDao.insertAtEnd(noteId, template) }
+
+    suspend fun insertFromSnapshot(noteId: Long, snapshot: BlockSnapshot): Long {
+        val block = snapshotGson.fromJson(snapshot.rawJson, BlockEntity::class.java)
+        val sanitized = block.copy(id = 0L, noteId = noteId)
+        return insert(noteId, sanitized)
+    }
 
     suspend fun appendText(
         noteId: Long,

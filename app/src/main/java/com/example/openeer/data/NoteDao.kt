@@ -61,8 +61,14 @@ interface NoteDao {
     @Query("UPDATE notes SET isMerged = 0 WHERE id IN (:sourceIds)")
     suspend fun unmarkMerged(sourceIds: List<Long>)
 
+    @Query("UPDATE notes SET isMerged = :isMerged WHERE id = :noteId")
+    suspend fun updateIsMerged(noteId: Long, isMerged: Boolean)
+
     @Query("DELETE FROM note_merge_map WHERE noteId IN (:sourceIds)")
     suspend fun deleteMergeMaps(sourceIds: List<Long>)
+
+    @Query("DELETE FROM note_merge_map WHERE noteId = :sourceId")
+    suspend fun deleteMergeMapForSource(sourceId: Long)
 
     @Insert
     suspend fun insertMergeLog(entry: NoteMergeLogEntity): Long
