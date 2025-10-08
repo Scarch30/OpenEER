@@ -43,12 +43,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(requireContext())
-        // ✅ on passe linkDao pour activer la résolution AUDIO ↔ TEXTE
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao  = db.noteDao(),
-            linkDao  = db.blockLinkDao()
-        )
+        BlocksRepository(db)
     }
 
     private var currentContent: String = ""

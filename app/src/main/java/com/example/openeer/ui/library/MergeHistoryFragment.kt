@@ -63,12 +63,8 @@ class MergeHistoryFragment : Fragment() {
         val ctx = requireContext().applicationContext
         val db = AppDatabase.get(ctx)
         noteDao = db.noteDao()
-        val blocksRepository = BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao = noteDao,
-            linkDao = db.blockLinkDao()
-        )
-        noteRepository = NoteRepository(noteDao, db.attachmentDao(), db.blockReadDao(), blocksRepository)
+        val blocksRepository = BlocksRepository(db)
+        noteRepository = NoteRepository(db, blocksRepository)
 
         binding.recycler.layoutManager = LinearLayoutManager(requireContext())
         binding.recycler.adapter = adapter

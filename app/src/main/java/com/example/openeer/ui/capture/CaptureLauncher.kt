@@ -19,6 +19,7 @@ import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.ui.KeyboardCaptureActivity
 import com.example.openeer.ui.NotePanelController
+import com.example.openeer.ui.util.CurrentNoteState
 import com.example.openeer.ui.util.toast
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.io.File
@@ -43,7 +44,7 @@ class CaptureLauncher(
         ActivityResultContracts.TakePicture()
     ) { ok ->
         val path = tempPhotoPath
-        val nid = notePanel.openNoteId
+        val nid = CurrentNoteState.value()
         if (ok && path != null && nid != null) {
             activity.lifecycleScope.launch(Dispatchers.IO) {
                 repo.addPhoto(nid, path)
@@ -57,7 +58,7 @@ class CaptureLauncher(
 
     private val pickPhotoLauncher =
         activity.registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            val nid = notePanel.openNoteId ?: return@registerForActivityResult
+            val nid = CurrentNoteState.value() ?: return@registerForActivityResult
             if (uri != null) {
                 activity.lifecycleScope.launch(Dispatchers.IO) {
                     val dir = File(activity.filesDir, "images").apply { mkdirs() }
@@ -76,7 +77,7 @@ class CaptureLauncher(
             if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
             val data = result.data ?: return@registerForActivityResult
             val noteId = data.getLongExtra(KeyboardCaptureActivity.EXTRA_NOTE_ID, -1L)
-                .takeIf { it > 0 } ?: notePanel.openNoteId ?: return@registerForActivityResult
+                .takeIf { it > 0 } ?: CurrentNoteState.value() ?: return@registerForActivityResult
             val added = data.getBooleanExtra("addedText", false)
             if (!added) return@registerForActivityResult
             val blockId = data.getLongExtra(KeyboardCaptureActivity.EXTRA_BLOCK_ID, -1L)
@@ -89,7 +90,7 @@ class CaptureLauncher(
             if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
             val data = result.data ?: return@registerForActivityResult
             val noteId = data.getLongExtra(SketchCaptureActivity.EXTRA_NOTE_ID, -1L)
-                .takeIf { it > 0 } ?: notePanel.openNoteId ?: return@registerForActivityResult
+                .takeIf { it > 0 } ?: CurrentNoteState.value() ?: return@registerForActivityResult
             val blockId = data.getLongExtra(SketchCaptureActivity.EXTRA_BLOCK_ID, -1L)
                 .takeIf { it > 0 } ?: return@registerForActivityResult
             onChildBlockSaved(noteId, blockId, "Post-it dessin ajouté")
@@ -140,7 +141,7 @@ class CaptureLauncher(
     }
 
     fun launchPhotoCapture(noteId: Long) {
-        if (notePanel.openNoteId != noteId) {
+        if (CurrentNoteState.value() != noteId) {
             notePanel.open(noteId)
         }
         val intent = Intent(activity, CameraCaptureActivity::class.java)
@@ -158,7 +159,7 @@ class CaptureLauncher(
     }
 
     private fun openCamera() {
-        val nid = notePanel.openNoteId ?: return
+        val nid = CurrentNoteState.value() ?: return
         val dir = File(activity.filesDir, "images").apply { mkdirs() }
         val file = File(dir, "cap_${System.currentTimeMillis()}.jpg")
         tempPhotoPath = file.absolutePath

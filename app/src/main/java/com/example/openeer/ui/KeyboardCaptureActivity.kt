@@ -27,7 +27,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
 
     private val repo: BlocksRepository by lazy {
         val db = AppDatabase.get(this)
-        BlocksRepository(db.blockDao(), db.noteDao())
+        BlocksRepository(db)
     }
 
     private var noteId: Long = -1L

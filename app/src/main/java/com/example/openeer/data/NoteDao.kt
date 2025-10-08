@@ -31,6 +31,9 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     suspend fun getByIdOnce(id: Long): Note?
 
+    @Query("SELECT EXISTS(SELECT 1 FROM notes WHERE id = :id)")
+    suspend fun exists(id: Long): Boolean
+
     @Query("UPDATE notes SET audioPath = :path, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateAudioPath(id: Long, path: String, updatedAt: Long)
 
