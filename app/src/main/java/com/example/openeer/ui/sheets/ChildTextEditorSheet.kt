@@ -57,7 +57,7 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(requireContext())
-        BlocksRepository(db.blockDao(), db.noteDao())
+        BlocksRepository(db)
     }
 
     override fun onCreateView(

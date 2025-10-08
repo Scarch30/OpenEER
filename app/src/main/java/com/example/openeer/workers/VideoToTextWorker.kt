@@ -77,14 +77,7 @@ class VideoToTextWorker(
     }
 
     private val db by lazy { AppDatabase.get(applicationContext) }
-    private val blocksRepo by lazy {
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao = db.noteDao(),
-            io = Dispatchers.IO,
-            linkDao = db.blockLinkDao()
-        )
-    }
+    private val blocksRepo by lazy { BlocksRepository(db) }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
         // Channel (API 26+)
@@ -186,9 +179,10 @@ class VideoToTextWorker(
 
             Log.d(TAG, "Repo.appendTranscription(noteId=$noteId, groupId=$groupId)")
             blocksRepo.appendTranscription(
-                noteId = noteId,
+                targetNoteId = noteId,
                 text = text,
-                groupId = groupId
+                groupId = groupId,
+                sourceMediaBlockId = videoBlockId
             )
 
             Result.success()

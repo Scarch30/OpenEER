@@ -20,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.openeer.BuildConfig
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
@@ -27,6 +28,7 @@ import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.debug.DBConsistencyChecker
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.imports.MediaKind
 import com.example.openeer.ui.SimplePlayer
@@ -37,6 +39,7 @@ import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
 import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.library.LibraryFragment
+import com.example.openeer.ui.util.CurrentNoteState
 import com.example.openeer.ui.util.toast
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.card.MaterialCardView
@@ -77,11 +80,14 @@ class NotePanelController(
 
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(activity)
-        NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
+        NoteRepository(db, blocksRepo)
     }
 
     var openNoteId: Long? = null
-        private set
+        private set(value) {
+            field = value
+            CurrentNoteState.update(value)
+        }
 
     private var currentNote: Note? = null
 
@@ -89,12 +95,14 @@ class NotePanelController(
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(activity)
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao  = db.noteDao(),
-            linkDao  = db.blockLinkDao()   // ✅ liens AUDIO↔TEXTE / VIDEO↔TEXTE
-        )
+        BlocksRepository(db)
     }
+
+    private val dbChecker: DBConsistencyChecker by lazy {
+        DBConsistencyChecker(AppDatabase.get(activity))
+    }
+
+    private var lastConsistencyReport: DBConsistencyChecker.ConsistencyReport? = null
 
     private val mediaActions = MediaActions(activity, blocksRepo)
 
@@ -205,10 +213,23 @@ class NotePanelController(
         popup.menu.add(0, MENU_MERGE_WITH, 0, activity.getString(R.string.note_menu_merge_with)).apply {
             isEnabled = openNoteId != null
         }
+        if (BuildConfig.DEBUG) {
+            val devMenu = popup.menu.addSubMenu("Outils dev")
+            devMenu.add(0, MENU_DEV_SCAN, 0, "Scanner DB")
+            devMenu.add(0, MENU_DEV_FIX, 1, "Auto-fix (debug)")
+        }
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_MERGE_WITH -> {
                     promptMergeSelection()
+                    true
+                }
+                MENU_DEV_SCAN -> {
+                    runDbScan()
+                    true
+                }
+                MENU_DEV_FIX -> {
+                    runDbFix()
                     true
                 }
                 else -> false
@@ -250,6 +271,39 @@ class NotePanelController(
                     performMerge(targetId, selected.toList())
                 }
                 .show()
+        }
+    }
+
+    private fun runDbScan() {
+        activity.lifecycleScope.launch {
+            val report = withContext(Dispatchers.IO) { dbChecker.scan() }
+            lastConsistencyReport = report
+            val summary = "Audit DB → ${report.totals}"
+            if (report.totalIssues > 0) {
+                topBubble?.show(summary)
+            }
+            activity.toast(summary)
+        }
+    }
+
+    private fun runDbFix() {
+        if (!BuildConfig.DEBUG) return
+        activity.lifecycleScope.launch {
+            val before = lastConsistencyReport ?: withContext(Dispatchers.IO) { dbChecker.scan() }
+            val summary = withContext(Dispatchers.IO) { dbChecker.fix(before) }
+            lastConsistencyReport = summary.rescanned
+            val appliedText = if (summary.applied.isEmpty()) {
+                "aucune correction"
+            } else {
+                summary.applied.entries.joinToString(", ") { "${it.key}=${it.value}" }
+            }
+            val message = "Auto-fix → $appliedText | Reste=${summary.rescanned.totals}"
+            activity.toast(message)
+            if (summary.rescanned.totalIssues > 0) {
+                topBubble?.show(message)
+            } else {
+                topBubble?.show("Base OK")
+            }
         }
     }
 
@@ -352,6 +406,8 @@ class NotePanelController(
 
     companion object {
         private const val MENU_MERGE_WITH = 1
+        private const val MENU_DEV_SCAN = 2
+        private const val MENU_DEV_FIX = 3
     }
 
     fun onAppendLive(displayBody: String) {
@@ -623,7 +679,7 @@ class NotePanelController(
             .setPositiveButton("Enregistrer") { _, _ ->
                 val t = input.text?.toString()?.trim()
                 activity.lifecycleScope.launch(Dispatchers.IO) {
-                    repo.setTitle(note.id, t?.ifBlank { null })
+                    repo.updateTitle(note.id, t?.ifBlank { null })
                 }
             }
             .setNegativeButton("Annuler", null)
