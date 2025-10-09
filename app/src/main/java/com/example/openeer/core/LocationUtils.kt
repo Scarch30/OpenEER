@@ -95,3 +95,39 @@ suspend fun getOneShotPlace(ctx: Context): Place? {
         accuracyM = if (best.hasAccuracy()) best.accuracy else null
     )
 }
+
+/**
+ * Reverse-geocode a fixed latitude/longitude pair.
+ * Does not require location permissions since the caller already provides the coordinates.
+ */
+suspend fun getOneShotPlace(ctx: Context, lat: Double, lon: Double): Place {
+    val label = withContext(Dispatchers.IO) {
+        runCatching {
+            val geo = Geocoder(ctx, Locale.getDefault())
+            @Suppress("DEPRECATION")
+            val list = if (Build.VERSION.SDK_INT >= 33) {
+                geo.getFromLocation(lat, lon, 1)
+            } else {
+                geo.getFromLocation(lat, lon, 1)
+            }
+            val a = list?.firstOrNull()
+            when {
+                a == null -> null
+                !a.getAddressLine(0).isNullOrBlank() -> a.getAddressLine(0)
+                !a.locality.isNullOrBlank() && !a.postalCode.isNullOrBlank() ->
+                    "${a.postalCode} ${a.locality}"
+                !a.locality.isNullOrBlank() -> a.locality
+                !a.subAdminArea.isNullOrBlank() -> a.subAdminArea
+                !a.adminArea.isNullOrBlank() -> a.adminArea
+                else -> null
+            }
+        }.getOrNull()
+    }
+
+    return Place(
+        lat = lat,
+        lon = lon,
+        label = label,
+        accuracyM = null
+    )
+}
