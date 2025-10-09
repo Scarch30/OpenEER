@@ -4,25 +4,22 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.commit
 import com.example.openeer.R
-import com.example.openeer.databinding.ActivityMapBinding
+import com.google.android.material.appbar.MaterialToolbar
 
 class MapActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityMapBinding
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMapBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContentView(R.layout.activity_map)
 
-        setSupportActionBar(binding.toolbar)
+        val toolbar: MaterialToolbar = findViewById(R.id.toolbar)
+        setSupportActionBar(toolbar)
         supportActionBar?.apply {
             setDisplayHomeAsUpEnabled(true)
             title = getString(R.string.map_title)
         }
-        binding.toolbar.setNavigationOnClickListener { onSupportNavigateUp() }
+        toolbar.setNavigationOnClickListener { onSupportNavigateUp() }
 
         if (savedInstanceState == null) {
             val noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L).takeIf { it > 0 }
@@ -30,9 +27,10 @@ class MapActivity : AppCompatActivity() {
             val mode = intent.getStringExtra(EXTRA_MODE)
 
             val fragment = MapFragment.newInstance(noteId, blockId, mode)
-            supportFragmentManager.commit {
-                replace(binding.mapContainer.id, fragment, MAP_FRAGMENT_TAG)
-            }
+            supportFragmentManager
+                .beginTransaction()
+                .replace(R.id.map_container, fragment, MAP_FRAGMENT_TAG)
+                .commit()
         }
     }
 
