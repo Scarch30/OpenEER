@@ -38,27 +38,16 @@ class LibraryActivity : AppCompatActivity() {
         }
 
         if (savedInstanceState == null) {
-            if (shouldShowMap(intent)) {
-                Log.d("MapNav", "Launching map start destination")
-                showMap()
-                intent?.removeExtra(EXTRA_START_DEST)
-            } else {
-                showList()
-            }
+            handleIntent(intent, allowDefault = true)
         } else {
             updateActionBarForCurrentFragment()
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent == null) return
         setIntent(intent)
-        if (shouldShowMap(intent)) {
-            Log.d("MapNav", "Switching to map via new intent")
-            showMap()
-            intent.removeExtra(EXTRA_START_DEST)
-        }
+        handleIntent(intent, allowDefault = false)
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -89,8 +78,23 @@ class LibraryActivity : AppCompatActivity() {
         updateActionBarForCurrentFragment()
     }
 
-    private fun shouldShowMap(intent: Intent?): Boolean {
-        return intent?.getStringExtra(EXTRA_START_DEST) == DEST_MAP
+    private fun handleIntent(intent: Intent, allowDefault: Boolean) {
+        if (shouldShowMap(intent)) {
+            val logMessage = if (allowDefault) {
+                "Launching map start destination"
+            } else {
+                "Switching to map via new intent"
+            }
+            Log.d("MapNav", logMessage)
+            showMap()
+            intent.removeExtra(EXTRA_START_DEST)
+        } else if (allowDefault) {
+            showList()
+        }
+    }
+
+    private fun shouldShowMap(intent: Intent): Boolean {
+        return intent.getStringExtra(EXTRA_START_DEST) == DEST_MAP
     }
 
 

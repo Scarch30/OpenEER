@@ -93,6 +93,7 @@
         <activity
             android:name=".ui.library.LibraryActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:label="Bibliothèque" />
 
         <activity
