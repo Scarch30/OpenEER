@@ -19,8 +19,11 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.os.bundleOf
+import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
@@ -35,9 +38,13 @@ import com.example.openeer.data.block.RoutePointPayload
 import com.example.openeer.core.Place
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.databinding.FragmentMapBinding
+import com.example.openeer.databinding.SheetMapSelectedLocationBinding
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -134,6 +141,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     private val locationPins = mutableMapOf<Long, MapPin>()
 
+    private var selectionDialog: BottomSheetDialog? = null
+    private var selectionBinding: SheetMapSelectedLocationBinding? = null
+    private var selectionSymbol: Symbol? = null
+    private var selectionLatLng: LatLng? = null
+    private var selectionPlace: Place? = null
+    private var selectionJob: Job? = null
+
     // Mémoire
     private var allNotes: List<Note> = emptyList()
     private var lastFeatures: List<Feature>? = null
@@ -152,6 +166,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         private const val STATE_BLOCK_ID = "state_block_id"
         private const val STATE_MODE = "state_mode"
         private const val TAG = "MapFragment"
+
+        const val RESULT_MANUAL_ROUTE = "map_manual_route_seed"
+        const val RESULT_MANUAL_ROUTE_LAT = "manual_route_lat"
+        const val RESULT_MANUAL_ROUTE_LON = "manual_route_lon"
+        const val RESULT_MANUAL_ROUTE_LABEL = "manual_route_label"
 
         fun newInstance(noteId: Long? = null, blockId: Long? = null, mode: String? = null): MapFragment = MapFragment().apply {
             arguments = Bundle().apply {
@@ -324,6 +343,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 .show(parentFragmentManager, "notes_sheet")
             true
         }
+
+        map?.addOnMapLongClickListener { latLng -> handleMapLongClick(latLng) }
     }
 
     /** 1) Récupère une fois toutes les notes géolocalisées, 2) rend selon le zoom courant. */
@@ -611,6 +632,167 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         refreshPins()
     }
 
+    private fun handleMapLongClick(latLng: LatLng): Boolean {
+        val manager = symbolManager ?: return false
+        selectionJob?.cancel()
+        selectionJob = null
+        dismissSelectionSheet()
+
+        selectionLatLng = latLng
+        selectionPlace = Place(latLng.latitude, latLng.longitude, null, null)
+
+        selectionSymbol?.let { existing ->
+            runCatching { manager.delete(existing) }
+        }
+        selectionSymbol = manager.create(
+            SymbolOptions()
+                .withLatLng(latLng)
+                .withIconImage(ICON_HERE)
+        )
+
+        val placeholderLabel = formatLatLon(latLng.latitude, latLng.longitude)
+        showSelectionSheet(placeholderLabel, latLng, showLoading = true)
+
+        val appCtx = requireContext().applicationContext
+        selectionJob = viewLifecycleOwner.lifecycleScope.launch {
+            val resolved = withContext(Dispatchers.IO) {
+                runCatching { getOneShotPlace(appCtx, latLng.latitude, latLng.longitude) }.getOrNull()
+            }
+            if (!isActive) return@launch
+            val current = selectionLatLng
+            if (current == null || current.latitude != latLng.latitude || current.longitude != latLng.longitude) {
+                return@launch
+            }
+            val place = resolved ?: Place(latLng.latitude, latLng.longitude, null, null)
+            selectionPlace = place
+            updateSelectionSheet(place, showLoading = false)
+        }
+        return true
+    }
+
+    private fun showSelectionSheet(initialLabel: String, latLng: LatLng, showLoading: Boolean) {
+        val ctx = context ?: return
+        val inflater = LayoutInflater.from(ctx)
+        val binding = SheetMapSelectedLocationBinding.inflate(inflater)
+        val coordinates = String.format(
+            Locale.US,
+            getString(R.string.map_pick_coordinates_format),
+            latLng.latitude,
+            latLng.longitude
+        )
+        binding.label.text = initialLabel
+        binding.coordinates.text = coordinates
+        binding.loadingGroup.isVisible = showLoading
+        binding.btnSave.isEnabled = true
+        binding.btnRoute.isEnabled = true
+        binding.btnOpenMaps.isEnabled = true
+        binding.btnSave.setOnClickListener { onSaveSelectedLocationClicked() }
+        binding.btnRoute.setOnClickListener { onStartRouteFromSelectionClicked() }
+        binding.btnOpenMaps.setOnClickListener { onOpenInGoogleMapsClicked() }
+
+        selectionBinding = binding
+        selectionDialog?.setOnDismissListener(null)
+        selectionDialog?.dismiss()
+        val dialog = BottomSheetDialog(ctx)
+        dialog.setContentView(binding.root)
+        dialog.setOnDismissListener { handleSelectionDismissed() }
+        dialog.show()
+        selectionDialog = dialog
+    }
+
+    private fun updateSelectionSheet(place: Place, showLoading: Boolean) {
+        val binding = selectionBinding ?: return
+        binding.label.text = displayLabelFor(place)
+        binding.loadingGroup.isVisible = showLoading
+    }
+
+    private fun onSaveSelectedLocationClicked() {
+        val latLng = selectionLatLng ?: return
+        val place = selectionPlace ?: Place(latLng.latitude, latLng.longitude, null, null)
+        val binding = selectionBinding ?: return
+        binding.btnSave.isEnabled = false
+        binding.btnRoute.isEnabled = false
+        binding.btnOpenMaps.isEnabled = false
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = appendLocation(place)
+            if (result == null) {
+                binding.btnSave.isEnabled = true
+                binding.btnRoute.isEnabled = true
+                binding.btnOpenMaps.isEnabled = true
+                showHint(getString(R.string.map_location_unavailable))
+                return@launch
+            }
+            targetNoteId = result.noteId
+            addCustomPin(result.locationBlockId, place.lat, place.lon)
+            showHint(getString(R.string.map_location_added))
+            refreshNotesAsync()
+            showUndoSnackbar(result, displayLabelFor(place))
+            dismissSelectionSheet()
+        }
+    }
+
+    private fun onStartRouteFromSelectionClicked() {
+        val latLng = selectionLatLng ?: return
+        val place = selectionPlace ?: Place(latLng.latitude, latLng.longitude, null, null)
+        val label = displayLabelFor(place)
+        parentFragmentManager.setFragmentResult(
+            RESULT_MANUAL_ROUTE,
+            bundleOf(
+                RESULT_MANUAL_ROUTE_LAT to latLng.latitude,
+                RESULT_MANUAL_ROUTE_LON to latLng.longitude,
+                RESULT_MANUAL_ROUTE_LABEL to label
+            )
+        )
+        showHint(getString(R.string.map_manual_route_seed_hint, label))
+        dismissSelectionSheet()
+    }
+
+    private fun onOpenInGoogleMapsClicked() {
+        val latLng = selectionLatLng ?: return
+        val place = selectionPlace ?: Place(latLng.latitude, latLng.longitude, null, null)
+        val label = displayLabelFor(place)
+        val lat = latLng.latitude
+        val lon = latLng.longitude
+        val encodedLabel = Uri.encode(label)
+        val geoUri = Uri.parse("geo:0,0?q=$lat,$lon($encodedLabel)")
+        val ctx = requireContext()
+        val geoIntent = Intent(Intent.ACTION_VIEW, geoUri)
+        val pm = ctx.packageManager
+        var launched = false
+        if (geoIntent.resolveActivity(pm) != null) {
+            launched = runCatching { startActivity(geoIntent) }.isSuccess
+        }
+        if (!launched) {
+            val url = String.format(Locale.US, "https://www.google.com/maps/search/?api=1&query=%f,%f", lat, lon)
+            val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            if (fallbackIntent.resolveActivity(pm) != null) {
+                launched = runCatching { startActivity(fallbackIntent) }.isSuccess
+            }
+        }
+        if (!launched) {
+            Toast.makeText(ctx, getString(R.string.map_pick_google_maps_unavailable), Toast.LENGTH_SHORT).show()
+        }
+        dismissSelectionSheet()
+    }
+
+    private fun dismissSelectionSheet() {
+        selectionDialog?.dismiss()
+    }
+
+    private fun handleSelectionDismissed() {
+        selectionJob?.cancel()
+        selectionJob = null
+        selectionBinding = null
+        selectionDialog = null
+        selectionPlace = null
+        selectionLatLng = null
+        selectionSymbol?.let { symbol ->
+            runCatching { symbolManager?.delete(symbol) }
+        }
+        selectionSymbol = null
+    }
+
     private fun hasLocationPermission(): Boolean {
         val ctx = requireContext()
         val fine = ActivityCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION)
@@ -754,6 +936,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     private fun buildMirrorText(place: Place): String {
         return "📍 Ajouté: ${displayLabelFor(place)}"
+    }
+
+    private fun formatLatLon(lat: Double, lon: Double): String {
+        return String.format(Locale.US, "%.5f, %.5f", lat, lon)
     }
 
     private fun onRouteButtonClicked() {
@@ -950,7 +1136,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     private fun displayLabelFor(place: Place): String {
         val label = place.label?.takeIf { it.isNotBlank() }
-        return label ?: String.format(Locale.US, "%.5f, %.5f", place.lat, place.lon)
+        return label ?: formatLatLon(place.lat, place.lon)
     }
 
     private inner class RouteRecorder(
@@ -1139,6 +1325,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     override fun onLowMemory() { super.onLowMemory(); mapView?.onLowMemory() }
     override fun onDestroyView() {
         cancelRouteRecording()
+        selectionDialog?.setOnDismissListener(null)
+        selectionDialog?.dismiss()
+        handleSelectionDismissed()
         mapView?.onDestroy()
         symbolManager?.onDestroy()
         symbolManager = null
