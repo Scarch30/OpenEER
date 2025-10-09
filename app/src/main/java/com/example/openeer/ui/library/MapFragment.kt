@@ -1434,44 +1434,36 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         onResult: (Bitmap?) -> Unit,
         timeoutMs: Long = 1500L
     ) {
-        val mapObj = map ?: run {
-            onResult(null)
-            return
-        }
+        val mapObj = map ?: run { onResult(null); return }
         val handler = Handler(Looper.getMainLooper())
 
-        var completed = false
-
+        lateinit var timeoutRunnable: Runnable
         lateinit var idleListener: MapLibreMap.OnCameraIdleListener
 
-        val timeout = Runnable {
-            if (completed) return@Runnable
-            completed = true
-            mapObj.removeOnCameraIdleListener(idleListener)
-            handler.removeCallbacks(timeout)
+        timeoutRunnable = Runnable {
+            // Timeout : on nettoie et on renvoie null
+            runCatching { mapObj.removeOnCameraIdleListener(idleListener) }
             onResult(null)
         }
 
         idleListener = object : MapLibreMap.OnCameraIdleListener {
             override fun onCameraIdle() {
-                if (completed) return
-                completed = true
+                // Idle atteint : on capture, on nettoie le timeout puis on retire le listener
                 mapObj.removeOnCameraIdleListener(this)
-                handler.removeCallbacks(timeout)
-                try {
-                    mapObj.snapshot { bmp ->
-                        onResult(bmp)
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to capture map snapshot", e)
-                    onResult(null)
+                handler.removeCallbacks(timeoutRunnable)
+                mapObj.snapshot { bmp ->
+                    onResult(bmp)
                 }
             }
         }
 
-        handler.postDelayed(timeout, timeoutMs)
+        // Armer le timeout
+        handler.postDelayed(timeoutRunnable, timeoutMs)
 
+        // Attendre l’idle, puis snapshot
         mapObj.addOnCameraIdleListener(idleListener)
+
+        // Nudge no-op pour garantir un cycle idle si besoin (ne change pas la vue)
         mapObj.animateCamera(CameraUpdateFactory.zoomBy(0.0))
     }
 
