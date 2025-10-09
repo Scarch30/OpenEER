@@ -57,6 +57,7 @@ data class PileCounts(
     val audios: Int = 0,
     val textes: Int = 0,
     val files: Int = 0,
+    val locations: Int = 0,
 ) {
     fun increment(kind: MediaKind): PileCounts = when (kind) {
         MediaKind.IMAGE, MediaKind.VIDEO -> copy(photos = photos + 1)
@@ -403,6 +404,7 @@ class NotePanelController(
             audios = blocks.count { it.type == BlockType.AUDIO },
             textes = blocks.count { it.type == BlockType.TEXT },
             files = blocks.count { it.type == BlockType.FILE },
+            locations = blocks.count { it.type == BlockType.LOCATION },
         )
         onPileCountsChanged?.invoke(counts)
 
@@ -464,6 +466,7 @@ class NotePanelController(
         val audioItems  = mutableListOf<MediaStripItem.Audio>()
         val textItems   = mutableListOf<MediaStripItem.Text>()   // textes indépendants
         val transcriptTextItems = mutableListOf<MediaStripItem.Text>() // textes liés (A/V)
+        val locationBlocks = blocks.filter { it.type == BlockType.LOCATION }
 
         var transcriptsLinkedToAudio = 0
         var transcriptsLinkedToVideo = 0
@@ -548,13 +551,22 @@ class NotePanelController(
             }
         }.sortedByDescending { it.cover.blockId }
 
-        pileUiState.value = piles.map { pile ->
+        val pileUi = piles.map { pile ->
             PileUi(
                 category = pile.category,
                 count = pile.count,
                 coverBlockId = pile.cover.blockId,
             )
+        }.toMutableList()
+        if (locationBlocks.isNotEmpty()) {
+            pileUi += PileUi(
+                category = MediaCategory.LOCATION,
+                count = locationBlocks.size,
+                coverBlockId = locationBlocks.maxOfOrNull { it.id }
+            )
         }
+
+        pileUiState.value = pileUi
 
         mediaAdapter.submitList(piles)
         binding.mediaStrip.isGone = piles.isEmpty()

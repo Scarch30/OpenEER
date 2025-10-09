@@ -16,11 +16,15 @@ class LibraryActivity : AppCompatActivity() {
 
     companion object {
         private const val EXTRA_START_DEST = "com.example.openeer.library.EXTRA_START_DEST"
+        private const val EXTRA_NOTE_ID = "com.example.openeer.library.EXTRA_NOTE_ID"
         private const val DEST_MAP = "map"
 
-        fun intentForMap(context: Context): Intent {
+        fun intentForMap(context: Context, noteId: Long? = null): Intent {
             return Intent(context, LibraryActivity::class.java).apply {
                 putExtra(EXTRA_START_DEST, DEST_MAP)
+                if (noteId != null && noteId > 0) {
+                    putExtra(EXTRA_NOTE_ID, noteId)
+                }
             }
         }
     }
@@ -70,24 +74,26 @@ class LibraryActivity : AppCompatActivity() {
         return true
     }
 
-    private fun showMap() {
+    private fun showMap(noteId: Long? = null) {
         clearBackStack()
         supportFragmentManager.beginTransaction()
-            .replace(b.container.id, MapFragment.newInstance(), "maplibre") // ✅
+            .replace(b.container.id, MapFragment.newInstance(noteId), "maplibre") // ✅
             .commit()
         updateActionBarForCurrentFragment()
     }
 
     private fun handleIntent(intent: Intent, allowDefault: Boolean) {
         if (shouldShowMap(intent)) {
+            val noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L).takeIf { it > 0 }
             val logMessage = if (allowDefault) {
                 "Launching map start destination"
             } else {
                 "Switching to map via new intent"
             }
             Log.d("MapNav", logMessage)
-            showMap()
+            showMap(noteId)
             intent.removeExtra(EXTRA_START_DEST)
+            intent.removeExtra(EXTRA_NOTE_ID)
         } else if (allowDefault) {
             showList()
         }

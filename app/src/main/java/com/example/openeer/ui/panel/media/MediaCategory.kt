@@ -8,4 +8,5 @@ enum class MediaCategory {
     SKETCH,
     AUDIO,
     TEXT,
+    LOCATION,
 }
