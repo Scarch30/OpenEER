@@ -33,6 +33,7 @@ import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.imports.ImportCoordinator
 import com.example.openeer.imports.ImportEvent
 import com.example.openeer.imports.MediaKind
+import com.example.openeer.R
 import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arrière-plan
 import com.example.openeer.ui.capture.CaptureLauncher
 import com.example.openeer.ui.editor.EditorBodyController
