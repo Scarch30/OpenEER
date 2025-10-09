@@ -1,6 +1,9 @@
 package com.example.openeer.ui.library
 
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import androidx.appcompat.app.AppCompatActivity
@@ -10,6 +13,17 @@ import com.example.openeer.databinding.ActivityLibraryBinding
 
 class LibraryActivity : AppCompatActivity() {
     private lateinit var b: ActivityLibraryBinding
+
+    companion object {
+        private const val EXTRA_START_DEST = "com.example.openeer.library.EXTRA_START_DEST"
+        private const val DEST_MAP = "map"
+
+        fun intentForMap(context: Context): Intent {
+            return Intent(context, LibraryActivity::class.java).apply {
+                putExtra(EXTRA_START_DEST, DEST_MAP)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,9 +38,26 @@ class LibraryActivity : AppCompatActivity() {
         }
 
         if (savedInstanceState == null) {
-            showList()
+            if (shouldShowMap(intent)) {
+                Log.d("MapNav", "Launching map start destination")
+                showMap()
+                intent?.removeExtra(EXTRA_START_DEST)
+            } else {
+                showList()
+            }
         } else {
             updateActionBarForCurrentFragment()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent == null) return
+        setIntent(intent)
+        if (shouldShowMap(intent)) {
+            Log.d("MapNav", "Switching to map via new intent")
+            showMap()
+            intent.removeExtra(EXTRA_START_DEST)
         }
     }
 
@@ -56,6 +87,10 @@ class LibraryActivity : AppCompatActivity() {
             .replace(b.container.id, MapFragment.newInstance(), "maplibre") // ✅
             .commit()
         updateActionBarForCurrentFragment()
+    }
+
+    private fun shouldShowMap(intent: Intent?): Boolean {
+        return intent?.getStringExtra(EXTRA_START_DEST) == DEST_MAP
     }
 
 
