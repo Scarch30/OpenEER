@@ -526,9 +526,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         polylineManager?.onDestroy()
         polylineManager = LineManager(mv, mapInstance, style).apply {
             lineCap = Property.LINE_CAP_ROUND
-            lineJoin = Property.LINE_JOIN_ROUND
-            lineColor = MapUiDefaults.ROUTE_LINE_COLOR
-            lineWidth = MapUiDefaults.ROUTE_LINE_WIDTH
         }
         recordingRouteLine = null
     }
