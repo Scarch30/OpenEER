@@ -126,6 +126,7 @@ class MainActivity : AppCompatActivity() {
             requireNotNull(b.root.findViewWithTag("pileCount2")) as TextView,
             requireNotNull(b.root.findViewWithTag("pileCount3")) as TextView,
             requireNotNull(b.root.findViewWithTag("pileCount4")) as TextView,
+            requireNotNull(b.root.findViewWithTag("pileCount5")) as TextView,
         )
     }
 
@@ -369,10 +370,11 @@ class MainActivity : AppCompatActivity() {
         b.btnMap.setOnClickListener {
             // On sécurise l’état courant avant de naviguer vers la carte
             editorBody.commitInlineEdit(notePanel.openNoteId)
+            val targetNoteId = notePanel.openNoteId
             notePanel.close()
 
             Log.d("MapNav", "Main map button → exploration map")
-            startActivity(LibraryActivity.intentForMap(this))
+            startActivity(LibraryActivity.intentForMap(this, targetNoteId))
         }
 
         b.btnImport.setOnClickListener {
@@ -558,19 +560,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderPiles(piles: List<PileUi>) {
-        val labels = listOf(b.pileLabel1, b.pileLabel2, b.pileLabel3, b.pileLabel4)
+        val labels = listOf(b.pileLabel1, b.pileLabel2, b.pileLabel3, b.pileLabel4, b.pileLabel5)
         val counts = pileCountViews
         val titleByCategory = mapOf(
             MediaCategory.PHOTO to "Photos/Vidéos",
             MediaCategory.AUDIO to "Audios",
             MediaCategory.TEXT to "Textes",
-            MediaCategory.SKETCH to "Fichiers"
+            MediaCategory.SKETCH to "Fichiers",
+            MediaCategory.LOCATION to getString(R.string.pile_label_locations)
         )
         val fallbackOrder = listOf(
             MediaCategory.PHOTO,
             MediaCategory.AUDIO,
             MediaCategory.TEXT,
-            MediaCategory.SKETCH
+            MediaCategory.SKETCH,
+            MediaCategory.LOCATION
         )
         val orderedCategories = buildList {
             piles.forEach { add(it.category) }
@@ -591,6 +595,7 @@ class MainActivity : AppCompatActivity() {
                     MediaCategory.AUDIO -> lastPileCounts.audios
                     MediaCategory.TEXT -> lastPileCounts.textes
                     MediaCategory.SKETCH -> lastPileCounts.files
+                    MediaCategory.LOCATION -> lastPileCounts.locations
                 }
                 counts[i].text = (countFromPiles ?: fallbackCount).toString()
             }

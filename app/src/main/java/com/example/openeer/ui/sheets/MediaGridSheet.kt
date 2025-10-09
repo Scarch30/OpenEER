@@ -222,6 +222,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             MediaCategory.SKETCH -> getString(R.string.media_category_sketch)
             MediaCategory.AUDIO  -> getString(R.string.media_category_audio)
             MediaCategory.TEXT   -> getString(R.string.media_category_text)
+            MediaCategory.LOCATION -> getString(R.string.pile_label_locations)
         }
 
     /**
@@ -318,6 +319,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         } else null
                     } else null
                 }
+                MediaCategory.LOCATION -> null
             }
         }
 

@@ -97,6 +97,12 @@
     <string name="zoom_in">Zoom avant</string>
     <string name="zoom_out">Zoom arrière</string>
     <string name="recenter">Recentrer</string>
+    <string name="map_action_here">📍 Ici</string>
+    <string name="map_location_added">Lieu ajouté</string>
+    <string name="map_location_unavailable">Localisation indisponible</string>
+    <string name="map_location_permission_needed">Permission localisation requise</string>
+    <string name="map_location_undo_success">Ajout annulé</string>
+    <string name="pile_label_locations">Lieux</string>
 
     <string name="library_title">Bibliothèque</string>
     <string name="library_action_merge">Fusionner…</string>
