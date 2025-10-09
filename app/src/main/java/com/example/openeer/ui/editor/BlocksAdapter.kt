@@ -16,7 +16,7 @@ import com.example.openeer.R
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.RoutePayload
-import com.example.openeer.ui.library.LibraryActivity
+import com.example.openeer.ui.library.MapActivity
 import com.google.android.material.chip.Chip
 import com.google.gson.Gson
 import java.util.Locale
@@ -205,7 +205,7 @@ class BlocksAdapter(
         val context = view.context
         Toast.makeText(context, R.string.block_view_on_map, Toast.LENGTH_SHORT).show()
         context.startActivity(
-            LibraryActivity.intentForMap(
+            MapActivity.intentForBrowse(
                 context,
                 block.noteId,
                 block.id

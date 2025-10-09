@@ -97,6 +97,13 @@
             android:label="Bibliothèque" />
 
         <activity
+            android:name=".ui.library.MapActivity"
+            android:exported="false"
+            android:label="@string/map_title"
+            android:parentActivityName=".ui.library.LibraryActivity"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
+
+        <activity
             android:name=".ui.library.DayNotesActivity"
             android:exported="false"
             android:label="Notes du jour" />

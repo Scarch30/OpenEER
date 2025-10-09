@@ -1,9 +1,7 @@
 package com.example.openeer.ui.library
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import androidx.appcompat.app.AppCompatActivity
@@ -13,25 +11,6 @@ import com.example.openeer.databinding.ActivityLibraryBinding
 
 class LibraryActivity : AppCompatActivity() {
     private lateinit var b: ActivityLibraryBinding
-
-    companion object {
-        private const val EXTRA_START_DEST = "com.example.openeer.library.EXTRA_START_DEST"
-        private const val EXTRA_NOTE_ID = "com.example.openeer.library.EXTRA_NOTE_ID"
-        private const val EXTRA_BLOCK_ID = "com.example.openeer.library.EXTRA_BLOCK_ID"
-        private const val DEST_MAP = "map"
-
-        fun intentForMap(context: Context, noteId: Long? = null, blockId: Long? = null): Intent {
-            return Intent(context, LibraryActivity::class.java).apply {
-                putExtra(EXTRA_START_DEST, DEST_MAP)
-                if (noteId != null && noteId > 0) {
-                    putExtra(EXTRA_NOTE_ID, noteId)
-                }
-                if (blockId != null && blockId > 0) {
-                    putExtra(EXTRA_BLOCK_ID, blockId)
-                }
-            }
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,7 +46,10 @@ class LibraryActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.action_list -> { showList(); true }
             R.id.action_calendar -> { showCalendar(); true }
-            R.id.action_map -> { showMap(); true } // ✅
+            R.id.action_map -> {
+                startActivity(MapActivity.intentForBrowse(this))
+                true
+            }
             R.id.action_merge_history -> { showMergeHistory(); true }
             else -> super.onOptionsItemSelected(item)
         }
@@ -78,35 +60,10 @@ class LibraryActivity : AppCompatActivity() {
         return true
     }
 
-    private fun showMap(noteId: Long? = null, blockId: Long? = null) {
-        clearBackStack()
-        supportFragmentManager.beginTransaction()
-            .replace(b.container.id, MapFragment.newInstance(noteId, blockId), "maplibre") // ✅
-            .commit()
-        updateActionBarForCurrentFragment()
-    }
-
-    private fun handleIntent(intent: Intent, allowDefault: Boolean) {
-        if (shouldShowMap(intent)) {
-            val noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L).takeIf { it > 0 }
-            val blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
-            val logMessage = if (allowDefault) {
-                "Launching map start destination"
-            } else {
-                "Switching to map via new intent"
-            }
-            Log.d("MapNav", logMessage)
-            showMap(noteId, blockId)
-            intent.removeExtra(EXTRA_START_DEST)
-            intent.removeExtra(EXTRA_NOTE_ID)
-            intent.removeExtra(EXTRA_BLOCK_ID)
-        } else if (allowDefault) {
+    private fun handleIntent(_intent: Intent, allowDefault: Boolean) {
+        if (allowDefault) {
             showList()
         }
-    }
-
-    private fun shouldShowMap(intent: Intent): Boolean {
-        return intent.getStringExtra(EXTRA_START_DEST) == DEST_MAP
     }
 
 

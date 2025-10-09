@@ -16,7 +16,7 @@
 
     <item
         android:id="@+id/action_map"
-        android:title="Carte"
+        android:title="@string/map_title"
         android:showAsAction="always"
         android:icon="@android:drawable/ic_dialog_map" />
 
