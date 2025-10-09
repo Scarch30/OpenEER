@@ -7,16 +7,26 @@
 
     <com.google.android.material.chip.Chip
         android:id="@+id/routeChip"
-        style="@style/Widget.MaterialComponents.Chip.Assist"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:clickable="true"
+        android:checkable="false"
         android:ellipsize="end"
         android:maxLines="1"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
         app:chipIcon="@drawable/ic_block_route"
-        app:chipIconTint="?attr/colorPrimary"
         app:chipIconVisible="true"
-        app:chipMinHeight="36dp"
-        app:rippleColor="?attr/colorControlHighlight" />
+        app:chipIconSize="18dp"
+        app:chipStartPadding="8dp"
+        app:iconStartPadding="4dp"
+        app:textStartPadding="4dp"
+        app:textEndPadding="8dp"
+        app:chipStrokeWidth="1dp"
+        app:chipCornerRadius="12dp"
+        app:rippleColor="?attr/colorControlHighlight"
+        app:chipBackgroundColor="?attr/colorSurfaceVariant"
+        app:chipStrokeColor="?attr/colorOutline"
+        app:chipIconTint="?attr/colorOnSurfaceVariant"
+        app:android:textColor="?attr/colorOnSurface"
+        app:textAppearance="?attr/textAppearanceBodySmall" />
 
 </FrameLayout>
