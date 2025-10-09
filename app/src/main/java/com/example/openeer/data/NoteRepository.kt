@@ -1,3 +1,4 @@
+// app/src/main/java/com/example/openeer/data/NoteRepository.kt
 package com.example.openeer.data
 
 import android.util.Log
@@ -86,11 +87,10 @@ class NoteRepository(
         val total: Int,
         val mergedSourceIds: List<Long> = emptyList(),
         val transactionTimestamp: Long? = null,
-        val reason: String? = null // 👈 explication en cas d'échec
+        val reason: String? = null
     )
 
     data class UndoResult(val reassigned: Int, val recreated: Int)
-
     data class MergeTransaction(val targetId: Long, val sources: List<Long>, val timestamp: Long)
 
     private data class MergeUndoSnapshot(
@@ -151,53 +151,47 @@ class NoteRepository(
 
         var lastError: Throwable? = null
 
-        // ----------------------------------------------------------------
-        // 0) Normalisation : convertir les body en blocs texte
-        //    - CIBLE : si body non vide -> bloc texte + vider body (éviter doublon)
-        //    - SOURCE(S) : idem AVANT snapshot pour que l'undo connaisse le texte
-        // ----------------------------------------------------------------
-        if (!target.body.isNullOrBlank()) {
-            try {
-                blocksRepository.createTextChild(targetId, target.body!!)
-                noteDao.updateBody(targetId, "", now)
-                Log.d(TAG, "target=$targetId — body converti en bloc texte")
-            } catch (t: Throwable) {
-                Log.w(TAG, "target=$targetId — conversion body->bloc texte a échoué (non bloquant)", t)
-            }
-        }
-
-        for (sid in effectiveSources) {
-            try {
-                val srcEntity = sourcesEntities[sid]
-                if (srcEntity != null && !srcEntity.body.isNullOrBlank()) {
-                    blocksRepository.createTextChild(sid, srcEntity.body!!)
-                    noteDao.updateBody(sid, "", now)
-                    Log.d(TAG, "source=$sid — body converti en bloc texte")
-                    // IMPORTANT : refresh en mémoire pour la suite (pas nécessaire mais clair)
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "source=$sid — conversion body->bloc texte a échoué (non bloquant)", t)
-            }
-        }
-        // ----------------------------------------------------------------
-
+        // On traite CHAQUE source séquentiellement : on append son body à la cible, on vide la source,
+        // on déplace ses blocs, puis on loggue avec le body d’origine de la source et si un sép. a été ajouté.
         for (sid in effectiveSources) {
             try {
                 Log.d(TAG, "source=$sid — begin")
+                val srcEntity = sourcesEntities[sid] ?: continue
+                val srcBody = srcEntity.body?.trim().orEmpty()
 
-                // 1) Snapshot pour undo (inclut désormais le body converti en bloc)
+                // 1) Append du body source -> body cible (si non vide), et vider le body source
+                var appendedWithLeadingSep = false
+                if (srcBody.isNotEmpty()) {
+                    val targetNow = noteDao.getByIdOnce(targetId) ?: target // relecture courante
+                    val tgtBody = targetNow.body.orEmpty()
+                    appendedWithLeadingSep = tgtBody.isNotBlank()
+                    val segment = if (appendedWithLeadingSep) "\n\n$srcBody" else srcBody
+                    noteDao.updateBody(targetId, tgtBody + segment, System.currentTimeMillis())
+                    noteDao.updateBody(sid, "", System.currentTimeMillis())
+                    Log.d(TAG, "source=$sid — body appended (sep=$appendedWithLeadingSep, len=${srcBody.length})")
+                }
+
+                // 2) Snapshot pour undo (blocs + infos body)
                 val blocksForLog = blockReadDao.getBlocksForNote(sid)
                 val snapshots = blocksForLog.map { toSnapshot(sid, it) }
                 val log = NoteMergeLogEntity(
                     sourceId = sid,
                     targetId = targetId,
-                    snapshotJson = gson.toJson(MergeSnapshot(sid, targetId, snapshots)),
+                    snapshotJson = gson.toJson(
+                        MergeSnapshot(
+                            sourceId = sid,
+                            targetId = targetId,
+                            blocks = snapshots,
+                            sourceBody = srcBody,                          // 👈 ajouté
+                            appendedWithLeadingSep = appendedWithLeadingSep // 👈 ajouté
+                        )
+                    ),
                     createdAt = System.currentTimeMillis()
                 )
                 noteDao.insertMergeLog(log)
                 Log.d(TAG, "source=$sid — insertMergeLog OK (snapshots=${snapshots.size})")
 
-                // 2) Réassignation des blocs vers la fin de la cible (évite collisions (noteId,position))
+                // 3) Réassignation des blocs vers la cible
                 val srcBefore = blocksRepository.getBlockIds(sid)
                 val tgtBefore = blocksRepository.getBlockIds(targetId)
                 blocksRepository.reassignBlocksToNote(sid, targetId)
@@ -205,7 +199,7 @@ class NoteRepository(
                 val tgtAfter = blocksRepository.getBlockIds(targetId)
                 Log.d(TAG, "source=$sid — reassign OK (srcBefore=${srcBefore.size}, srcAfter=${srcAfter.size}, tgtBefore=${tgtBefore.size}, tgtAfter=${tgtAfter.size})")
 
-                // 3) Marquer la source + table de correspondance
+                // 4) Marquer la source + table de correspondance
                 noteDao.markMerged(listOf(sid))
                 Log.d(TAG, "source=$sid — markMerged OK")
                 noteDao.insertMergeMaps(listOf(NoteMergeMapEntity(sid, targetId, now)))
@@ -218,7 +212,7 @@ class NoteRepository(
             } catch (t: Throwable) {
                 lastError = t
                 Log.e(TAG, "source=$sid — FAILED", t)
-                // on continue pour les autres sources, au cas où l'échec soit isolé
+                // on continue pour les autres sources au cas où l'échec soit isolé
             }
         }
 
@@ -250,10 +244,10 @@ class NoteRepository(
         if (snapshot.transaction != tx) return false
 
         for (sourceId in tx.sources) {
-            // on rapatrie d'abord tout dans la source
+            // rapatrier tous les blocs dans la source
             blocksRepository.reassignBlocksToNote(tx.targetId, sourceId)
 
-            // puis on remet dans la cible uniquement ce qui appartenait à la cible + aux autres sources
+            // puis remettre dans la cible ce qui lui appartenait (cible + autres sources)
             val keepInTarget = buildList {
                 addAll(snapshot.targetBlocks)
                 snapshot.sourceBlocks.forEach { (otherId, blocks) ->
@@ -272,6 +266,27 @@ class NoteRepository(
     suspend fun undoMergeById(mergeId: Long): UndoResult {
         val log = noteDao.getMergeLogById(mergeId) ?: return UndoResult(0, 0)
         val snapshot = gson.fromJson(log.snapshotJson, MergeSnapshot::class.java)
+
+        // 1) Restaurer le body de la SOURCE
+        val srcBody = snapshot.sourceBody.orEmpty()
+        if (srcBody.isNotEmpty()) {
+            noteDao.updateBody(snapshot.sourceId, srcBody, System.currentTimeMillis())
+        }
+
+        // 2) Retirer du body de la CIBLE UNIQUEMENT le segment ajouté par cette source
+        if (srcBody.isNotEmpty()) {
+            val seg = (if (snapshot.appendedWithLeadingSep) "\n\n" else "") + srcBody
+            val currentTarget = noteDao.getByIdOnce(snapshot.targetId)?.body.orEmpty()
+            // retire une seule occurrence du segment (la première)
+            var updated = currentTarget.replaceFirst(seg, "")
+            // normalisation légère des séparateurs multiples éventuels
+            while (updated.contains("\n\n\n")) {
+                updated = updated.replace("\n\n\n", "\n\n")
+            }
+            noteDao.updateBody(snapshot.targetId, updated, System.currentTimeMillis())
+        }
+
+        // 3) Blocs : réassignation si inchangés, sinon recréation depuis snapshot
         val groups = snapshot.blocks.groupBy { it.groupId ?: "solo_${it.id}" }
 
         var reassigned = 0

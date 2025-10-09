@@ -21,10 +21,19 @@ data class BlockSnapshot(
     val hash: String
 )
 
+/**
+ * Snapshot d'une fusion d'une note source vers une note cible.
+ *
+ * Les deux derniers champs (sourceBody et appendedWithLeadingSep)
+ * permettent de restaurer correctement le texte de la source et
+ * de retirer exactement ce qui a été ajouté dans la cible à l’undo.
+ */
 data class MergeSnapshot(
     val sourceId: Long,
     val targetId: Long,
-    val blocks: List<BlockSnapshot>
+    val blocks: List<BlockSnapshot>,
+    val sourceBody: String? = null,
+    val appendedWithLeadingSep: Boolean = false
 )
 
 fun computeBlockHash(block: BlockEntity): String {
