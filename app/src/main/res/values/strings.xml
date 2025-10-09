@@ -134,6 +134,8 @@
     <string name="block_location_coordinates">%1$.5f, %2$.5f</string>
     <string name="block_location_unknown">Lieu inconnu</string>
     <string name="block_location_chip_cd">Lieu : %1$s</string>
+    <string name="block_map_preview_cd">Aperçu de la carte</string>
+    <string name="block_open_in_google_maps">Ouvrir dans Google Maps</string>
     <string name="block_route_points">%1$d pts</string>
     <plurals name="block_route_chip_cd">
         <item quantity="one">Itinéraire : %d point</item>

@@ -1,5 +1,8 @@
 package com.example.openeer.ui.editor
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -8,6 +11,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -17,6 +21,7 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.library.MapActivity
+import com.example.openeer.ui.library.MapPreviewStorage
 import com.google.android.material.chip.Chip
 import com.google.gson.Gson
 import java.util.Locale
@@ -39,6 +44,7 @@ class BlocksAdapter(
         private const val TYPE_SKETCH = 3
         private const val TYPE_LOCATION = 4
         private const val TYPE_ROUTE = 5
+        private const val MENU_OPEN_GOOGLE_MAPS = 100
     }
 
     private val routeGson = Gson()
@@ -144,6 +150,7 @@ class BlocksAdapter(
 
     inner class LocationHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val chip: Chip = view.findViewById(R.id.locationChip)
+        private val preview: ImageView = view.findViewById(R.id.locationPreview)
 
         fun bind(block: BlockEntity) {
             val context = itemView.context
@@ -166,16 +173,24 @@ class BlocksAdapter(
             chip.isEnabled = hasCoordinates
             chip.alpha = if (hasCoordinates) 1f else 0.5f
             chip.setOnClickListener(null)
+            chip.setOnLongClickListener(null)
+            chip.isLongClickable = hasCoordinates
             if (hasCoordinates) {
                 chip.setOnClickListener { view ->
                     openMap(view, block)
                 }
+                chip.setOnLongClickListener { view ->
+                    showBlockMenu(view, block)
+                    true
+                }
             }
+            bindPreview(preview, block)
         }
     }
 
     inner class RouteHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val chip: Chip = view.findViewById(R.id.routeChip)
+        private val preview: ImageView = view.findViewById(R.id.routePreview)
 
         fun bind(block: BlockEntity) {
             val context = itemView.context
@@ -193,12 +208,112 @@ class BlocksAdapter(
             chip.isEnabled = canOpen
             chip.alpha = if (canOpen) 1f else 0.5f
             chip.setOnClickListener(null)
+            chip.setOnLongClickListener(null)
+            chip.isLongClickable = canOpen
             if (canOpen) {
                 chip.setOnClickListener { view ->
                     openMap(view, block)
                 }
+                chip.setOnLongClickListener { view ->
+                    showBlockMenu(view, block)
+                    true
+                }
+            }
+            bindPreview(preview, block)
+        }
+    }
+
+    private fun bindPreview(preview: ImageView, block: BlockEntity) {
+        val context = preview.context
+        val file = MapPreviewStorage.fileFor(context, block.id, block.type)
+        if (file.exists()) {
+            preview.visibility = View.VISIBLE
+            Glide.with(preview)
+                .load(file)
+                .centerCrop()
+                .into(preview)
+        } else {
+            Glide.with(preview).clear(preview)
+            preview.visibility = View.GONE
+        }
+    }
+
+    private fun showBlockMenu(view: View, block: BlockEntity) {
+        val context = view.context
+        val popup = PopupMenu(context, view)
+        popup.menu.add(0, MENU_OPEN_GOOGLE_MAPS, 0, context.getString(R.string.block_open_in_google_maps))
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_OPEN_GOOGLE_MAPS -> {
+                    openInGoogleMaps(context, block)
+                    true
+                }
+                else -> false
             }
         }
+        popup.show()
+    }
+
+    private fun openInGoogleMaps(context: Context, block: BlockEntity) {
+        val location = when (block.type) {
+            BlockType.LOCATION -> {
+                val lat = block.lat
+                val lon = block.lon
+                if (lat == null || lon == null) {
+                    null
+                } else {
+                    val label = block.placeName?.takeIf { it.isNotBlank() }
+                        ?: context.getString(R.string.block_location_coordinates, lat, lon)
+                    Triple(lat, lon, label)
+                }
+            }
+            BlockType.ROUTE -> {
+                val payload = block.routeJson?.let { json ->
+                    runCatching { routeGson.fromJson(json, RoutePayload::class.java) }.getOrNull()
+                }
+                val firstPoint = payload?.firstPoint()
+                val lat = firstPoint?.lat ?: block.lat
+                val lon = firstPoint?.lon ?: block.lon
+                if (lat == null || lon == null) {
+                    null
+                } else {
+                    val label = if (payload != null && payload.pointCount > 0) {
+                        context.getString(R.string.block_route_points, payload.pointCount)
+                    } else {
+                        context.getString(R.string.block_location_coordinates, lat, lon)
+                    }
+                    Triple(lat, lon, label)
+                }
+            }
+            else -> null
+        } ?: run {
+            showMapsUnavailableToast(context)
+            return
+        }
+
+        val (lat, lon, label) = location
+        val encodedLabel = Uri.encode(label)
+        val geoUri = Uri.parse("geo:0,0?q=$lat,$lon($encodedLabel)")
+        val pm = context.packageManager
+        var launched = false
+        val geoIntent = Intent(Intent.ACTION_VIEW, geoUri)
+        if (geoIntent.resolveActivity(pm) != null) {
+            launched = runCatching { context.startActivity(geoIntent) }.isSuccess
+        }
+        if (!launched) {
+            val url = String.format(Locale.US, "https://www.google.com/maps/search/?api=1&query=%f,%f", lat, lon)
+            val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            if (fallbackIntent.resolveActivity(pm) != null) {
+                launched = runCatching { context.startActivity(fallbackIntent) }.isSuccess
+            }
+        }
+        if (!launched) {
+            showMapsUnavailableToast(context)
+        }
+    }
+
+    private fun showMapsUnavailableToast(context: Context) {
+        Toast.makeText(context, R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
     }
 
     private fun openMap(view: View, block: BlockEntity) {
