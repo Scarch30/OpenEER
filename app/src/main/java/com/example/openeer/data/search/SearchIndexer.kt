@@ -2,6 +2,7 @@ package com.example.openeer.data.search
 
 import com.example.openeer.data.Note
 import com.example.openeer.data.block.BlockReadDao
+import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.tag.TagDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,7 +31,10 @@ class SearchIndexer(
         val tagsText = tags.joinToString(" ") { "#${it.name}" }
         val placesText = buildString {
             for (b in blocks) {
-                if (!b.placeName.isNullOrBlank()) appendLine(b.placeName)
+                if (b.placeName.isNullOrBlank()) continue
+                if (b.type == BlockType.LOCATION || b.type == BlockType.ROUTE) {
+                    appendLine(b.placeName)
+                }
             }
         }
 
