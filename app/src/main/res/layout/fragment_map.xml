@@ -56,14 +56,30 @@
             android:src="@android:drawable/ic_menu_mylocation" />
     </LinearLayout>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnAddHere"
-        style="@style/Widget.Material3.Button.TonalButton"
+    <LinearLayout
+        android:id="@+id/locationActions"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
         android:layout_margin="12dp"
-        android:enabled="false"
-        android:text="@string/map_action_here" />
+        android:orientation="vertical">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAddHere"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="@string/map_action_here" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRecordRoute"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:text="@string/map_route_start" />
+    </LinearLayout>
 
 </FrameLayout>

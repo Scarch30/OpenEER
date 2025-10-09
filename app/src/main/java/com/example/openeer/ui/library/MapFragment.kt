@@ -1,14 +1,18 @@
 package com.example.openeer.ui.library
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -22,6 +26,8 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.data.block.RoutePointPayload
 import com.example.openeer.core.Place
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.databinding.FragmentMapBinding
@@ -36,12 +42,17 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.OnMapReadyCallback
 import org.maplibre.android.maps.Style
+import com.google.gson.Gson
+import org.maplibre.android.plugins.annotation.Line
+import org.maplibre.android.plugins.annotation.LineManager
+import org.maplibre.android.plugins.annotation.LineOptions
 import org.maplibre.android.plugins.annotation.Symbol
 import org.maplibre.android.plugins.annotation.SymbolManager
 import org.maplibre.android.plugins.annotation.SymbolOptions
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.PropertyFactory.*
 import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -75,6 +86,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private var awaitingHerePermission = false
 
     private var symbolManager: SymbolManager? = null
+    private var polylineManager: LineManager? = null
+    private var recordingRouteLine: Line? = null
+    private var routeRecorder: RouteRecorder? = null
+    private var awaitingRoutePermission = false
+    private var isSavingRoute = false
+    private val routeGson by lazy { Gson() }
 
     private data class MapPin(val lat: Double, val lon: Double, var symbol: Symbol? = null)
 
@@ -88,6 +105,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val previousAccuracy: Float?
     )
 
+    private data class RoutePersistResult(
+        val noteId: Long,
+        val routeBlockId: Long,
+        val mirrorBlockId: Long,
+        val payload: RoutePayload
+    )
+
     private val locationPins = mutableMapOf<Long, MapPin>()
 
     // Mémoire
@@ -96,6 +120,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     // Permission localisation
     private val REQ_LOC = 1001
+    private val REQ_ROUTE = 1002
 
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
@@ -109,6 +134,16 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 }
             }
         }
+    }
+
+    private companion object RouteConfig {
+        const val MIN_DISTANCE_METERS = 8f
+        const val MIN_TIME_BETWEEN_UPDATES_MS = 4_000L
+        const val REQUEST_INTERVAL_MS = 1_000L
+        const val MAX_ROUTE_POINTS = 180
+        const val ROUTE_LINE_COLOR = "#FF2962FF"
+        const val ROUTE_LINE_WIDTH = 4.5f
+        const val ROUTE_BOUNDS_PADDING_DP = 72
     }
 
     override fun onAttach(context: Context) {
@@ -149,8 +184,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         b.btnZoomIn.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomIn()) }
         b.btnZoomOut.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomOut()) }
         b.btnRecenter.setOnClickListener { recenterToUserOrAll() }
+        clearRecordingLine()
         b.btnAddHere.isEnabled = false
         b.btnAddHere.setOnClickListener { onAddHereClicked() }
+        b.btnRecordRoute.isEnabled = false
+        b.btnRecordRoute.setOnClickListener { onRouteButtonClicked() }
     }
 
     override fun onMapReady(mapboxMap: MapLibreMap) {
@@ -196,7 +234,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             }
 
             setupSymbolManager(style)
+            setupRouteManager(style)
             b.btnAddHere.isEnabled = true
+            b.btnRecordRoute.isEnabled = true
 
             // Centre France
             map?.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(46.7111, 1.7191), 5.0))
@@ -379,6 +419,17 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         refreshPins()
     }
 
+    private fun setupRouteManager(style: Style) {
+        val mv = mapView ?: return
+        val mapInstance = map ?: return
+        polylineManager?.onDestroy()
+        polylineManager = LineManager(mv, mapInstance, style).apply {
+            lineCap = Property.LINE_CAP_ROUND
+            lineJoin = Property.LINE_JOIN_ROUND
+        }
+        recordingRouteLine = null
+    }
+
     private fun refreshPins() {
         val manager = symbolManager ?: return
         manager.deleteAll()
@@ -402,11 +453,16 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         refreshPins()
     }
 
-    private fun onAddHereClicked() {
+    private fun hasLocationPermission(): Boolean {
         val ctx = requireContext()
         val fine = ActivityCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION)
         val coarse = ActivityCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (fine != PackageManager.PERMISSION_GRANTED && coarse != PackageManager.PERMISSION_GRANTED) {
+        return fine == PackageManager.PERMISSION_GRANTED || coarse == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun onAddHereClicked() {
+        val ctx = requireContext()
+        if (!hasLocationPermission()) {
             awaitingHerePermission = true
             requestPermissions(
                 arrayOf(
@@ -505,9 +561,258 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         return "📍 Ajouté: ${displayLabelFor(place)}"
     }
 
+    private fun onRouteButtonClicked() {
+        if (routeRecorder != null) {
+            stopRouteRecording(save = true)
+            return
+        }
+        if (isSavingRoute) {
+            return
+        }
+        if (!hasLocationPermission()) {
+            awaitingRoutePermission = true
+            requestPermissions(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                REQ_ROUTE
+            )
+            showHint(getString(R.string.map_location_permission_needed))
+            return
+        }
+        startRouteRecording()
+    }
+
+    private fun startRouteRecording() {
+        if (routeRecorder != null || isSavingRoute) return
+        val ctx = requireContext()
+        val manager = ctx.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        if (manager == null) {
+            showHint(getString(R.string.map_route_provider_unavailable))
+            return
+        }
+        val providers = listOf(
+            LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER
+        ).filter { provider ->
+            runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false)
+        }.distinct()
+        if (providers.isEmpty()) {
+            showHint(getString(R.string.map_route_provider_unavailable))
+            return
+        }
+        b.btnAddHere.isEnabled = false
+        b.btnRecordRoute.text = getString(R.string.map_route_stop, 0)
+        b.btnRecordRoute.isEnabled = true
+        showHint(getString(R.string.map_route_recording_hint))
+        val recorder = RouteRecorder(manager, providers) { points -> onRoutePointsChanged(points) }
+        routeRecorder = recorder
+        val started = runCatching { recorder.start() }.isSuccess
+        if (!started) {
+            routeRecorder = null
+            b.btnAddHere.isEnabled = true
+            resetRouteButton()
+            showHint(getString(R.string.map_route_provider_unavailable))
+        }
+    }
+
+    private fun stopRouteRecording(save: Boolean) {
+        val recorder = routeRecorder ?: return
+        routeRecorder = null
+        b.btnAddHere.isEnabled = true
+        if (!save) {
+            recorder.cancel()
+            clearRecordingLine()
+            resetRouteButton()
+            return
+        }
+        b.btnRecordRoute.isEnabled = false
+        val payload = recorder.stop()
+        if (payload == null) {
+            showHint(getString(R.string.map_route_too_short))
+            clearRecordingLine()
+            resetRouteButton()
+            return
+        }
+        val mirrorText = getString(R.string.map_route_mirror_format, payload.pointCount)
+        isSavingRoute = true
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = persistRoute(payload, mirrorText)
+            isSavingRoute = false
+            if (result == null) {
+                showHint(getString(R.string.map_route_save_failed))
+                clearRecordingLine()
+            } else {
+                targetNoteId = result.noteId
+                showHint(getString(R.string.map_route_saved))
+                fitToRoute(result.payload.points)
+                refreshNotesAsync()
+            }
+            resetRouteButton()
+        }
+    }
+
+    private fun cancelRouteRecording() {
+        val recorder = routeRecorder ?: return
+        routeRecorder = null
+        recorder.cancel()
+        b.btnAddHere.isEnabled = true
+        clearRecordingLine()
+        resetRouteButton()
+    }
+
+    private fun onRoutePointsChanged(points: List<RoutePointPayload>) {
+        b.btnRecordRoute.text = getString(R.string.map_route_stop, points.size)
+        updateRoutePolyline(points)
+    }
+
+    private fun resetRouteButton() {
+        b.btnRecordRoute.text = getString(R.string.map_route_start)
+        b.btnRecordRoute.isEnabled = !isSavingRoute
+    }
+
+    private fun updateRoutePolyline(points: List<RoutePointPayload>) {
+        val manager = polylineManager ?: return
+        recordingRouteLine?.let { existing ->
+            manager.delete(existing)
+            recordingRouteLine = null
+        }
+        if (points.size < 2) return
+        val latLngs = points.map { LatLng(it.lat, it.lon) }
+        val options = LineOptions()
+            .withLatLngs(latLngs)
+            .withLineColor(ROUTE_LINE_COLOR)
+            .withLineWidth(ROUTE_LINE_WIDTH)
+        recordingRouteLine = manager.create(options)
+    }
+
+    private fun clearRecordingLine() {
+        recordingRouteLine?.let { line ->
+            polylineManager?.delete(line)
+        }
+        recordingRouteLine = null
+    }
+
+    private fun fitToRoute(points: List<RoutePointPayload>) {
+        if (points.isEmpty()) return
+        val latLngs = points.map { LatLng(it.lat, it.lon) }
+        if (latLngs.isEmpty()) return
+        if (latLngs.size == 1) {
+            map?.animateCamera(CameraUpdateFactory.newLatLngZoom(latLngs.first(), 15.0))
+            return
+        }
+        val builder = LatLngBounds.Builder()
+        latLngs.forEach { builder.include(it) }
+        val bounds = runCatching { builder.build() }.getOrNull() ?: return
+        val padding = (ROUTE_BOUNDS_PADDING_DP * resources.displayMetrics.density).toInt()
+        map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
+    }
+
+    private suspend fun persistRoute(
+        payload: RoutePayload,
+        mirrorText: String
+    ): RoutePersistResult? {
+        val firstPoint = payload.firstPoint()
+        val lat = firstPoint?.lat
+        val lon = firstPoint?.lon
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                var noteId = targetNoteId
+                if (noteId == null) {
+                    noteId = noteRepo.createTextNote(
+                        body = "",
+                        lat = lat,
+                        lon = lon,
+                        place = null,
+                        accuracyM = null
+                    )
+                } else if (lat != null && lon != null) {
+                    noteRepo.updateLocation(noteId!!, lat, lon, null, null)
+                }
+                val routeJson = routeGson.toJson(payload)
+                val routeBlockId = blocksRepo.appendRoute(noteId!!, routeJson, lat, lon)
+                val mirrorBlockId = blocksRepo.appendText(noteId!!, mirrorText)
+                RoutePersistResult(
+                    noteId = noteId!!,
+                    routeBlockId = routeBlockId,
+                    mirrorBlockId = mirrorBlockId,
+                    payload = payload
+                )
+            }.onFailure { e ->
+                Log.e(TAG, "Failed to persist route", e)
+            }.getOrNull()
+        }
+    }
+
     private fun displayLabelFor(place: Place): String {
         val label = place.label?.takeIf { it.isNotBlank() }
         return label ?: String.format(Locale.US, "%.5f, %.5f", place.lat, place.lon)
+    }
+
+    private inner class RouteRecorder(
+        private val locationManager: LocationManager,
+        private val providers: List<String>,
+        private val onPointsChanged: (List<RoutePointPayload>) -> Unit
+    ) : LocationListener {
+
+        private val points = mutableListOf<RoutePointPayload>()
+        private var lastAcceptedAt: Long = 0L
+        private var lastLocation: Location? = null
+
+        @SuppressLint("MissingPermission")
+        fun start() {
+            providers.forEach { provider ->
+                locationManager.requestLocationUpdates(provider, REQUEST_INTERVAL_MS, 0f, this, Looper.getMainLooper())
+            }
+            val seed = providers.firstNotNullOfOrNull { provider ->
+                runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
+            }
+            val now = System.currentTimeMillis()
+            seed?.let { accept(it, now) }
+        }
+
+        override fun onLocationChanged(location: Location) {
+            accept(location, System.currentTimeMillis())
+        }
+
+        private fun accept(location: Location, timestamp: Long) {
+            if (points.isNotEmpty()) {
+                val dt = timestamp - lastAcceptedAt
+                val distance = lastLocation?.distanceTo(location) ?: Float.MAX_VALUE
+                if (dt < MIN_TIME_BETWEEN_UPDATES_MS && distance < MIN_DISTANCE_METERS) {
+                    return
+                }
+                if (points.size >= MAX_ROUTE_POINTS) {
+                    return
+                }
+            }
+            val point = RoutePointPayload(location.latitude, location.longitude, timestamp)
+            points.add(point)
+            lastAcceptedAt = timestamp
+            lastLocation = Location(location)
+            onPointsChanged(points.toList())
+        }
+
+        fun stop(): RoutePayload? {
+            providers.forEach { provider -> locationManager.removeUpdates(this) }
+            if (points.size < 2) return null
+            val first = points.first()
+            val last = points.last()
+            return RoutePayload(
+                startedAt = first.t,
+                endedAt = last.t,
+                points = points.toList()
+            )
+        }
+
+        fun cancel() {
+            providers.forEach { provider -> locationManager.removeUpdates(this) }
+        }
+
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
     }
 
     private fun showUndoSnackbar(result: LocationAddResult, displayLabel: String) {
@@ -584,12 +889,20 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     // MapView lifecycle
     override fun onResume() { super.onResume(); mapView?.onResume() }
-    override fun onPause() { mapView?.onPause(); super.onPause() }
+    override fun onPause() {
+        cancelRouteRecording()
+        mapView?.onPause()
+        super.onPause()
+    }
     override fun onLowMemory() { super.onLowMemory(); mapView?.onLowMemory() }
     override fun onDestroyView() {
+        cancelRouteRecording()
         mapView?.onDestroy()
         symbolManager?.onDestroy()
         symbolManager = null
+        polylineManager?.onDestroy()
+        polylineManager = null
+        recordingRouteLine = null
         locationPins.values.forEach { it.symbol = null }
         super.onDestroyView()
         _b = null
@@ -597,6 +910,16 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_ROUTE) {
+            val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
+            awaitingRoutePermission = false
+            if (granted) {
+                startRouteRecording()
+            } else {
+                showHint(getString(R.string.map_location_permission_needed))
+            }
+            return
+        }
         if (requestCode == REQ_LOC) {
             if (awaitingHerePermission) {
                 val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
