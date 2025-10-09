@@ -7,6 +7,7 @@ import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -14,6 +15,11 @@ import com.bumptech.glide.Glide
 import com.example.openeer.R
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
+import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.ui.library.LibraryActivity
+import com.google.android.material.chip.Chip
+import com.google.gson.Gson
+import java.util.Locale
 
 class BlocksAdapter(
     private val onTextCommit: (Long, String) -> Unit,
@@ -31,13 +37,19 @@ class BlocksAdapter(
         private const val TYPE_PHOTO = 1
         private const val TYPE_AUDIO = 2
         private const val TYPE_SKETCH = 3
+        private const val TYPE_LOCATION = 4
+        private const val TYPE_ROUTE = 5
     }
+
+    private val routeGson = Gson()
 
     override fun getItemViewType(position: Int): Int = when (getItem(position).type) {
         BlockType.TEXT -> TYPE_TEXT
         BlockType.PHOTO -> TYPE_PHOTO
         BlockType.AUDIO -> TYPE_AUDIO
         BlockType.SKETCH -> TYPE_SKETCH
+        BlockType.LOCATION -> TYPE_LOCATION
+        BlockType.ROUTE -> TYPE_ROUTE
         else -> TYPE_TEXT
     }
 
@@ -47,6 +59,8 @@ class BlocksAdapter(
             TYPE_PHOTO -> PhotoHolder(inf.inflate(R.layout.item_block_photo, parent, false))
             TYPE_AUDIO -> AudioHolder(inf.inflate(R.layout.item_block_audio, parent, false))
             TYPE_SKETCH -> PhotoHolder(inf.inflate(R.layout.item_block_sketch, parent, false))
+            TYPE_LOCATION -> LocationHolder(inf.inflate(R.layout.item_block_location, parent, false))
+            TYPE_ROUTE -> RouteHolder(inf.inflate(R.layout.item_block_route, parent, false))
             else -> TextHolder(inf.inflate(R.layout.item_block_text, parent, false))
         }
     }
@@ -57,6 +71,8 @@ class BlocksAdapter(
             is TextHolder -> holder.bind(block)
             is PhotoHolder -> holder.bind(block)
             is AudioHolder -> holder.bind(block)
+            is LocationHolder -> holder.bind(block)
+            is RouteHolder -> holder.bind(block)
         }
     }
 
@@ -124,5 +140,76 @@ class BlocksAdapter(
                 }
             }
         }
+    }
+
+    inner class LocationHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val chip: Chip = view.findViewById(R.id.locationChip)
+
+        fun bind(block: BlockEntity) {
+            val context = itemView.context
+            val lat = block.lat
+            val lon = block.lon
+            val hasCoordinates = lat != null && lon != null
+            val label = block.placeName?.takeIf { it.isNotBlank() }
+                ?: if (hasCoordinates) {
+                    String.format(
+                        Locale.US,
+                        context.getString(R.string.block_location_coordinates),
+                        lat,
+                        lon
+                    )
+                } else {
+                    context.getString(R.string.block_location_unknown)
+                }
+            chip.text = label
+            chip.contentDescription = context.getString(R.string.block_location_chip_cd, label)
+            chip.isEnabled = hasCoordinates
+            chip.alpha = if (hasCoordinates) 1f else 0.5f
+            chip.setOnClickListener(null)
+            if (hasCoordinates) {
+                chip.setOnClickListener { view ->
+                    openMap(view, block)
+                }
+            }
+        }
+    }
+
+    inner class RouteHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val chip: Chip = view.findViewById(R.id.routeChip)
+
+        fun bind(block: BlockEntity) {
+            val context = itemView.context
+            val payload = block.routeJson?.let { json ->
+                runCatching { routeGson.fromJson(json, RoutePayload::class.java) }.getOrNull()
+            }
+            val pointCount = payload?.points?.size ?: 0
+            chip.text = context.getString(R.string.block_route_points, pointCount)
+            chip.contentDescription = context.resources.getQuantityString(
+                R.plurals.block_route_chip_cd,
+                pointCount,
+                pointCount
+            )
+            val canOpen = pointCount > 0 || (block.lat != null && block.lon != null)
+            chip.isEnabled = canOpen
+            chip.alpha = if (canOpen) 1f else 0.5f
+            chip.setOnClickListener(null)
+            if (canOpen) {
+                chip.setOnClickListener { view ->
+                    openMap(view, block)
+                }
+            }
+        }
+    }
+
+    private fun openMap(view: View, block: BlockEntity) {
+        val context = view.context
+        Toast.makeText(context, R.string.block_view_on_map, Toast.LENGTH_SHORT).show()
+        context.startActivity(
+            LibraryActivity.intentForMap(
+                context,
+                block.noteId,
+                block.id
+            )
+        )
     }
 }

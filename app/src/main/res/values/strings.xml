@@ -115,6 +115,16 @@
     <string name="map_route_mirror_format">Itinéraire (%1$d pts)</string>
     <string name="pile_label_locations">Lieux</string>
 
+    <string name="block_view_on_map">Voir sur carte</string>
+    <string name="block_location_coordinates">%.5f, %.5f</string>
+    <string name="block_location_unknown">Lieu inconnu</string>
+    <string name="block_location_chip_cd">Lieu : %1$s</string>
+    <string name="block_route_points">%1$d pts</string>
+    <plurals name="block_route_chip_cd">
+        <item quantity="one">Itinéraire : %d point</item>
+        <item quantity="other">Itinéraire : %d points</item>
+    </plurals>
+
     <string name="library_title">Bibliothèque</string>
     <string name="library_action_merge">Fusionner…</string>
     <string name="library_merge_dialog_title">Choisir la note cible</string>

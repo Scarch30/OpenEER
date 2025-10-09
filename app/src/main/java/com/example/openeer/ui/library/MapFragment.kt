@@ -27,6 +27,8 @@ import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.block.BlockEntity
+import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.data.block.RoutePointPayload
@@ -93,6 +95,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private lateinit var noteRepo: NoteRepository
 
     private var targetNoteId: Long? = null
+    private var targetBlockId: Long? = null
+    private var pendingBlockFocus: Long? = null
+    private var isStyleReady = false
 
     private var awaitingHerePermission = false
     private var lastHereLocation: RecentHere? = null
@@ -140,13 +145,18 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
+        private const val ARG_BLOCK_ID = "arg_block_id"
         private const val STATE_NOTE_ID = "state_note_id"
+        private const val STATE_BLOCK_ID = "state_block_id"
         private const val TAG = "MapFragment"
 
-        fun newInstance(noteId: Long? = null): MapFragment = MapFragment().apply {
+        fun newInstance(noteId: Long? = null, blockId: Long? = null): MapFragment = MapFragment().apply {
             arguments = Bundle().apply {
                 if (noteId != null && noteId > 0) {
                     putLong(ARG_NOTE_ID, noteId)
+                }
+                if (blockId != null && blockId > 0) {
+                    putLong(ARG_BLOCK_ID, blockId)
                 }
             }
         }
@@ -185,6 +195,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         super.onCreate(savedInstanceState)
         targetNoteId = savedInstanceState?.getLong(STATE_NOTE_ID, -1L)?.takeIf { it > 0 }
             ?: arguments?.getLong(ARG_NOTE_ID, -1L)?.takeIf { it > 0 }
+        targetBlockId = savedInstanceState?.getLong(STATE_BLOCK_ID, -1L)?.takeIf { it > 0 }
+            ?: arguments?.getLong(ARG_BLOCK_ID, -1L)?.takeIf { it > 0 }
+        pendingBlockFocus = targetBlockId
+        isStyleReady = false
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -211,6 +225,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     override fun onMapReady(mapboxMap: MapLibreMap) {
         map = mapboxMap
+        isStyleReady = false
 
         val styleUrl = "https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json"
         map?.setStyle(styleUrl) { style ->
@@ -264,6 +279,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
             // Recalcule l’agrégation quand la caméra s’arrête → nombres corrects selon le zoom
             map?.addOnCameraIdleListener { renderGroupsForCurrentZoom() }
+
+            isStyleReady = true
+            applyPendingBlockFocus()
         }
 
         // Tap : zoom doux + bottom sheet (toujours)
@@ -376,6 +394,62 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
         val bounds = bds.build()
         map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64))
+    }
+
+    private fun applyPendingBlockFocus() {
+        val blockId = pendingBlockFocus ?: return
+        if (!isStyleReady || map == null) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val block = blocksRepo.getBlock(blockId)
+            if (block != null) {
+                targetBlockId = blockId
+                targetNoteId = block.noteId
+                focusOnBlock(block)
+            }
+            pendingBlockFocus = null
+        }
+    }
+
+    private fun focusOnBlock(block: BlockEntity) {
+        when (block.type) {
+            BlockType.ROUTE -> {
+                val handled = focusOnRoute(block)
+                if (!handled) {
+                    focusOnLatLon(block.lat, block.lon)
+                }
+            }
+            BlockType.LOCATION -> focusOnLatLon(block.lat, block.lon)
+            else -> focusOnLatLon(block.lat, block.lon)
+        }
+    }
+
+    private fun focusOnRoute(block: BlockEntity): Boolean {
+        val payload = block.routeJson?.let { json ->
+            runCatching { routeGson.fromJson(json, RoutePayload::class.java) }.getOrNull()
+        }
+        val points = payload?.points ?: emptyList()
+        if (points.isEmpty()) return false
+        if (points.size == 1) {
+            return focusOnLatLon(points.first().lat, points.first().lon)
+        }
+        val builder = LatLngBounds.Builder()
+        points.forEach { builder.include(LatLng(it.lat, it.lon)) }
+        val bounds = runCatching { builder.build() }.getOrNull()
+        if (bounds != null) {
+            val padding = dpToPx(MapUiDefaults.ROUTE_BOUNDS_PADDING_DP)
+            map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
+            showHint(getString(R.string.block_view_on_map))
+            return true
+        }
+        return focusOnLatLon(points.first().lat, points.first().lon)
+    }
+
+    private fun focusOnLatLon(lat: Double?, lon: Double?, zoom: Double = 15.0): Boolean {
+        if (lat == null || lon == null) return false
+        val target = LatLng(lat, lon)
+        map?.animateCamera(CameraUpdateFactory.newLatLngZoom(target, zoom))
+        showHint(getString(R.string.block_view_on_map))
+        return true
     }
 
     /** Bouton “recentrer” : priorité à l’utilisateur, sinon sur toutes les notes. */
@@ -996,6 +1070,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         targetNoteId?.let { outState.putLong(STATE_NOTE_ID, it) }
+        targetBlockId?.let { outState.putLong(STATE_BLOCK_ID, it) }
     }
 
     // MapView lifecycle
@@ -1014,6 +1089,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         polylineManager?.onDestroy()
         polylineManager = null
         recordingRouteLine = null
+        isStyleReady = false
+        pendingBlockFocus = targetBlockId
         locationPins.values.forEach { it.symbol = null }
         _b?.clusterHint?.let { hintView ->
             hintDismissRunnable?.let { hintView.removeCallbacks(it) }
