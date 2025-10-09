@@ -203,8 +203,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             ?: arguments?.getLong(ARG_NOTE_ID, -1L)?.takeIf { it > 0 }
         targetBlockId = savedInstanceState?.getLong(STATE_BLOCK_ID, -1L)?.takeIf { it > 0 }
             ?: arguments?.getLong(ARG_BLOCK_ID, -1L)?.takeIf { it > 0 }
-        startMode = savedInstanceState?.getString(STATE_MODE)
-            ?: arguments?.getString(ARG_MODE)
+        startMode = when (val mode = savedInstanceState?.getString(STATE_MODE)
+            ?: arguments?.getString(ARG_MODE)) {
+            MapActivity.MODE_BROWSE,
+            MapActivity.MODE_CENTER_ON_HERE,
+            MapActivity.MODE_FOCUS_NOTE -> mode
+            else -> MapActivity.MODE_BROWSE
+        }
         Log.d(TAG, "Starting map with mode=$startMode note=$targetNoteId block=$targetBlockId")
         pendingBlockFocus = targetBlockId
         isStyleReady = false
@@ -235,6 +240,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     override fun onMapReady(mapboxMap: MapLibreMap) {
         map = mapboxMap
         isStyleReady = false
+        val initialMode = startMode ?: MapActivity.MODE_BROWSE
 
         val styleUrl = "https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json"
         map?.setStyle(styleUrl) { style ->
@@ -280,8 +286,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             b.btnAddHere.isEnabled = true
             b.btnRecordRoute.isEnabled = true
 
-            // Centre France
-            map?.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(46.7111, 1.7191), 5.0))
+            if (initialMode == MapActivity.MODE_BROWSE) {
+                moveCameraToDefault()
+            }
 
             // Charge les notes brutes (une seule fois)
             loadNotesThenRender()
@@ -291,6 +298,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
             isStyleReady = true
             applyPendingBlockFocus()
+            applyStartMode(initialMode)
         }
 
         // Tap : zoom doux + bottom sheet (toujours)
@@ -403,6 +411,47 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
         val bounds = bds.build()
         map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64))
+    }
+
+    private fun moveCameraToDefault() {
+        map?.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(46.7111, 1.7191), 5.0))
+    }
+
+    private fun applyStartMode(mode: String) {
+        when (mode) {
+            MapActivity.MODE_CENTER_ON_HERE -> {
+                val centered = tryCenterOnLastKnownLocation()
+                if (!centered) {
+                    moveCameraToDefault()
+                }
+            }
+            MapActivity.MODE_FOCUS_NOTE -> focusOnTargetNoteOrFallback { moveCameraToDefault() }
+            else -> Unit
+        }
+    }
+
+    private fun tryCenterOnLastKnownLocation(): Boolean {
+        if (!hasLocationPermission()) return false
+        val me = lastKnownLatLng(requireContext()) ?: return false
+        val currentZoom = map?.cameraPosition?.zoom ?: 5.0
+        val targetZoom = max(currentZoom, 14.0)
+        map?.animateCamera(CameraUpdateFactory.newLatLngZoom(me, targetZoom))
+        showHint("Votre position")
+        return true
+    }
+
+    private fun focusOnTargetNoteOrFallback(onFallback: () -> Unit) {
+        val noteId = targetNoteId ?: return onFallback()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val note = withContext(Dispatchers.IO) { noteRepo.noteOnce(noteId) }
+            val lat = note?.lat
+            val lon = note?.lon
+            if (lat != null && lon != null) {
+                map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 15.0))
+            } else {
+                onFallback()
+            }
+        }
     }
 
     private fun applyPendingBlockFocus() {

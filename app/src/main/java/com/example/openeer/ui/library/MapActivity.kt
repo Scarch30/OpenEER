@@ -46,20 +46,35 @@ class MapActivity : AppCompatActivity() {
 
         const val MODE_BROWSE = "BROWSE"
         const val MODE_CENTER_ON_HERE = "CENTER_ON_HERE"
+        const val MODE_FOCUS_NOTE = "FOCUS_NOTE"
 
         private const val MAP_FRAGMENT_TAG = "map_fragment"
 
         @JvmStatic
-        fun intentForBrowse(
+        fun newBrowseIntent(
             context: Context,
             noteId: Long? = null,
             blockId: Long? = null
-        ): Intent {
-            return Intent(context, MapActivity::class.java).apply {
-                putExtra(EXTRA_MODE, MODE_BROWSE)
-                noteId?.takeIf { it > 0 }?.let { putExtra(EXTRA_NOTE_ID, it) }
-                blockId?.takeIf { it > 0 }?.let { putExtra(EXTRA_BLOCK_ID, it) }
-            }
+        ): Intent = Intent(context, MapActivity::class.java).apply {
+            putExtra(EXTRA_MODE, MODE_BROWSE)
+            noteId?.takeIf { it > 0 }?.let { putExtra(EXTRA_NOTE_ID, it) }
+            blockId?.takeIf { it > 0 }?.let { putExtra(EXTRA_BLOCK_ID, it) }
+        }
+
+        @JvmStatic
+        fun newCenterHereIntent(context: Context): Intent = Intent(context, MapActivity::class.java).apply {
+            putExtra(EXTRA_MODE, MODE_CENTER_ON_HERE)
+        }
+
+        @JvmStatic
+        fun newFocusNoteIntent(
+            context: Context,
+            noteId: Long,
+            blockId: Long? = null
+        ): Intent = Intent(context, MapActivity::class.java).apply {
+            putExtra(EXTRA_MODE, MODE_FOCUS_NOTE)
+            putExtra(EXTRA_NOTE_ID, noteId)
+            blockId?.takeIf { it > 0 }?.let { putExtra(EXTRA_BLOCK_ID, it) }
         }
     }
 }
