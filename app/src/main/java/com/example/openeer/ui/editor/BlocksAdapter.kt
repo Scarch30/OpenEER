@@ -205,10 +205,9 @@ class BlocksAdapter(
         val context = view.context
         Toast.makeText(context, R.string.block_view_on_map, Toast.LENGTH_SHORT).show()
         context.startActivity(
-            MapActivity.intentForBrowse(
+            MapActivity.newFocusNoteIntent(
                 context,
-                block.noteId,
-                block.id
+                block.noteId
             )
         )
     }

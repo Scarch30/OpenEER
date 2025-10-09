@@ -376,7 +376,7 @@ class MainActivity : AppCompatActivity() {
             notePanel.close()
 
             Log.d("MapNav", "Main map button → exploration map")
-            startActivity(MapActivity.intentForBrowse(this, targetNoteId))
+            startActivity(MapActivity.newBrowseIntent(this, targetNoteId))
         }
 
         b.btnImport.setOnClickListener {

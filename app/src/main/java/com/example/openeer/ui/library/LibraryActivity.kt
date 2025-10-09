@@ -47,7 +47,7 @@ class LibraryActivity : AppCompatActivity() {
             R.id.action_list -> { showList(); true }
             R.id.action_calendar -> { showCalendar(); true }
             R.id.action_map -> {
-                startActivity(MapActivity.intentForBrowse(this))
+                startActivity(MapActivity.newBrowseIntent(this))
                 true
             }
             R.id.action_merge_history -> { showMergeHistory(); true }
