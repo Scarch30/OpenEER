@@ -11,8 +11,10 @@ import android.graphics.Paint
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Looper
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -93,6 +95,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private var targetNoteId: Long? = null
 
     private var awaitingHerePermission = false
+    private var lastHereLocation: RecentHere? = null
+    private var hintDismissRunnable: Runnable? = null
+    private var hasRequestedLocationPermission = false
 
     private var symbolManager: SymbolManager? = null
     private var polylineManager: LineManager? = null
@@ -131,6 +136,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private val REQ_LOC = 1001
     private val REQ_ROUTE = 1002
 
+    private data class RecentHere(val lat: Double, val lon: Double, val timestamp: Long)
+
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val STATE_NOTE_ID = "state_note_id"
@@ -153,6 +160,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         const val ROUTE_LINE_COLOR = "#FF2E7D32"
         const val ROUTE_LINE_WIDTH = 4f
         const val ROUTE_BOUNDS_PADDING_DP = 48
+        const val HERE_COOLDOWN_MS = 15_000L
+        const val HERE_COOLDOWN_DISTANCE_M = 30f
     }
 
     override fun onAttach(context: Context) {
@@ -375,7 +384,16 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val fine = ActivityCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION)
         val coarse = ActivityCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (fine != PackageManager.PERMISSION_GRANTED && coarse != PackageManager.PERMISSION_GRANTED) {
+            val previouslyRequested = hasRequestedLocationPermission
+            val showFineRationale = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
+            val showCoarseRationale = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION)
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQ_LOC)
+            hasRequestedLocationPermission = true
+            if (previouslyRequested && !showFineRationale && !showCoarseRationale) {
+                showLocationDisabledHint()
+            } else {
+                showHint(getString(R.string.map_location_permission_needed))
+            }
             return
         }
         val me = lastKnownLatLng(ctx)
@@ -471,9 +489,30 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         return fine == PackageManager.PERMISSION_GRANTED || coarse == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun showLocationDisabledHint() {
+        showHint(
+            getString(R.string.map_location_disabled),
+            getString(R.string.map_location_open_settings)
+        ) {
+            openAppSettings()
+        }
+    }
+
+    private fun openAppSettings() {
+        val context = requireContext()
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { startActivity(intent) }
+    }
+
     private fun onAddHereClicked() {
         val ctx = requireContext()
         if (!hasLocationPermission()) {
+            val previouslyRequested = hasRequestedLocationPermission
+            val showFineRationale = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
+            val showCoarseRationale = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION)
             awaitingHerePermission = true
             requestPermissions(
                 arrayOf(
@@ -482,7 +521,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 ),
                 REQ_LOC
             )
-            showHint(getString(R.string.map_location_permission_needed))
+            hasRequestedLocationPermission = true
+            if (previouslyRequested && !showFineRationale && !showCoarseRationale) {
+                showLocationDisabledHint()
+            } else {
+                showHint(getString(R.string.map_location_permission_needed))
+            }
             return
         }
         if (symbolManager == null) {
@@ -500,6 +544,16 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                     showHint(getString(R.string.map_location_unavailable))
                     return@launch
                 }
+                val now = System.currentTimeMillis()
+                val last = lastHereLocation
+                if (last != null && now - last.timestamp < MapUiDefaults.HERE_COOLDOWN_MS) {
+                    val results = FloatArray(1)
+                    Location.distanceBetween(last.lat, last.lon, place.lat, place.lon, results)
+                    if (results[0] < MapUiDefaults.HERE_COOLDOWN_DISTANCE_M) {
+                        showHint(getString(R.string.map_location_recent_duplicate))
+                        return@launch
+                    }
+                }
                 val result = appendLocation(place)
                 if (result == null) {
                     showHint(getString(R.string.map_location_unavailable))
@@ -511,6 +565,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 showHint(getString(R.string.map_location_added))
                 refreshNotesAsync()
                 showUndoSnackbar(result, displayLabel)
+                lastHereLocation = RecentHere(place.lat, place.lon, now)
             } finally {
                 b.btnAddHere.isEnabled = true
             }
@@ -582,6 +637,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
         if (!hasLocationPermission()) {
             awaitingRoutePermission = true
+            val previouslyRequested = hasRequestedLocationPermission
+            val showFineRationale = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
+            val showCoarseRationale = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION)
             requestPermissions(
                 arrayOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
@@ -589,7 +647,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 ),
                 REQ_ROUTE
             )
-            showHint(getString(R.string.map_location_permission_needed))
+            hasRequestedLocationPermission = true
+            if (previouslyRequested && !showFineRationale && !showCoarseRationale) {
+                showLocationDisabledHint()
+            } else {
+                showHint(getString(R.string.map_location_permission_needed))
+            }
             return
         }
         startRouteRecording()
@@ -864,6 +927,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             refreshNotesAsync()
             showHint(getString(R.string.map_location_undo_success))
             Snackbar.make(b.root, getString(R.string.map_location_undo_success), Snackbar.LENGTH_SHORT).show()
+            lastHereLocation = null
         } else {
             Snackbar.make(b.root, getString(R.string.map_location_unavailable), Snackbar.LENGTH_SHORT).show()
         }
@@ -877,15 +941,38 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
     }
 
-    private fun showHint(text: String) {
-        b.clusterHint.text = text
-        b.clusterHint.visibility = View.VISIBLE
-        b.clusterHint.alpha = 0f
-        b.clusterHint.animate().alpha(1f).setDuration(120).withEndAction {
-            b.clusterHint.animate().alpha(0f).setDuration(450).withEndAction {
-                b.clusterHint.visibility = View.GONE
-                b.clusterHint.alpha = 1f
-            }.start()
+    private fun showHint(text: String, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
+        val hintView = b.clusterHint
+        val fullText = if (actionLabel != null) {
+            "$text\n$actionLabel"
+        } else {
+            text
+        }
+        hintView.animate().cancel()
+        hintDismissRunnable?.let { hintView.removeCallbacks(it) }
+        hintView.text = fullText
+        hintView.visibility = View.VISIBLE
+        hintView.alpha = 0f
+        hintView.setOnClickListener(null)
+        hintView.isClickable = onAction != null
+        hintView.isFocusable = onAction != null
+        if (onAction != null) {
+            hintView.setOnClickListener { onAction() }
+        }
+        hintView.animate().alpha(1f).setDuration(120).withEndAction {
+            val stayDuration = if (onAction != null) 2000L else 450L
+            val dismissRunnable = Runnable {
+                hintView.animate().alpha(0f).setDuration(450).withEndAction {
+                    hintView.visibility = View.GONE
+                    hintView.alpha = 1f
+                    hintView.setOnClickListener(null)
+                    hintView.isClickable = false
+                    hintView.isFocusable = false
+                    hintDismissRunnable = null
+                }.start()
+            }
+            hintDismissRunnable = dismissRunnable
+            hintView.postDelayed(dismissRunnable, stayDuration)
         }.start()
     }
 
@@ -928,6 +1015,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         polylineManager = null
         recordingRouteLine = null
         locationPins.values.forEach { it.symbol = null }
+        _b?.clusterHint?.let { hintView ->
+            hintDismissRunnable?.let { hintView.removeCallbacks(it) }
+        }
+        hintDismissRunnable = null
         super.onDestroyView()
         _b = null
     }
@@ -940,7 +1031,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             if (granted) {
                 startRouteRecording()
             } else {
-                showHint(getString(R.string.map_location_permission_needed))
+                val shouldShowRationale = permissions.any { shouldShowRequestPermissionRationale(it) }
+                if (shouldShowRationale) {
+                    showHint(getString(R.string.map_location_permission_needed))
+                } else {
+                    showLocationDisabledHint()
+                }
             }
             return
         }
@@ -951,12 +1047,23 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 if (granted) {
                     onAddHereClicked()
                 } else {
-                    showHint(getString(R.string.map_location_permission_needed))
+                    val shouldShowRationale = permissions.any { shouldShowRequestPermissionRationale(it) }
+                    if (shouldShowRationale) {
+                        showHint(getString(R.string.map_location_permission_needed))
+                    } else {
+                        showLocationDisabledHint()
+                    }
                 }
                 return
             }
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
                 recenterToUserOrAll()
+            }
+            if (grantResults.all { it == PackageManager.PERMISSION_DENIED }) {
+                val shouldShowRationale = permissions.any { shouldShowRequestPermissionRationale(it) }
+                if (!shouldShowRationale) {
+                    showLocationDisabledHint()
+                }
             }
         }
     }
