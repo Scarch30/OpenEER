@@ -10,6 +10,9 @@
     android:ellipsize="end"
     android:maxLines="1"
     android:textColor="?attr/colorOnSurface"
+    android:textSize="13sp"
+    android:textStyle="normal"
+    android:fontFamily="sans-serif"
     app:chipIcon="@drawable/ic_block_route"
     app:chipIconVisible="true"
     app:chipIconSize="18dp"
@@ -22,5 +25,4 @@
     app:rippleColor="?attr/colorControlHighlight"
     app:chipBackgroundColor="?attr/colorSurfaceVariant"
     app:chipStrokeColor="?attr/colorOutline"
-    app:chipIconTint="?attr/colorOnSurfaceVariant"
-    app:textAppearance="?attr/textAppearanceBodySmall" />
+    app:chipIconTint="?attr/colorOnSurfaceVariant" />
