@@ -50,7 +50,16 @@ import org.maplibre.android.plugins.annotation.Symbol
 import org.maplibre.android.plugins.annotation.SymbolManager
 import org.maplibre.android.plugins.annotation.SymbolOptions
 import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.PropertyFactory.*
+import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
+import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconSize
+import org.maplibre.android.style.layers.PropertyFactory.textColor
+import org.maplibre.android.style.layers.PropertyFactory.textField
+import org.maplibre.android.style.layers.PropertyFactory.textHaloColor
+import org.maplibre.android.style.layers.PropertyFactory.textHaloWidth
+import org.maplibre.android.style.layers.PropertyFactory.textOffset
+import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -136,14 +145,14 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
     }
 
-    private companion object RouteConfig {
-        const val MIN_DISTANCE_METERS = 8f
-        const val MIN_TIME_BETWEEN_UPDATES_MS = 4_000L
-        const val REQUEST_INTERVAL_MS = 1_000L
-        const val MAX_ROUTE_POINTS = 180
-        const val ROUTE_LINE_COLOR = "#FF2962FF"
-        const val ROUTE_LINE_WIDTH = 4.5f
-        const val ROUTE_BOUNDS_PADDING_DP = 72
+    private object MapUiDefaults {
+        const val MIN_DISTANCE_METERS = 20f
+        const val MIN_TIME_BETWEEN_UPDATES_MS = 1_000L
+        const val REQUEST_INTERVAL_MS = 1_500L
+        const val MAX_ROUTE_POINTS = 500
+        const val ROUTE_LINE_COLOR = "#FF2E7D32"
+        const val ROUTE_LINE_WIDTH = 4f
+        const val ROUTE_BOUNDS_PADDING_DP = 48
     }
 
     override fun onAttach(context: Context) {
@@ -426,6 +435,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         polylineManager = LineManager(mv, mapInstance, style).apply {
             lineCap = Property.LINE_CAP_ROUND
             lineJoin = Property.LINE_JOIN_ROUND
+            lineColor = MapUiDefaults.ROUTE_LINE_COLOR
+            lineWidth = MapUiDefaults.ROUTE_LINE_WIDTH
         }
         recordingRouteLine = null
     }
@@ -682,8 +693,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val latLngs = points.map { LatLng(it.lat, it.lon) }
         val options = LineOptions()
             .withLatLngs(latLngs)
-            .withLineColor(ROUTE_LINE_COLOR)
-            .withLineWidth(ROUTE_LINE_WIDTH)
+            .withLineColor(MapUiDefaults.ROUTE_LINE_COLOR)
+            .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
         recordingRouteLine = manager.create(options)
     }
 
@@ -705,7 +716,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val builder = LatLngBounds.Builder()
         latLngs.forEach { builder.include(it) }
         val bounds = runCatching { builder.build() }.getOrNull() ?: return
-        val padding = (ROUTE_BOUNDS_PADDING_DP * resources.displayMetrics.density).toInt()
+        val padding = dpToPx(MapUiDefaults.ROUTE_BOUNDS_PADDING_DP)
         map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
     }
 
@@ -763,7 +774,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         @SuppressLint("MissingPermission")
         fun start() {
             providers.forEach { provider ->
-                locationManager.requestLocationUpdates(provider, REQUEST_INTERVAL_MS, 0f, this, Looper.getMainLooper())
+                locationManager.requestLocationUpdates(
+                    provider,
+                    MapUiDefaults.REQUEST_INTERVAL_MS,
+                    0f,
+                    this,
+                    Looper.getMainLooper()
+                )
             }
             val seed = providers.firstNotNullOfOrNull { provider ->
                 runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
@@ -780,10 +797,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             if (points.isNotEmpty()) {
                 val dt = timestamp - lastAcceptedAt
                 val distance = lastLocation?.distanceTo(location) ?: Float.MAX_VALUE
-                if (dt < MIN_TIME_BETWEEN_UPDATES_MS && distance < MIN_DISTANCE_METERS) {
+                if (
+                    dt < MapUiDefaults.MIN_TIME_BETWEEN_UPDATES_MS &&
+                    distance < MapUiDefaults.MIN_DISTANCE_METERS
+                ) {
                     return
                 }
-                if (points.size >= MAX_ROUTE_POINTS) {
+                if (points.size >= MapUiDefaults.MAX_ROUTE_POINTS) {
                     return
                 }
             }
@@ -880,6 +900,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
         c.drawCircle(px / 2f, px / 2f, px / 2.2f, p)
         return bmp
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).roundToInt()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
