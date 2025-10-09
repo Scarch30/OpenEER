@@ -17,13 +17,17 @@ class LibraryActivity : AppCompatActivity() {
     companion object {
         private const val EXTRA_START_DEST = "com.example.openeer.library.EXTRA_START_DEST"
         private const val EXTRA_NOTE_ID = "com.example.openeer.library.EXTRA_NOTE_ID"
+        private const val EXTRA_BLOCK_ID = "com.example.openeer.library.EXTRA_BLOCK_ID"
         private const val DEST_MAP = "map"
 
-        fun intentForMap(context: Context, noteId: Long? = null): Intent {
+        fun intentForMap(context: Context, noteId: Long? = null, blockId: Long? = null): Intent {
             return Intent(context, LibraryActivity::class.java).apply {
                 putExtra(EXTRA_START_DEST, DEST_MAP)
                 if (noteId != null && noteId > 0) {
                     putExtra(EXTRA_NOTE_ID, noteId)
+                }
+                if (blockId != null && blockId > 0) {
+                    putExtra(EXTRA_BLOCK_ID, blockId)
                 }
             }
         }
@@ -74,10 +78,10 @@ class LibraryActivity : AppCompatActivity() {
         return true
     }
 
-    private fun showMap(noteId: Long? = null) {
+    private fun showMap(noteId: Long? = null, blockId: Long? = null) {
         clearBackStack()
         supportFragmentManager.beginTransaction()
-            .replace(b.container.id, MapFragment.newInstance(noteId), "maplibre") // ✅
+            .replace(b.container.id, MapFragment.newInstance(noteId, blockId), "maplibre") // ✅
             .commit()
         updateActionBarForCurrentFragment()
     }
@@ -85,15 +89,17 @@ class LibraryActivity : AppCompatActivity() {
     private fun handleIntent(intent: Intent, allowDefault: Boolean) {
         if (shouldShowMap(intent)) {
             val noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L).takeIf { it > 0 }
+            val blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
             val logMessage = if (allowDefault) {
                 "Launching map start destination"
             } else {
                 "Switching to map via new intent"
             }
             Log.d("MapNav", logMessage)
-            showMap(noteId)
+            showMap(noteId, blockId)
             intent.removeExtra(EXTRA_START_DEST)
             intent.removeExtra(EXTRA_NOTE_ID)
+            intent.removeExtra(EXTRA_BLOCK_ID)
         } else if (allowDefault) {
             showList()
         }
