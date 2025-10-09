@@ -97,6 +97,7 @@
     <string name="zoom_in">Zoom avant</string>
     <string name="zoom_out">Zoom arrière</string>
     <string name="recenter">Recentrer</string>
+    <string name="map_title">Carte</string>
     <string name="map_action_here">📍 Ici</string>
     <string name="map_location_added">Lieu ajouté</string>
     <string name="map_location_unavailable">Localisation indisponible</string>

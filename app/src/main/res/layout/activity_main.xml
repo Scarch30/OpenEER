@@ -472,9 +472,9 @@
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:src="@android:drawable/ic_dialog_map"
-                android:contentDescription="Carte" />
+                android:contentDescription="@string/map_title" />
             <TextView
-                android:text="Carte"
+                android:text="@string/map_title"
                 android:textSize="12sp"
                 android:layout_marginTop="4dp"
                 android:layout_width="wrap_content"

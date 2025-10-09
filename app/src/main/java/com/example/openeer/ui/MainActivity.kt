@@ -38,6 +38,7 @@ import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arr
 import com.example.openeer.ui.capture.CaptureLauncher
 import com.example.openeer.ui.editor.EditorBodyController
 import com.example.openeer.ui.library.LibraryActivity
+import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
 import com.example.openeer.ui.util.configureSystemInsets
@@ -375,7 +376,7 @@ class MainActivity : AppCompatActivity() {
             notePanel.close()
 
             Log.d("MapNav", "Main map button → exploration map")
-            startActivity(LibraryActivity.intentForMap(this, targetNoteId))
+            startActivity(MapActivity.intentForBrowse(this, targetNoteId))
         }
 
         b.btnImport.setOnClickListener {

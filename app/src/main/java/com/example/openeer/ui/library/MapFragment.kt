@@ -97,6 +97,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private var targetNoteId: Long? = null
     private var targetBlockId: Long? = null
     private var pendingBlockFocus: Long? = null
+    private var startMode: String? = null
     private var isStyleReady = false
 
     private var awaitingHerePermission = false
@@ -146,17 +147,22 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val ARG_BLOCK_ID = "arg_block_id"
+        private const val ARG_MODE = "arg_mode"
         private const val STATE_NOTE_ID = "state_note_id"
         private const val STATE_BLOCK_ID = "state_block_id"
+        private const val STATE_MODE = "state_mode"
         private const val TAG = "MapFragment"
 
-        fun newInstance(noteId: Long? = null, blockId: Long? = null): MapFragment = MapFragment().apply {
+        fun newInstance(noteId: Long? = null, blockId: Long? = null, mode: String? = null): MapFragment = MapFragment().apply {
             arguments = Bundle().apply {
                 if (noteId != null && noteId > 0) {
                     putLong(ARG_NOTE_ID, noteId)
                 }
                 if (blockId != null && blockId > 0) {
                     putLong(ARG_BLOCK_ID, blockId)
+                }
+                if (!mode.isNullOrBlank()) {
+                    putString(ARG_MODE, mode)
                 }
             }
         }
@@ -197,6 +203,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             ?: arguments?.getLong(ARG_NOTE_ID, -1L)?.takeIf { it > 0 }
         targetBlockId = savedInstanceState?.getLong(STATE_BLOCK_ID, -1L)?.takeIf { it > 0 }
             ?: arguments?.getLong(ARG_BLOCK_ID, -1L)?.takeIf { it > 0 }
+        startMode = savedInstanceState?.getString(STATE_MODE)
+            ?: arguments?.getString(ARG_MODE)
+        Log.d(TAG, "Starting map with mode=$startMode note=$targetNoteId block=$targetBlockId")
         pendingBlockFocus = targetBlockId
         isStyleReady = false
     }
@@ -1068,6 +1077,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         super.onSaveInstanceState(outState)
         targetNoteId?.let { outState.putLong(STATE_NOTE_ID, it) }
         targetBlockId?.let { outState.putLong(STATE_BLOCK_ID, it) }
+        startMode?.let { outState.putString(STATE_MODE, it) }
     }
 
     // MapView lifecycle
