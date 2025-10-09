@@ -434,9 +434,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         polylineManager?.onDestroy()
         polylineManager = LineManager(mv, mapInstance, style).apply {
             lineCap = Property.LINE_CAP_ROUND
-            lineJoin = Property.LINE_JOIN_ROUND
-            lineColor = MapUiDefaults.ROUTE_LINE_COLOR
-            lineWidth = MapUiDefaults.ROUTE_LINE_WIDTH
         }
         recordingRouteLine = null
     }
@@ -693,6 +690,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val latLngs = points.map { LatLng(it.lat, it.lon) }
         val options = LineOptions()
             .withLatLngs(latLngs)
+            .withLineCap(Property.LINE_CAP_ROUND)
+            .withLineJoin(Property.LINE_JOIN_ROUND)
             .withLineColor(MapUiDefaults.ROUTE_LINE_COLOR)
             .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
         recordingRouteLine = manager.create(options)
