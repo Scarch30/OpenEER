@@ -247,6 +247,26 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
+    suspend fun appendRoute(
+        noteId: Long,
+        routeJson: String,
+        lat: Double? = null,
+        lon: Double? = null
+    ): Long {
+        val now = System.currentTimeMillis()
+        val block = BlockEntity(
+            noteId = noteId,
+            type = BlockType.ROUTE,
+            position = 0,
+            lat = lat,
+            lon = lon,
+            routeJson = routeJson,
+            createdAt = now,
+            updatedAt = now
+        )
+        return insert(noteId, block)
+    }
+
     suspend fun reorder(noteId: Long, orderedBlockIds: List<Long>) {
         withContext(io) {
             blockDao.reorder(noteId, orderedBlockIds)
