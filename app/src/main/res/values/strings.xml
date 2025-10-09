@@ -101,6 +101,9 @@
     <string name="map_location_added">Lieu ajouté</string>
     <string name="map_location_unavailable">Localisation indisponible</string>
     <string name="map_location_permission_needed">Permission localisation requise</string>
+    <string name="map_location_recent_duplicate">Déjà ajouté ici récemment</string>
+    <string name="map_location_disabled">Localisation désactivée</string>
+    <string name="map_location_open_settings">Ouvrir les réglages</string>
     <string name="map_location_undo_success">Ajout annulé</string>
     <string name="map_route_start">🚶 Itinéraire</string>
     <string name="map_route_stop">⏹️ Arrêter (%1$d)</string>
