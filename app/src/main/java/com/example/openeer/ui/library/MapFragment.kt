@@ -13,6 +13,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -1411,61 +1412,67 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         bounds: LatLngBounds? = null,
         onBitmap: (Bitmap?) -> Unit
     ) {
-        val mapView = mapView ?: run {
-            onBitmap(null)
-            return
-        }
-        val map = map ?: run {
+        val mapObj = map ?: run {
             onBitmap(null)
             return
         }
 
-        fun launchSnapshot() {
-            mapView.post {
-                try {
-                    mapView.snapshot { bitmap ->
-                        onBitmap(bitmap)
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to capture map snapshot", e)
-                    onBitmap(null)
-                }
-            }
-        }
-
-        if (bounds == null && center == null) {
-            launchSnapshot()
-            return
-        }
-
-        var completed = false
-        lateinit var idleListener: OnCameraIdleListener
-        val fallbackRunnable = Runnable {
-            if (completed) return@Runnable
-            completed = true
-            map.removeOnCameraIdleListener(idleListener)
-            mapView.removeCallbacks(fallbackRunnable)
-            launchSnapshot()
-        }
-        idleListener = OnCameraIdleListener {
-            if (completed) return@OnCameraIdleListener
-            completed = true
-            map.removeOnCameraIdleListener(idleListener)
-            mapView.removeCallbacks(fallbackRunnable)
-            launchSnapshot()
-        }
-        map.addOnCameraIdleListener(idleListener)
-        mapView.postDelayed(fallbackRunnable, 1_500L)
+        captureMapSnapshotAfterIdle(onBitmap)
 
         when {
             bounds != null -> {
                 val padding = dpToPx(MapUiDefaults.ROUTE_BOUNDS_PADDING_DP)
-                map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
+                mapObj.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
             }
             center != null -> {
-                map.animateCamera(CameraUpdateFactory.newLatLngZoom(center, 15.0))
+                mapObj.animateCamera(CameraUpdateFactory.newLatLngZoom(center, 15.0))
             }
         }
+    }
+
+    private fun captureMapSnapshotAfterIdle(
+        onResult: (Bitmap?) -> Unit,
+        timeoutMs: Long = 1500L
+    ) {
+        val mapObj = map ?: run {
+            onResult(null)
+            return
+        }
+        val handler = Handler(Looper.getMainLooper())
+
+        var completed = false
+
+        lateinit var idleListener: MapLibreMap.OnCameraIdleListener
+
+        val timeout = Runnable {
+            if (completed) return@Runnable
+            completed = true
+            mapObj.removeOnCameraIdleListener(idleListener)
+            handler.removeCallbacks(timeout)
+            onResult(null)
+        }
+
+        idleListener = object : MapLibreMap.OnCameraIdleListener {
+            override fun onCameraIdle() {
+                if (completed) return
+                completed = true
+                mapObj.removeOnCameraIdleListener(this)
+                handler.removeCallbacks(timeout)
+                try {
+                    mapObj.snapshot { bmp ->
+                        onResult(bmp)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to capture map snapshot", e)
+                    onResult(null)
+                }
+            }
+        }
+
+        handler.postDelayed(timeout, timeoutMs)
+
+        mapObj.addOnCameraIdleListener(idleListener)
+        mapObj.animateCamera(CameraUpdateFactory.zoomBy(0.0))
     }
 
     private fun persistBlockPreview(noteId: Long, blockId: Long, type: BlockType, bitmap: Bitmap) {
