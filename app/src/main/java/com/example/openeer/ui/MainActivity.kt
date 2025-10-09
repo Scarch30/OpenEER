@@ -367,7 +367,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         b.btnMap.setOnClickListener {
-            b.root.snackbar("Carte/Itinéraire — bientôt disponible")
+            // On sécurise l’état courant avant de naviguer vers la carte
+            editorBody.commitInlineEdit(notePanel.openNoteId)
+            notePanel.close()
+
+            Log.d("MapNav", "Main map button → exploration map")
+            startActivity(LibraryActivity.intentForMap(this))
         }
 
         b.btnImport.setOnClickListener {
