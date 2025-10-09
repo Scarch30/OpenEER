@@ -15,4 +15,7 @@ interface AttachmentDao {
 
     @Query("DELETE FROM attachments WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM attachments WHERE noteId = :noteId AND path = :path")
+    suspend fun deleteByNoteAndPath(noteId: Long, path: String)
 }

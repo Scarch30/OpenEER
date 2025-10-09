@@ -29,6 +29,8 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
+import com.example.openeer.data.Attachment
+import com.example.openeer.data.AttachmentDao
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlockEntity
@@ -78,7 +80,10 @@ import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
+import org.maplibre.android.maps.MapLibreMap.OnCameraIdleListener
 import kotlin.math.*
+import java.io.FileOutputStream
+import java.io.IOException
 import java.util.Locale
 
 class MapFragment : Fragment(), OnMapReadyCallback {
@@ -101,6 +106,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private lateinit var database: AppDatabase
     private lateinit var blocksRepo: BlocksRepository
     private lateinit var noteRepo: NoteRepository
+    private lateinit var attachmentDao: AttachmentDao
 
     private var targetNoteId: Long? = null
     private var targetBlockId: Long? = null
@@ -216,9 +222,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             noteDao = database.noteDao(),
             linkDao = database.blockLinkDao()
         )
+        attachmentDao = database.attachmentDao()
         noteRepo = NoteRepository(
             database.noteDao(),
-            database.attachmentDao(),
+            attachmentDao,
             database.blockReadDao(),
             blocksRepo
         )
@@ -755,6 +762,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             showHint(getString(R.string.map_location_added))
             refreshNotesAsync()
             showUndoSnackbar(result, displayLabelFor(place))
+            captureLocationPreview(result.noteId, result.locationBlockId, place.lat, place.lon)
             dismissSelectionSheet()
         }
     }
@@ -903,6 +911,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 showHint(getString(R.string.map_location_added))
                 refreshNotesAsync()
                 showUndoSnackbar(result, displayLabel)
+                captureLocationPreview(result.noteId, result.locationBlockId, place.lat, place.lon)
                 lastHereLocation = RecentHere(place.lat, place.lon, now)
             } finally {
                 b.btnAddHere.isEnabled = true
@@ -1115,8 +1124,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 targetNoteId = result.noteId
                 showHint(getString(R.string.map_route_saved))
                 fitToRoute(result.payload.points)
+                captureRoutePreview(result) {
+                    finishManualRouteDrawing()
+                }
                 refreshNotesAsync()
-                finishManualRouteDrawing()
             }
         }
     }
@@ -1236,6 +1247,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 targetNoteId = result.noteId
                 showHint(getString(R.string.map_route_saved))
                 fitToRoute(result.payload.points)
+                captureRoutePreview(result)
                 refreshNotesAsync()
             }
             resetRouteButton()
@@ -1335,6 +1347,153 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             }.onFailure { e ->
                 Log.e(TAG, "Failed to persist route", e)
             }.getOrNull()
+        }
+    }
+
+    private fun captureLocationPreview(noteId: Long, blockId: Long, lat: Double, lon: Double) {
+        if (noteId <= 0) return
+        val center = LatLng(lat, lon)
+        captureMapSnapshot(center = center) { bitmap ->
+            if (bitmap != null) {
+                persistBlockPreview(noteId, blockId, BlockType.LOCATION, bitmap)
+            }
+        }
+    }
+
+    private fun captureRoutePreview(
+        result: RoutePersistResult,
+        onComplete: (() -> Unit)? = null
+    ) {
+        val noteId = result.noteId
+        if (noteId <= 0) {
+            onComplete?.invoke()
+            return
+        }
+        val points = result.payload.points
+        if (points.isEmpty()) {
+            onComplete?.invoke()
+            return
+        }
+        val latLngs = points.map { LatLng(it.lat, it.lon) }
+        val bounds = if (latLngs.size >= 2) {
+            val builder = LatLngBounds.Builder()
+            latLngs.forEach { builder.include(it) }
+            runCatching { builder.build() }.getOrNull()
+        } else {
+            null
+        }
+        val center = latLngs.firstOrNull()
+        val manager = polylineManager
+        var tempLine: Line? = null
+        if (manager != null && latLngs.size >= 2) {
+            val options: LineOptions = LineOptions()
+                .withLatLngs(latLngs)
+                .withLineColor(MapUiDefaults.ROUTE_LINE_COLOR)
+                .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
+            tempLine = runCatching { manager.create(options as LineOptions) }.getOrNull()
+        }
+        captureMapSnapshot(
+            center = if (bounds == null) center else null,
+            bounds = bounds
+        ) { bitmap ->
+            tempLine?.let { line ->
+                runCatching { manager?.delete(line) }
+            }
+            if (bitmap != null) {
+                persistBlockPreview(noteId, result.routeBlockId, BlockType.ROUTE, bitmap)
+            }
+            onComplete?.invoke()
+        }
+    }
+
+    private fun captureMapSnapshot(
+        center: LatLng? = null,
+        bounds: LatLngBounds? = null,
+        onBitmap: (Bitmap?) -> Unit
+    ) {
+        val mapView = mapView ?: run {
+            onBitmap(null)
+            return
+        }
+        val map = map ?: run {
+            onBitmap(null)
+            return
+        }
+
+        fun launchSnapshot() {
+            mapView.post {
+                try {
+                    mapView.snapshot { bitmap ->
+                        onBitmap(bitmap)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to capture map snapshot", e)
+                    onBitmap(null)
+                }
+            }
+        }
+
+        if (bounds == null && center == null) {
+            launchSnapshot()
+            return
+        }
+
+        var completed = false
+        lateinit var idleListener: OnCameraIdleListener
+        val fallbackRunnable = Runnable {
+            if (completed) return@Runnable
+            completed = true
+            map.removeOnCameraIdleListener(idleListener)
+            mapView.removeCallbacks(fallbackRunnable)
+            launchSnapshot()
+        }
+        idleListener = OnCameraIdleListener {
+            if (completed) return@OnCameraIdleListener
+            completed = true
+            map.removeOnCameraIdleListener(idleListener)
+            mapView.removeCallbacks(fallbackRunnable)
+            launchSnapshot()
+        }
+        map.addOnCameraIdleListener(idleListener)
+        mapView.postDelayed(fallbackRunnable, 1_500L)
+
+        when {
+            bounds != null -> {
+                val padding = dpToPx(MapUiDefaults.ROUTE_BOUNDS_PADDING_DP)
+                map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
+            }
+            center != null -> {
+                map.animateCamera(CameraUpdateFactory.newLatLngZoom(center, 15.0))
+            }
+        }
+    }
+
+    private fun persistBlockPreview(noteId: Long, blockId: Long, type: BlockType, bitmap: Bitmap) {
+        val appContext = context?.applicationContext ?: return
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            val file = MapPreviewStorage.fileFor(appContext, blockId, type)
+            val result = runCatching {
+                file.parentFile?.mkdirs()
+                if (file.exists()) {
+                    file.delete()
+                }
+                FileOutputStream(file).use { out ->
+                    val ok = bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    if (!ok) throw IOException("Failed to compress bitmap")
+                }
+                attachmentDao.deleteByNoteAndPath(noteId, file.absolutePath)
+                attachmentDao.insert(
+                    Attachment(
+                        noteId = noteId,
+                        type = MapPreviewStorage.ATTACHMENT_TYPE,
+                        path = file.absolutePath
+                    )
+                )
+                // TODO: remove preview when the block is deleted (no hook available yet).
+            }
+            if (result.isFailure) {
+                Log.e(TAG, "Failed to persist map preview for block=$blockId", result.exceptionOrNull())
+            }
         }
     }
 
