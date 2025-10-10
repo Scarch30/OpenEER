@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.PointF
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -82,6 +83,7 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
 import org.maplibre.android.maps.MapLibreMap.OnCameraIdleListener
+import kotlin.collections.removeLastOrNull
 import kotlin.math.*
 import java.io.FileOutputStream
 import java.io.IOException
@@ -102,6 +104,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private val ICON_FEW = "icon-few"
     private val ICON_MANY = "icon-many"
     private val ICON_HERE = "icon-here"
+    private val ICON_SELECTION = "icon-selection"
 
     // Repos
     private lateinit var database: AppDatabase
@@ -128,6 +131,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private var awaitingRoutePermission = false
     private var isSavingRoute = false
     private var isManualRouteMode = false
+    private var isSnapshotInProgress = false
     private val manualPoints: MutableList<LatLng> = mutableListOf()
     private var manualAnchorLabel: String? = null
     private val routeGson by lazy { Gson() }
@@ -270,8 +274,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         b.btnAddHere.setOnClickListener { onAddHereClicked() }
         b.btnRecordRoute.isEnabled = false
         b.btnRecordRoute.setOnClickListener { onRouteButtonClicked() }
+        b.btnUndoManualRoute.isVisible = false
+        b.btnUndoManualRoute.setOnClickListener { onManualRouteUndoClicked() }
         b.btnCancelManualRoute.isVisible = false
         b.btnCancelManualRoute.setOnClickListener { cancelManualRouteDrawing() }
+        refreshRouteButtonState()
 
         parentFragmentManager.setFragmentResultListener(RESULT_MANUAL_ROUTE, viewLifecycleOwner) { _, bundle ->
             val lat = bundle.getDouble(RESULT_MANUAL_ROUTE_LAT, Double.NaN)
@@ -300,6 +307,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             if (style.getImage(ICON_FEW) == null)    style.addImage(ICON_FEW,    makeDot(22, android.R.color.holo_blue_light))
             if (style.getImage(ICON_MANY) == null)   style.addImage(ICON_MANY,   makeDot(22, android.R.color.holo_red_light))
             if (style.getImage(ICON_HERE) == null)   style.addImage(ICON_HERE,   makeDot(24, R.color.teal_200))
+            if (style.getImage(ICON_SELECTION) == null) style.addImage(ICON_SELECTION, makeDot(18, R.color.map_pin_selection))
 
             // Source
             if (style.getSource(SRC_NOTES) == null) {
@@ -339,7 +347,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             loadNotesThenRender()
 
             // Recalcule l’agrégation quand la caméra s’arrête → nombres corrects selon le zoom
-            map?.addOnCameraIdleListener { renderGroupsForCurrentZoom() }
+            map?.addOnCameraIdleListener {
+                renderGroupsForCurrentZoom()
+                maybeDismissSelectionOnPan()
+            }
 
             isStyleReady = true
             applyPendingBlockFocus()
@@ -682,7 +693,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         selectionSymbol = manager.create(
             SymbolOptions()
                 .withLatLng(latLng)
-                .withIconImage(ICON_HERE)
+                .withIconImage(ICON_SELECTION)
         )
 
         val placeholderLabel = formatLatLon(latLng.latitude, latLng.longitude)
@@ -733,6 +744,25 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         dialog.setOnDismissListener { handleSelectionDismissed() }
         dialog.show()
         selectionDialog = dialog
+    }
+
+    private fun maybeDismissSelectionOnPan() {
+        val latLng = selectionLatLng ?: return
+        val mapObj = map ?: return
+        val mapView = mapView ?: return
+        if (mapView.width == 0 || mapView.height == 0) return
+        val screenPoint: PointF = runCatching { mapObj.projection.toScreenLocation(latLng) }.getOrNull() ?: return
+        val dx = abs(screenPoint.x - mapView.width / 2f)
+        val dy = abs(screenPoint.y - mapView.height / 2f)
+        val thresholdX = mapView.width * 2f
+        val thresholdY = mapView.height * 2f
+        if (dx > thresholdX || dy > thresholdY) {
+            if (selectionDialog != null) {
+                dismissSelectionSheet()
+            } else {
+                handleSelectionDismissed()
+            }
+        }
     }
 
     private fun updateSelectionSheet(place: Place, showLoading: Boolean) {
@@ -1045,6 +1075,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         isManualRouteMode = true
         b.btnAddHere.isEnabled = false
         b.btnCancelManualRoute.isVisible = true
+        b.manualRouteHint.isVisible = true
         seed?.let {
             if (manualPoints.size < MapUiDefaults.MAX_ROUTE_POINTS) {
                 val point = LatLng(it.latitude, it.longitude)
@@ -1056,6 +1087,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
         updateManualRoutePolyline()
         updateManualRouteUi()
+        if (manualPoints.isNotEmpty()) {
+            announceManualRoutePoints()
+        }
     }
 
     private fun handleManualMapTap(latLng: LatLng) {
@@ -1071,15 +1105,64 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
         updateManualRoutePolyline()
         updateManualRouteUi()
+        announceManualRoutePoints()
+    }
+
+    private fun onManualRouteUndoClicked() {
+        if (!isManualRouteMode || manualPoints.isEmpty() || isSavingRoute || isSnapshotInProgress) return
+        manualPoints.removeLastOrNull()
+        if (manualPoints.isEmpty()) {
+            manualAnchorLabel = null
+        }
+        updateManualRoutePolyline()
+        updateManualRouteUi()
+        announceManualRoutePoints()
+    }
+
+    private fun announceManualRoutePoints() {
+        if (!isAdded) return
+        val count = manualPoints.size
+        val message = resources.getQuantityString(R.plurals.map_manual_route_points_a11y, count, count)
+        b.root.announceForAccessibility(message)
+    }
+
+    private fun setSnapshotInProgress(inProgress: Boolean) {
+        if (isSnapshotInProgress == inProgress) return
+        isSnapshotInProgress = inProgress
+        refreshRouteButtonState()
+    }
+
+    private fun refreshRouteButtonState() {
+        if (!isAdded) return
+        when {
+            isManualRouteMode -> updateManualRouteUi()
+            routeRecorder != null -> {
+                b.btnRecordRoute.isEnabled = !isSnapshotInProgress
+                b.btnRecordRoute.contentDescription = b.btnRecordRoute.text
+            }
+            else -> {
+                b.btnRecordRoute.isEnabled = !isSavingRoute && !isSnapshotInProgress
+                b.btnRecordRoute.contentDescription = getString(R.string.map_route_start_cd)
+            }
+        }
+    }
+
+    private fun showPreviewSavedToast() {
+        val ctx = context ?: return
+        Toast.makeText(ctx, getString(R.string.map_preview_ready), Toast.LENGTH_SHORT).show()
     }
 
     private fun updateManualRouteUi() {
         if (!isManualRouteMode) return
         val count = manualPoints.size
         b.btnRecordRoute.text = getString(R.string.map_manual_route_save, count)
-        b.btnRecordRoute.isEnabled = count >= 2 && !isSavingRoute
+        b.btnRecordRoute.isEnabled = count >= 2 && !isSavingRoute && !isSnapshotInProgress
+        b.btnRecordRoute.contentDescription = getString(R.string.map_manual_route_save_cd)
         b.btnCancelManualRoute.isVisible = true
-        b.btnCancelManualRoute.isEnabled = !isSavingRoute
+        b.btnCancelManualRoute.isEnabled = !isSavingRoute && !isSnapshotInProgress
+        b.btnUndoManualRoute.isVisible = count >= 1
+        b.btnUndoManualRoute.isEnabled = count >= 1 && !isSavingRoute && !isSnapshotInProgress
+        b.manualRouteHint.isVisible = true
     }
 
     private fun updateManualRoutePolyline() {
@@ -1170,6 +1253,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         isManualRouteMode = false
         b.btnCancelManualRoute.isVisible = false
         b.btnCancelManualRoute.isEnabled = true
+        b.btnUndoManualRoute.isVisible = false
+        b.btnUndoManualRoute.isEnabled = true
+        b.manualRouteHint.isVisible = false
         b.btnAddHere.isEnabled = true
         resetRouteButton()
     }
@@ -1181,6 +1267,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         isManualRouteMode = false
         b.btnCancelManualRoute.isVisible = false
         b.btnCancelManualRoute.isEnabled = true
+        b.btnUndoManualRoute.isVisible = false
+        b.btnUndoManualRoute.isEnabled = true
+        b.manualRouteHint.isVisible = false
         b.btnAddHere.isEnabled = true
         resetRouteButton()
     }
@@ -1205,7 +1294,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
         b.btnAddHere.isEnabled = false
         b.btnRecordRoute.text = getString(R.string.map_route_stop, 0)
-        b.btnRecordRoute.isEnabled = true
+        refreshRouteButtonState()
         showHint(getString(R.string.map_route_recording_hint))
         val recorder = RouteRecorder(manager, providers) { points -> onRoutePointsChanged(points) }
         routeRecorder = recorder
@@ -1266,6 +1355,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     private fun onRoutePointsChanged(points: List<RoutePointPayload>) {
         b.btnRecordRoute.text = getString(R.string.map_route_stop, points.size)
+        b.btnRecordRoute.contentDescription = b.btnRecordRoute.text
         updateRoutePolyline(points)
     }
 
@@ -1275,7 +1365,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             return
         }
         b.btnRecordRoute.text = getString(R.string.map_route_start)
-        b.btnRecordRoute.isEnabled = !isSavingRoute
+        refreshRouteButtonState()
     }
 
     private fun updateRoutePolyline(points: List<RoutePointPayload>) {
@@ -1354,9 +1444,15 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private fun captureLocationPreview(noteId: Long, blockId: Long, lat: Double, lon: Double) {
         if (noteId <= 0) return
         val center = LatLng(lat, lon)
+        setSnapshotInProgress(true)
         captureMapSnapshot(center = center) { bitmap ->
-            if (bitmap != null) {
-                persistBlockPreview(noteId, blockId, BlockType.LOCATION, bitmap)
+            try {
+                if (bitmap != null) {
+                    persistBlockPreview(noteId, blockId, BlockType.LOCATION, bitmap)
+                    showPreviewSavedToast()
+                }
+            } finally {
+                setSnapshotInProgress(false)
             }
         }
     }
@@ -1393,17 +1489,23 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
             tempLine = runCatching { manager.create(options as LineOptions) }.getOrNull()
         }
+        setSnapshotInProgress(true)
         captureMapSnapshot(
             center = if (bounds == null) center else null,
             bounds = bounds
         ) { bitmap ->
-            tempLine?.let { line ->
-                runCatching { manager?.delete(line) }
+            try {
+                tempLine?.let { line ->
+                    runCatching { manager?.delete(line) }
+                }
+                if (bitmap != null) {
+                    persistBlockPreview(noteId, result.routeBlockId, BlockType.ROUTE, bitmap)
+                    showPreviewSavedToast()
+                }
+            } finally {
+                setSnapshotInProgress(false)
+                onComplete?.invoke()
             }
-            if (bitmap != null) {
-                persistBlockPreview(noteId, result.routeBlockId, BlockType.ROUTE, bitmap)
-            }
-            onComplete?.invoke()
         }
     }
 
