@@ -17,10 +17,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.app.ActivityCompat
@@ -44,12 +44,18 @@ import com.example.openeer.core.Place
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.databinding.FragmentMapBinding
 import com.example.openeer.databinding.SheetMapSelectedLocationBinding
-import com.google.android.material.snackbar.Snackbar
+import com.example.openeer.ui.map.MapStyleIds
+import com.example.openeer.ui.map.MapUiDefaults
+import com.example.openeer.ui.map.ensureLineManager
+import com.example.openeer.ui.map.ensureSymbolManager
+import com.example.openeer.ui.map.renderPin
+import com.example.openeer.ui.map.renderRoute
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -57,14 +63,11 @@ import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.OnMapReadyCallback
-import org.maplibre.android.maps.Style
 import com.google.gson.Gson
 import org.maplibre.android.plugins.annotation.Line
 import org.maplibre.android.plugins.annotation.LineManager
-import org.maplibre.android.plugins.annotation.LineOptions
 import org.maplibre.android.plugins.annotation.Symbol
 import org.maplibre.android.plugins.annotation.SymbolManager
-import org.maplibre.android.plugins.annotation.SymbolOptions
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
@@ -77,7 +80,6 @@ import org.maplibre.android.style.layers.PropertyFactory.textHaloWidth
 import org.maplibre.android.style.layers.PropertyFactory.textOffset
 import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.SymbolLayer
-import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -96,15 +98,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     private var mapView: MapView? = null
     private var map: MapLibreMap? = null
-
-    // Style IDs
-    private val SRC_NOTES = "notes-source"
-    private val LYR_NOTES = "notes-layer"
-    private val ICON_SINGLE = "icon-single"
-    private val ICON_FEW = "icon-few"
-    private val ICON_MANY = "icon-many"
-    private val ICON_HERE = "icon-here"
-    private val ICON_SELECTION = "icon-selection"
 
     // Repos
     private lateinit var database: AppDatabase
@@ -206,18 +199,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
     }
 
-    private object MapUiDefaults {
-        const val MIN_DISTANCE_METERS = 20f
-        const val MIN_TIME_BETWEEN_UPDATES_MS = 1_000L
-        const val REQUEST_INTERVAL_MS = 1_500L
-        const val MAX_ROUTE_POINTS = 500
-        const val ROUTE_LINE_COLOR = "#FF2E7D32"
-        const val ROUTE_LINE_WIDTH = 4f
-        const val ROUTE_BOUNDS_PADDING_DP = 48
-        const val HERE_COOLDOWN_MS = 15_000L
-        const val HERE_COOLDOWN_DISTANCE_M = 30f
-    }
-
     override fun onAttach(context: Context) {
         super.onAttach(context)
         val appCtx = context.applicationContext
@@ -303,39 +284,49 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             map?.uiSettings?.isScrollGesturesEnabled = true
 
             // Icônes en mémoire
-            if (style.getImage(ICON_SINGLE) == null) style.addImage(ICON_SINGLE, makeDot(22, R.color.purple_500))
-            if (style.getImage(ICON_FEW) == null)    style.addImage(ICON_FEW,    makeDot(22, android.R.color.holo_blue_light))
-            if (style.getImage(ICON_MANY) == null)   style.addImage(ICON_MANY,   makeDot(22, android.R.color.holo_red_light))
-            if (style.getImage(ICON_HERE) == null)   style.addImage(ICON_HERE,   makeDot(24, R.color.teal_200))
-            if (style.getImage(ICON_SELECTION) == null) style.addImage(ICON_SELECTION, makeDot(18, R.color.map_pin_selection))
+            if (style.getImage(MapStyleIds.ICON_SINGLE) == null) {
+                style.addImage(MapStyleIds.ICON_SINGLE, makeDot(MapUiDefaults.PIN_DEFAULT_SIZE_DP, R.color.purple_500))
+            }
+            if (style.getImage(MapStyleIds.ICON_FEW) == null) {
+                style.addImage(MapStyleIds.ICON_FEW, makeDot(MapUiDefaults.PIN_DEFAULT_SIZE_DP, android.R.color.holo_blue_light))
+            }
+            if (style.getImage(MapStyleIds.ICON_MANY) == null) {
+                style.addImage(MapStyleIds.ICON_MANY, makeDot(MapUiDefaults.PIN_DEFAULT_SIZE_DP, android.R.color.holo_red_light))
+            }
+            if (style.getImage(MapStyleIds.ICON_HERE) == null) {
+                style.addImage(MapStyleIds.ICON_HERE, makeDot(MapUiDefaults.PIN_HERE_SIZE_DP, R.color.teal_200))
+            }
+            if (style.getImage(MapStyleIds.ICON_SELECTION) == null) {
+                style.addImage(MapStyleIds.ICON_SELECTION, makeDot(MapUiDefaults.PIN_SELECTION_SIZE_DP, R.color.map_pin_selection))
+            }
 
             // Source
-            if (style.getSource(SRC_NOTES) == null) {
-                style.addSource(GeoJsonSource(SRC_NOTES, FeatureCollection.fromFeatures(arrayListOf())))
+            if (style.getSource(MapStyleIds.SOURCE_NOTES) == null) {
+                style.addSource(GeoJsonSource(MapStyleIds.SOURCE_NOTES, FeatureCollection.fromFeatures(arrayListOf())))
             }
 
             // Couche (au-dessus de tout)
-            if (style.getLayer(LYR_NOTES) == null) {
-                val layer = SymbolLayer(LYR_NOTES, SRC_NOTES).withProperties(
+            if (style.getLayer(MapStyleIds.LAYER_NOTES) == null) {
+                val layer = SymbolLayer(MapStyleIds.LAYER_NOTES, MapStyleIds.SOURCE_NOTES).withProperties(
                     iconImage(Expression.get("icon")),
-                    iconSize(1.15f),
+                    iconSize(MapUiDefaults.SYMBOL_LAYER_ICON_SIZE),
                     iconAllowOverlap(true),
                     iconIgnorePlacement(true),
 
                     // COMPTE TOTAL DE NOTES DU GROUPE
                     textField(Expression.toString(Expression.get("count"))),
-                    textSize(12f),
-                    textOffset(arrayOf(0f, 1.5f)),
+                    textSize(MapUiDefaults.SYMBOL_LAYER_TEXT_SIZE),
+                    textOffset(MapUiDefaults.SYMBOL_LAYER_TEXT_OFFSET),
                     textColor(ContextCompat.getColor(requireContext(), android.R.color.white)),
                     textHaloColor(ContextCompat.getColor(requireContext(), android.R.color.black)),
-                    textHaloWidth(1.6f)
+                    textHaloWidth(MapUiDefaults.SYMBOL_LAYER_HALO_WIDTH)
                 )
                 val top = style.layers.lastOrNull()?.id
                 if (top != null) style.addLayerAbove(layer, top) else style.addLayer(layer)
             }
 
-            setupSymbolManager(style)
-            setupRouteManager(style)
+            setupSymbolManager()
+            setupRouteManager()
             b.btnAddHere.isEnabled = true
             b.btnRecordRoute.isEnabled = true
 
@@ -364,7 +355,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 return@addOnMapClickListener true
             }
             val screenPt = map?.projection?.toScreenLocation(latLng) ?: return@addOnMapClickListener false
-            val features = map?.queryRenderedFeatures(screenPt, LYR_NOTES).orEmpty()
+            val features = map?.queryRenderedFeatures(screenPt, MapStyleIds.LAYER_NOTES).orEmpty()
             val f = features.firstOrNull() ?: return@addOnMapClickListener false
 
             val lat = f.getNumberProperty("lat")?.toDouble() ?: return@addOnMapClickListener false
@@ -373,8 +364,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             val count = f.getNumberProperty("count")?.toInt() ?: 1
 
             // Zoom doux
-            val currentZoom = map?.cameraPosition?.zoom ?: 5.0
-            val targetZoom = max(currentZoom, 13.5)
+            val currentZoom = map?.cameraPosition?.zoom ?: MapUiDefaults.DEFAULT_CAMERA_ZOOM
+            val targetZoom = max(currentZoom, MapUiDefaults.TAP_MIN_ZOOM)
             map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), targetZoom))
 
             showHint("$title — $count note(s)")
@@ -415,7 +406,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val zoom = cam.zoom
 
         // ~48 px à l’écran
-        val clusterRadiusPx = 48.0
+        val clusterRadiusPx = MapUiDefaults.CLUSTER_RADIUS_PX
         val mpp = metersPerPixelAtLat(centerLat, zoom) // mètres par pixel
         val radiusM = clusterRadiusPx * mpp
 
@@ -441,9 +432,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             val count = list.size
             val title = list.firstOrNull()?.placeLabel ?: "Lieu"
             val icon = when {
-                count > 4 -> ICON_MANY
-                count > 1 -> ICON_FEW
-                else -> ICON_SINGLE
+                count > MapUiDefaults.CLUSTER_MANY_THRESHOLD -> MapStyleIds.ICON_MANY
+                count > MapUiDefaults.CLUSTER_FEW_THRESHOLD -> MapStyleIds.ICON_FEW
+                else -> MapStyleIds.ICON_SINGLE
             }
             Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
                 addStringProperty("title", title)
@@ -454,7 +445,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             }
         }
 
-        style.getSourceAs<GeoJsonSource>(SRC_NOTES)
+        style.getSourceAs<GeoJsonSource>(MapStyleIds.SOURCE_NOTES)
             ?.setGeoJson(FeatureCollection.fromFeatures(features))
     }
 
@@ -472,11 +463,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             bds.include(LatLng(p.latitude(), p.longitude()))
         }
         val bounds = bds.build()
-        map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64))
+        map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, MapUiDefaults.FIT_ALL_PADDING_PX))
     }
 
     private fun moveCameraToDefault() {
-        map?.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(46.7111, 1.7191), 5.0))
+        map?.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(46.7111, 1.7191), MapUiDefaults.DEFAULT_CAMERA_ZOOM))
     }
 
     private fun applyStartMode(mode: String) {
@@ -495,8 +486,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private fun tryCenterOnLastKnownLocation(): Boolean {
         if (!hasLocationPermission()) return false
         val me = lastKnownLatLng(requireContext()) ?: return false
-        val currentZoom = map?.cameraPosition?.zoom ?: 5.0
-        val targetZoom = max(currentZoom, 14.0)
+        val currentZoom = map?.cameraPosition?.zoom ?: MapUiDefaults.DEFAULT_CAMERA_ZOOM
+        val targetZoom = max(currentZoom, MapUiDefaults.RECENTER_MIN_ZOOM)
         map?.animateCamera(CameraUpdateFactory.newLatLngZoom(me, targetZoom))
         showHint("Votre position")
         return true
@@ -509,7 +500,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             val lat = note?.lat
             val lon = note?.lon
             if (lat != null && lon != null) {
-                map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 15.0))
+                map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), MapUiDefaults.FOCUS_NOTE_ZOOM))
             } else {
                 onFallback()
             }
@@ -564,7 +555,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         return focusOnLatLon(points.first().lat, points.first().lon)
     }
 
-    private fun focusOnLatLon(lat: Double?, lon: Double?, zoom: Double = 15.0): Boolean {
+    private fun focusOnLatLon(lat: Double?, lon: Double?, zoom: Double = MapUiDefaults.FOCUS_NOTE_ZOOM): Boolean {
         if (lat == null || lon == null) return false
         val target = LatLng(lat, lon)
         map?.animateCamera(CameraUpdateFactory.newLatLngZoom(target, zoom))
@@ -592,8 +583,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
         val me = lastKnownLatLng(ctx)
         if (me != null) {
-            val currentZoom = map?.cameraPosition?.zoom ?: 5.0
-            val target = max(currentZoom, 14.0)
+            val currentZoom = map?.cameraPosition?.zoom ?: MapUiDefaults.DEFAULT_CAMERA_ZOOM
+            val target = max(currentZoom, MapUiDefaults.RECENTER_MIN_ZOOM)
             map?.animateCamera(CameraUpdateFactory.newLatLngZoom(me, target))
             showHint("Votre position")
         } else {
@@ -629,24 +620,19 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         startActivity(i)
     }
 
-    private fun setupSymbolManager(style: Style) {
+    private fun setupSymbolManager() {
         val mv = mapView ?: return
         val mapInstance = map ?: return
         symbolManager?.onDestroy()
-        symbolManager = SymbolManager(mv, mapInstance, style).apply {
-            iconAllowOverlap = true
-            iconIgnorePlacement = true
-        }
+        symbolManager = ensureSymbolManager(mv, mapInstance)
         refreshPins()
     }
 
-    private fun setupRouteManager(style: Style) {
+    private fun setupRouteManager() {
         val mv = mapView ?: return
         val mapInstance = map ?: return
         polylineManager?.onDestroy()
-        polylineManager = LineManager(mv, mapInstance, style).apply {
-            lineCap = Property.LINE_CAP_ROUND
-        }
+        polylineManager = ensureLineManager(mv, mapInstance)
         recordingRouteLine = null
         manualRouteLine = null
         if (isManualRouteMode) {
@@ -658,11 +644,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val manager = symbolManager ?: return
         manager.deleteAll()
         locationPins.forEach { (_, pin) ->
-            val symbol = manager.create(
-                SymbolOptions()
-                    .withLatLng(LatLng(pin.lat, pin.lon))
-                    .withIconImage(ICON_HERE)
-            )
+            val symbol = renderPin(manager, LatLng(pin.lat, pin.lon), MapStyleIds.ICON_HERE)
             pin.symbol = symbol
         }
     }
@@ -690,11 +672,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         selectionSymbol?.let { existing ->
             runCatching { manager.delete(existing) }
         }
-        selectionSymbol = manager.create(
-            SymbolOptions()
-                .withLatLng(latLng)
-                .withIconImage(ICON_SELECTION)
-        )
+        selectionSymbol = renderPin(manager, latLng, MapStyleIds.ICON_SELECTION)
 
         val placeholderLabel = formatLatLon(latLng.latitude, latLng.longitude)
         showSelectionSheet(placeholderLabel, latLng, showLoading = true)
@@ -1172,11 +1150,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             manualRouteLine = null
         }
         if (manualPoints.size < 2) return
-        val options: LineOptions = LineOptions()
-            .withLatLngs(manualPoints.toList())
-            .withLineColor(MapUiDefaults.ROUTE_LINE_COLOR)
-            .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
-        manualRouteLine = manager.create(options as LineOptions)
+        manualRouteLine = renderRoute(manager, manualPoints.toList())
     }
 
     private fun clearManualRouteLine() {
@@ -1376,11 +1350,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
         if (points.size < 2) return
         val latLngs = points.map { LatLng(it.lat, it.lon) }
-        val options: LineOptions = LineOptions()
-            .withLatLngs(latLngs)
-            .withLineColor(MapUiDefaults.ROUTE_LINE_COLOR)
-            .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
-        recordingRouteLine = manager.create(options as LineOptions)
+        recordingRouteLine = renderRoute(manager, latLngs)
     }
 
     private fun clearRecordingLine() {
@@ -1395,7 +1365,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val latLngs = points.map { LatLng(it.lat, it.lon) }
         if (latLngs.isEmpty()) return
         if (latLngs.size == 1) {
-            map?.animateCamera(CameraUpdateFactory.newLatLngZoom(latLngs.first(), 15.0))
+            map?.animateCamera(CameraUpdateFactory.newLatLngZoom(latLngs.first(), MapUiDefaults.FOCUS_NOTE_ZOOM))
             return
         }
         val builder = LatLngBounds.Builder()
@@ -1483,11 +1453,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val manager = polylineManager
         var tempLine: Line? = null
         if (manager != null && latLngs.size >= 2) {
-            val options: LineOptions = LineOptions()
-                .withLatLngs(latLngs)
-                .withLineColor(MapUiDefaults.ROUTE_LINE_COLOR)
-                .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
-            tempLine = runCatching { manager.create(options as LineOptions) }.getOrNull()
+            tempLine = runCatching { renderRoute(manager, latLngs) }.getOrNull()
         }
         setSnapshotInProgress(true)
         captureMapSnapshot(
@@ -1527,14 +1493,14 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 mapObj.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
             }
             center != null -> {
-                mapObj.animateCamera(CameraUpdateFactory.newLatLngZoom(center, 15.0))
+                mapObj.animateCamera(CameraUpdateFactory.newLatLngZoom(center, MapUiDefaults.SNAPSHOT_CENTER_ZOOM))
             }
         }
     }
 
     private fun captureMapSnapshotAfterIdle(
         onResult: (Bitmap?) -> Unit,
-        timeoutMs: Long = 1500L
+        timeoutMs: Long = MapUiDefaults.SNAPSHOT_TIMEOUT_MS
     ) {
         val mapObj = map ?: run { onResult(null); return }
         val handler = Handler(Looper.getMainLooper())
