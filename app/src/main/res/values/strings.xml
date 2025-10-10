@@ -120,15 +120,27 @@
     <string name="map_manual_route_limit">Itinéraire manuel : maximum %1$d points</string>
     <string name="map_manual_route_mirror_format">🧭 Itinéraire (%1$d pts)</string>
     <string name="map_manual_route_anchor_format">Ancre : %1$s</string>
+    <string name="map_manual_route_hint">Touchez la carte pour ajouter des points • Appuyez long pour déplacer le dernier</string>
+    <string name="map_manual_route_save_cd">Sauvegarder l’itinéraire</string>
+    <string name="map_manual_route_cancel_cd">Annuler</string>
+    <string name="map_manual_route_undo_cd">Retirer le dernier point</string>
+    <plurals name="map_manual_route_points_a11y">
+        <item quantity="one">Itinéraire manuel : %d point</item>
+        <item quantity="other">Itinéraire manuel : %d points</item>
+    </plurals>
     <string name="map_pick_title">Point sélectionné</string>
     <string name="map_pick_save">Enregistrer 📍</string>
+    <string name="map_pick_save_cd">Sauvegarder l’itinéraire</string>
     <string name="map_pick_route">Démarrer itinéraire depuis ce point</string>
     <string name="map_pick_open_maps">Ouvrir dans Google Maps</string>
+    <string name="map_pick_open_maps_cd">Ouvrir dans Google Maps</string>
     <string name="map_pick_loading">Recherche de l’adresse…</string>
     <string name="map_pick_coordinates_format">%1$.5f, %2$.5f</string>
     <string name="map_pick_google_maps_unavailable">Aucune application de carte disponible</string>
     <string name="map_manual_route_seed_hint">Itinéraire manuel : départ fixé (%1$s)</string>
     <string name="pile_label_locations">Lieux</string>
+    <string name="map_route_start_cd">Démarrer un itinéraire</string>
+    <string name="map_preview_ready">Aperçu ajouté à la note</string>
 
     <string name="block_view_on_map">Voir sur carte</string>
     <string name="block_location_coordinates">%1$.5f, %2$.5f</string>

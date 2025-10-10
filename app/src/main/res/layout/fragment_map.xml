@@ -21,6 +21,20 @@
         android:textSize="14sp"
         android:visibility="gone" />
 
+    <TextView
+        android:id="@+id/manualRouteHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="64dp"
+        android:background="#66000000"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp"
+        android:text="@string/map_manual_route_hint"
+        android:textColor="@android:color/white"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/mapControls"
         android:layout_width="wrap_content"
@@ -82,13 +96,29 @@
             android:text="@string/map_route_start" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnUndoManualRoute"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="8dp"
+            android:text="↩︎"
+            android:textAllCaps="false"
+            android:visibility="gone"
+            android:contentDescription="@string/map_manual_route_undo_cd" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCancelManualRoute"
             style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/action_cancel"
-            android:visibility="gone" />
+            android:visibility="gone"
+            android:contentDescription="@string/map_manual_route_cancel_cd" />
     </LinearLayout>
 
 </FrameLayout>

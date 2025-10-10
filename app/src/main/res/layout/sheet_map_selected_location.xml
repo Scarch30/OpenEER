@@ -64,7 +64,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
             android:text="@string/map_pick_save"
-            android:textAllCaps="false" />
+            android:textAllCaps="false"
+            android:contentDescription="@string/map_pick_save_cd" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRoute"
@@ -82,7 +83,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:text="@string/map_pick_open_maps"
-            android:textAllCaps="false" />
+            android:textAllCaps="false"
+            android:contentDescription="@string/map_pick_open_maps_cd" />
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>
