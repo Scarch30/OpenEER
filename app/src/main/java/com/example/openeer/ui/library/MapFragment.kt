@@ -1,21 +1,15 @@
 package com.example.openeer.ui.library
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
 import android.graphics.PointF
 import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
@@ -24,7 +18,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.core.os.bundleOf
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
@@ -57,7 +50,6 @@ import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.OnMapReadyCallback
-import org.maplibre.android.maps.Style
 import com.google.gson.Gson
 import org.maplibre.android.plugins.annotation.Line
 import org.maplibre.android.plugins.annotation.LineManager
@@ -65,29 +57,28 @@ import org.maplibre.android.plugins.annotation.LineOptions
 import org.maplibre.android.plugins.annotation.Symbol
 import org.maplibre.android.plugins.annotation.SymbolManager
 import org.maplibre.android.plugins.annotation.SymbolOptions
-import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
-import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
-import org.maplibre.android.style.layers.PropertyFactory.iconImage
-import org.maplibre.android.style.layers.PropertyFactory.iconSize
-import org.maplibre.android.style.layers.PropertyFactory.textColor
-import org.maplibre.android.style.layers.PropertyFactory.textField
-import org.maplibre.android.style.layers.PropertyFactory.textHaloColor
-import org.maplibre.android.style.layers.PropertyFactory.textHaloWidth
-import org.maplibre.android.style.layers.PropertyFactory.textOffset
-import org.maplibre.android.style.layers.PropertyFactory.textSize
-import org.maplibre.android.style.layers.SymbolLayer
-import org.maplibre.android.style.layers.Property
-import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
-import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.Point
-import org.maplibre.android.maps.MapLibreMap.OnCameraIdleListener
 import kotlin.collections.removeLastOrNull
 import kotlin.math.*
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.Locale
+import com.example.openeer.ui.map.MapStyleIds
+import com.example.openeer.ui.map.MapUiDefaults
+import com.example.openeer.ui.map.MapRenderers
+import com.example.openeer.ui.map.MapPin
+import com.example.openeer.ui.map.LocationAddResult
+import com.example.openeer.ui.map.RoutePersistResult
+import com.example.openeer.ui.map.RecentHere
+import com.example.openeer.ui.map.RouteRecorder
+import kotlin.math.max
+import com.example.openeer.ui.map.MapClusters
+import com.example.openeer.ui.map.MapIcons
+import com.example.openeer.ui.map.MapManagers
+import com.example.openeer.ui.map.MapCamera
+import com.example.openeer.ui.map.MapSnapshots
+import com.example.openeer.ui.map.MapText
+import com.example.openeer.ui.map.MapPolylines
 
 class MapFragment : Fragment(), OnMapReadyCallback {
 
@@ -97,14 +88,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private var mapView: MapView? = null
     private var map: MapLibreMap? = null
 
-    // Style IDs
-    private val SRC_NOTES = "notes-source"
-    private val LYR_NOTES = "notes-layer"
-    private val ICON_SINGLE = "icon-single"
-    private val ICON_FEW = "icon-few"
-    private val ICON_MANY = "icon-many"
-    private val ICON_HERE = "icon-here"
-    private val ICON_SELECTION = "icon-selection"
 
     // Repos
     private lateinit var database: AppDatabase
@@ -136,25 +119,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private var manualAnchorLabel: String? = null
     private val routeGson by lazy { Gson() }
 
-    private data class MapPin(val lat: Double, val lon: Double, var symbol: Symbol? = null)
-
-    private data class LocationAddResult(
-        val noteId: Long,
-        val locationBlockId: Long,
-        val mirrorBlockId: Long,
-        val previousLat: Double?,
-        val previousLon: Double?,
-        val previousPlace: String?,
-        val previousAccuracy: Float?
-    )
-
-    private data class RoutePersistResult(
-        val noteId: Long,
-        val routeBlockId: Long,
-        val mirrorBlockId: Long,
-        val payload: RoutePayload
-    )
-
     private val locationPins = mutableMapOf<Long, MapPin>()
 
     private var selectionDialog: BottomSheetDialog? = null
@@ -171,8 +135,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     // Permission localisation
     private val REQ_LOC = 1001
     private val REQ_ROUTE = 1002
-
-    private data class RecentHere(val lat: Double, val lon: Double, val timestamp: Long)
 
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
@@ -206,17 +168,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
     }
 
-    private object MapUiDefaults {
-        const val MIN_DISTANCE_METERS = 20f
-        const val MIN_TIME_BETWEEN_UPDATES_MS = 1_000L
-        const val REQUEST_INTERVAL_MS = 1_500L
-        const val MAX_ROUTE_POINTS = 500
-        const val ROUTE_LINE_COLOR = "#FF2E7D32"
-        const val ROUTE_LINE_WIDTH = 4f
-        const val ROUTE_BOUNDS_PADDING_DP = 48
-        const val HERE_COOLDOWN_MS = 15_000L
-        const val HERE_COOLDOWN_DISTANCE_M = 30f
-    }
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -269,7 +220,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         b.btnZoomIn.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomIn()) }
         b.btnZoomOut.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomOut()) }
         b.btnRecenter.setOnClickListener { recenterToUserOrAll() }
-        clearRecordingLine()
+        recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
         b.btnAddHere.isEnabled = false
         b.btnAddHere.setOnClickListener { onAddHereClicked() }
         b.btnRecordRoute.isEnabled = false
@@ -303,44 +254,32 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             map?.uiSettings?.isScrollGesturesEnabled = true
 
             // Icônes en mémoire
-            if (style.getImage(ICON_SINGLE) == null) style.addImage(ICON_SINGLE, makeDot(22, R.color.purple_500))
-            if (style.getImage(ICON_FEW) == null)    style.addImage(ICON_FEW,    makeDot(22, android.R.color.holo_blue_light))
-            if (style.getImage(ICON_MANY) == null)   style.addImage(ICON_MANY,   makeDot(22, android.R.color.holo_red_light))
-            if (style.getImage(ICON_HERE) == null)   style.addImage(ICON_HERE,   makeDot(24, R.color.teal_200))
-            if (style.getImage(ICON_SELECTION) == null) style.addImage(ICON_SELECTION, makeDot(18, R.color.map_pin_selection))
+            MapIcons.ensureDefaultIcons(style, requireContext())
+            MapIcons.ensureNotesSourceAndLayer(style)
 
-            // Source
-            if (style.getSource(SRC_NOTES) == null) {
-                style.addSource(GeoJsonSource(SRC_NOTES, FeatureCollection.fromFeatures(arrayListOf())))
+
+            val mv = mapView ?: return@setStyle
+            val mapInstance = map ?: return@setStyle
+
+            symbolManager?.onDestroy()
+            symbolManager = MapManagers.createSymbolManager(mv, mapInstance, style)
+            refreshPins()
+
+            polylineManager?.onDestroy()
+            polylineManager = MapManagers.createLineManager(mv, mapInstance, style)
+            recordingRouteLine = null
+            manualRouteLine = null
+            if (isManualRouteMode) {
+                manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
+
             }
 
-            // Couche (au-dessus de tout)
-            if (style.getLayer(LYR_NOTES) == null) {
-                val layer = SymbolLayer(LYR_NOTES, SRC_NOTES).withProperties(
-                    iconImage(Expression.get("icon")),
-                    iconSize(1.15f),
-                    iconAllowOverlap(true),
-                    iconIgnorePlacement(true),
-
-                    // COMPTE TOTAL DE NOTES DU GROUPE
-                    textField(Expression.toString(Expression.get("count"))),
-                    textSize(12f),
-                    textOffset(arrayOf(0f, 1.5f)),
-                    textColor(ContextCompat.getColor(requireContext(), android.R.color.white)),
-                    textHaloColor(ContextCompat.getColor(requireContext(), android.R.color.black)),
-                    textHaloWidth(1.6f)
-                )
-                val top = style.layers.lastOrNull()?.id
-                if (top != null) style.addLayerAbove(layer, top) else style.addLayer(layer)
-            }
-
-            setupSymbolManager(style)
-            setupRouteManager(style)
             b.btnAddHere.isEnabled = true
             b.btnRecordRoute.isEnabled = true
 
             if (initialMode == MapActivity.MODE_BROWSE) {
-                moveCameraToDefault()
+                MapCamera.moveCameraToDefault(map)
+
             }
 
             // Charge les notes brutes (une seule fois)
@@ -348,7 +287,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
             // Recalcule l’agrégation quand la caméra s’arrête → nombres corrects selon le zoom
             map?.addOnCameraIdleListener {
-                renderGroupsForCurrentZoom()
+                MapClusters.renderGroupsForCurrentZoom(map, allNotes)
                 maybeDismissSelectionOnPan()
             }
 
@@ -364,7 +303,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 return@addOnMapClickListener true
             }
             val screenPt = map?.projection?.toScreenLocation(latLng) ?: return@addOnMapClickListener false
-            val features = map?.queryRenderedFeatures(screenPt, LYR_NOTES).orEmpty()
+            val features = map?.queryRenderedFeatures(screenPt, MapStyleIds.LYR_NOTES).orEmpty()
             val f = features.firstOrNull() ?: return@addOnMapClickListener false
 
             val lat = f.getNumberProperty("lat")?.toDouble() ?: return@addOnMapClickListener false
@@ -399,84 +338,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             } else {
                 showHint("${allNotes.size} note(s) géolocalisée(s)")
             }
-            renderGroupsForCurrentZoom()
+            MapClusters.renderGroupsForCurrentZoom(map, allNotes)
         }
-    }
-
-    /** Agrège dynamiquement par “cellules écran” (≈48 px) → libellé = total de notes du groupe. */
-    private fun renderGroupsForCurrentZoom() {
-        val m = map ?: return
-        val style = m.style ?: return
-        if (allNotes.isEmpty()) return
-
-        val cam = m.cameraPosition ?: return
-        val target = cam.target ?: return  // ✅ null-safe
-        val centerLat = target.latitude
-        val zoom = cam.zoom
-
-        // ~48 px à l’écran
-        val clusterRadiusPx = 48.0
-        val mpp = metersPerPixelAtLat(centerLat, zoom) // mètres par pixel
-        val radiusM = clusterRadiusPx * mpp
-
-        // Convertit un rayon en degrés (avec garde-fous)
-        val degLat = radiusM / 111_000.0
-        val degLon = radiusM / (111_320.0 * max(0.2, cos(Math.toRadians(centerLat))))
-        if (degLat <= 0.0 || degLon <= 0.0 || degLat.isNaN() || degLon.isNaN() || degLat.isInfinite() || degLon.isInfinite()) return
-
-        // Regroupe par “cellule” (key = indices de grille)
-        val groups = HashMap<Pair<Int, Int>, MutableList<Note>>()
-        allNotes.forEach { n ->
-            val la = n.lat ?: return@forEach
-            val lo = n.lon ?: return@forEach
-            val gx = floor(la / degLat).toInt()
-            val gy = floor(lo / degLon).toInt()
-            groups.getOrPut(gx to gy) { mutableListOf() }.add(n)
-        }
-
-        // (facultatif) si tu synthétises des Features ici :
-        val features = groups.map { (_, list) ->
-            val lat = list.mapNotNull { it.lat }.average()
-            val lon = list.mapNotNull { it.lon }.average()
-            val count = list.size
-            val title = list.firstOrNull()?.placeLabel ?: "Lieu"
-            val icon = when {
-                count > 4 -> ICON_MANY
-                count > 1 -> ICON_FEW
-                else -> ICON_SINGLE
-            }
-            Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
-                addStringProperty("title", title)
-                addNumberProperty("count", count)
-                addNumberProperty("lat", lat)
-                addNumberProperty("lon", lon)
-                addStringProperty("icon", icon)
-            }
-        }
-
-        style.getSourceAs<GeoJsonSource>(SRC_NOTES)
-            ?.setGeoJson(FeatureCollection.fromFeatures(features))
-    }
-
-
-    /** m/pixel à une latitude pour un zoom donné. */
-    private fun metersPerPixelAtLat(lat: Double, zoom: Double): Double {
-        return 156543.03392 * cos(Math.toRadians(lat)) / 2.0.pow(zoom)
-    }
-
-    private fun fitToAll(features: List<Feature>) {
-        if (features.isEmpty()) return
-        val bds = LatLngBounds.Builder()
-        features.forEach { f ->
-            val p = f.geometry() as? Point ?: return@forEach
-            bds.include(LatLng(p.latitude(), p.longitude()))
-        }
-        val bounds = bds.build()
-        map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64))
-    }
-
-    private fun moveCameraToDefault() {
-        map?.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(46.7111, 1.7191), 5.0))
     }
 
     private fun applyStartMode(mode: String) {
@@ -484,10 +347,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             MapActivity.MODE_CENTER_ON_HERE -> {
                 val centered = tryCenterOnLastKnownLocation()
                 if (!centered) {
-                    moveCameraToDefault()
+                    MapCamera.moveCameraToDefault(map)
+
                 }
             }
-            MapActivity.MODE_FOCUS_NOTE -> focusOnTargetNoteOrFallback { moveCameraToDefault() }
+            MapActivity.MODE_FOCUS_NOTE -> focusOnTargetNoteOrFallback { MapCamera.moveCameraToDefault(map)
+            }
             else -> Unit
         }
     }
@@ -535,11 +400,14 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             BlockType.ROUTE -> {
                 val handled = focusOnRoute(block)
                 if (!handled) {
-                    focusOnLatLon(block.lat, block.lon)
+                    MapCamera.focusOnLatLon(map, block.lat, block.lon, onHint = { showHint(it) }, hint = getString(R.string.block_view_on_map))
+
                 }
             }
-            BlockType.LOCATION -> focusOnLatLon(block.lat, block.lon)
-            else -> focusOnLatLon(block.lat, block.lon)
+            BlockType.LOCATION -> MapCamera.focusOnLatLon(map, block.lat, block.lon, onHint = { showHint(it) }, hint = getString(R.string.block_view_on_map))
+
+            else -> MapCamera.focusOnLatLon(map, block.lat, block.lon, onHint = { showHint(it) }, hint = getString(R.string.block_view_on_map))
+
         }
     }
 
@@ -550,26 +418,22 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val points = payload?.points ?: emptyList()
         if (points.isEmpty()) return false
         if (points.size == 1) {
-            return focusOnLatLon(points.first().lat, points.first().lon)
+            return MapCamera.focusOnLatLon(map, points.first().lat, points.first().lon, onHint = { showHint(it) }, hint = getString(R.string.block_view_on_map))
+
         }
         val builder = LatLngBounds.Builder()
         points.forEach { builder.include(LatLng(it.lat, it.lon)) }
         val bounds = runCatching { builder.build() }.getOrNull()
         if (bounds != null) {
-            val padding = dpToPx(MapUiDefaults.ROUTE_BOUNDS_PADDING_DP)
+            val padding = MapRenderers.dpToPx(requireContext(), MapUiDefaults.ROUTE_BOUNDS_PADDING_DP)
+
+
             map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
             showHint(getString(R.string.block_view_on_map))
             return true
         }
-        return focusOnLatLon(points.first().lat, points.first().lon)
-    }
+        return MapCamera.focusOnLatLon(map, points.first().lat, points.first().lon, onHint = { showHint(it) }, hint = getString(R.string.block_view_on_map))
 
-    private fun focusOnLatLon(lat: Double?, lon: Double?, zoom: Double = 15.0): Boolean {
-        if (lat == null || lon == null) return false
-        val target = LatLng(lat, lon)
-        map?.animateCamera(CameraUpdateFactory.newLatLngZoom(target, zoom))
-        showHint(getString(R.string.block_view_on_map))
-        return true
     }
 
     /** Bouton “recentrer” : priorité à l’utilisateur, sinon sur toutes les notes. */
@@ -597,7 +461,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             map?.animateCamera(CameraUpdateFactory.newLatLngZoom(me, target))
             showHint("Votre position")
         } else {
-            lastFeatures?.let { fitToAll(it) }
+            lastFeatures?.let { MapRenderers.fitToAll(map, it, requireContext()) }
+
         }
     }
 
@@ -616,10 +481,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         return null
     }
 
-    /** Appelé par l’Activity si besoin. */
-    fun recenterToAll() {
-        lastFeatures?.takeIf { it.isNotEmpty() }?.let { fitToAll(it) }
-    }
 
     private fun openLocationNotes(lat: Double, lon: Double, title: String) {
         val i = Intent(requireContext(), LocationNotesActivity::class.java)
@@ -629,31 +490,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         startActivity(i)
     }
 
-    private fun setupSymbolManager(style: Style) {
-        val mv = mapView ?: return
-        val mapInstance = map ?: return
-        symbolManager?.onDestroy()
-        symbolManager = SymbolManager(mv, mapInstance, style).apply {
-            iconAllowOverlap = true
-            iconIgnorePlacement = true
-        }
-        refreshPins()
-    }
-
-    private fun setupRouteManager(style: Style) {
-        val mv = mapView ?: return
-        val mapInstance = map ?: return
-        polylineManager?.onDestroy()
-        polylineManager = LineManager(mv, mapInstance, style).apply {
-            lineCap = Property.LINE_CAP_ROUND
-        }
-        recordingRouteLine = null
-        manualRouteLine = null
-        if (isManualRouteMode) {
-            updateManualRoutePolyline()
-        }
-    }
-
     private fun refreshPins() {
         val manager = symbolManager ?: return
         manager.deleteAll()
@@ -661,7 +497,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             val symbol = manager.create(
                 SymbolOptions()
                     .withLatLng(LatLng(pin.lat, pin.lon))
-                    .withIconImage(ICON_HERE)
+                    .withIconImage(MapStyleIds.ICON_HERE)
             )
             pin.symbol = symbol
         }
@@ -693,10 +529,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         selectionSymbol = manager.create(
             SymbolOptions()
                 .withLatLng(latLng)
-                .withIconImage(ICON_SELECTION)
+                .withIconImage(MapStyleIds.ICON_SELECTION)
         )
 
-        val placeholderLabel = formatLatLon(latLng.latitude, latLng.longitude)
+        val placeholderLabel = MapText.formatLatLon(latLng.latitude, latLng.longitude)
         showSelectionSheet(placeholderLabel, latLng, showLoading = true)
 
         val appCtx = requireContext().applicationContext
@@ -767,7 +603,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     private fun updateSelectionSheet(place: Place, showLoading: Boolean) {
         val binding = selectionBinding ?: return
-        binding.label.text = displayLabelFor(place)
+        binding.label.text = MapText.displayLabelFor(place)
         binding.loadingGroup.isVisible = showLoading
     }
 
@@ -792,7 +628,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             addCustomPin(result.locationBlockId, place.lat, place.lon)
             showHint(getString(R.string.map_location_added))
             refreshNotesAsync()
-            showUndoSnackbar(result, displayLabelFor(place))
+            showUndoSnackbar(result, MapText.displayLabelFor(place))
             captureLocationPreview(result.noteId, result.locationBlockId, place.lat, place.lon)
             dismissSelectionSheet()
         }
@@ -801,7 +637,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private fun onStartRouteFromSelectionClicked() {
         val latLng = selectionLatLng ?: return
         val place = selectionPlace ?: Place(latLng.latitude, latLng.longitude, null, null)
-        val label = displayLabelFor(place)
+        val label = MapText.displayLabelFor(place)
         parentFragmentManager.setFragmentResult(
             RESULT_MANUAL_ROUTE,
             bundleOf(
@@ -817,7 +653,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private fun onOpenInGoogleMapsClicked() {
         val latLng = selectionLatLng ?: return
         val place = selectionPlace ?: Place(latLng.latitude, latLng.longitude, null, null)
-        val label = displayLabelFor(place)
+        val label = MapText.displayLabelFor(place)
         val lat = latLng.latitude
         val lon = latLng.longitude
         val encodedLabel = Uri.encode(label)
@@ -937,7 +773,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                     return@launch
                 }
                 targetNoteId = result.noteId
-                val displayLabel = displayLabelFor(place)
+                val displayLabel = MapText.displayLabelFor(place)
                 addCustomPin(result.locationBlockId, place.lat, place.lon)
                 showHint(getString(R.string.map_location_added))
                 refreshNotesAsync()
@@ -984,7 +820,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 )
 
                 val locationBlockId = blocksRepo.appendLocation(noteId!!, place.lat, place.lon, place.label)
-                val mirrorBlockId = blocksRepo.appendText(noteId!!, buildMirrorText(place))
+                val mirrorBlockId = blocksRepo.appendText(noteId!!, MapText.buildMirrorText(place))
 
                 LocationAddResult(
                     noteId = noteId!!,
@@ -1001,13 +837,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
     }
 
-    private fun buildMirrorText(place: Place): String {
-        return "📍 Ajouté: ${displayLabelFor(place)}"
-    }
-
-    private fun formatLatLon(lat: Double, lon: Double): String {
-        return String.format(Locale.US, "%.5f, %.5f", lat, lon)
-    }
 
     private fun onRouteButtonClicked() {
         when {
@@ -1071,7 +900,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         cancelRouteRecording()
         manualPoints.clear()
         manualAnchorLabel = anchorLabel?.takeIf { it.isNotBlank() }
-        clearManualRouteLine()
+        manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
         isManualRouteMode = true
         b.btnAddHere.isEnabled = false
         b.btnCancelManualRoute.isVisible = true
@@ -1081,11 +910,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 val point = LatLng(it.latitude, it.longitude)
                 manualPoints.add(point)
                 if (manualAnchorLabel == null) {
-                    manualAnchorLabel = formatLatLon(point.latitude, point.longitude)
+                    manualAnchorLabel = MapText.formatLatLon(point.latitude, point.longitude)
                 }
             }
         }
-        updateManualRoutePolyline()
+        manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
+
         updateManualRouteUi()
         if (manualPoints.isNotEmpty()) {
             announceManualRoutePoints()
@@ -1101,9 +931,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val point = LatLng(latLng.latitude, latLng.longitude)
         manualPoints.add(point)
         if (manualPoints.size == 1 && manualAnchorLabel == null) {
-            manualAnchorLabel = formatLatLon(point.latitude, point.longitude)
+            manualAnchorLabel = MapText.formatLatLon(point.latitude, point.longitude)
         }
-        updateManualRoutePolyline()
+        manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
+
         updateManualRouteUi()
         announceManualRoutePoints()
     }
@@ -1114,7 +945,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         if (manualPoints.isEmpty()) {
             manualAnchorLabel = null
         }
-        updateManualRoutePolyline()
+        manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
+
         updateManualRouteUi()
         announceManualRoutePoints()
     }
@@ -1165,27 +997,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         b.manualRouteHint.isVisible = true
     }
 
-    private fun updateManualRoutePolyline() {
-        val manager = polylineManager ?: return
-        manualRouteLine?.let { existing ->
-            manager.delete(existing)
-            manualRouteLine = null
-        }
-        if (manualPoints.size < 2) return
-        val options: LineOptions = LineOptions()
-            .withLatLngs(manualPoints.toList())
-            .withLineColor(MapUiDefaults.ROUTE_LINE_COLOR)
-            .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
-        manualRouteLine = manager.create(options as LineOptions)
-    }
-
-    private fun clearManualRouteLine() {
-        manualRouteLine?.let { line ->
-            polylineManager?.delete(line)
-        }
-        manualRouteLine = null
-    }
-
     private fun saveManualRoute() {
         if (!isManualRouteMode || isSavingRoute) return
         if (manualPoints.size < 2) {
@@ -1207,7 +1018,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             } else {
                 targetNoteId = result.noteId
                 showHint(getString(R.string.map_route_saved))
-                fitToRoute(result.payload.points)
+                MapRenderers.fitToRoute(map, result.payload.points, requireContext())
+
                 captureRoutePreview(result) {
                     finishManualRouteDrawing()
                 }
@@ -1237,7 +1049,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private fun buildManualRouteMirrorText(points: List<LatLng>): String {
         val base = getString(R.string.map_manual_route_mirror_format, points.size)
         val anchor = manualAnchorLabel?.takeIf { it.isNotBlank() }
-            ?: points.firstOrNull()?.let { formatLatLon(it.latitude, it.longitude) }
+            ?: points.firstOrNull()?.let { MapText.formatLatLon(it.latitude, it.longitude) }
         return if (anchor != null) {
             base + "\n" + getString(R.string.map_manual_route_anchor_format, anchor)
         } else {
@@ -1249,7 +1061,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         if (!isManualRouteMode || isSavingRoute) return
         manualPoints.clear()
         manualAnchorLabel = null
-        clearManualRouteLine()
+        manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
         isManualRouteMode = false
         b.btnCancelManualRoute.isVisible = false
         b.btnCancelManualRoute.isEnabled = true
@@ -1263,7 +1075,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private fun finishManualRouteDrawing() {
         manualPoints.clear()
         manualAnchorLabel = null
-        clearManualRouteLine()
+        manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
         isManualRouteMode = false
         b.btnCancelManualRoute.isVisible = false
         b.btnCancelManualRoute.isEnabled = true
@@ -1313,7 +1125,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         b.btnAddHere.isEnabled = true
         if (!save) {
             recorder.cancel()
-            clearRecordingLine()
+            recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
+
             resetRouteButton()
             return
         }
@@ -1321,7 +1134,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         val payload = recorder.stop()
         if (payload == null) {
             showHint(getString(R.string.map_route_too_short))
-            clearRecordingLine()
+            recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
+
             resetRouteButton()
             return
         }
@@ -1332,11 +1146,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             isSavingRoute = false
             if (result == null) {
                 showHint(getString(R.string.map_route_save_failed))
-                clearRecordingLine()
+                recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
+
             } else {
                 targetNoteId = result.noteId
                 showHint(getString(R.string.map_route_saved))
-                fitToRoute(result.payload.points)
+                MapRenderers.fitToRoute(map, result.payload.points, requireContext())
+
                 captureRoutePreview(result)
                 refreshNotesAsync()
             }
@@ -1349,14 +1165,15 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         routeRecorder = null
         recorder.cancel()
         b.btnAddHere.isEnabled = true
-        clearRecordingLine()
+        recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
         resetRouteButton()
     }
 
     private fun onRoutePointsChanged(points: List<RoutePointPayload>) {
         b.btnRecordRoute.text = getString(R.string.map_route_stop, points.size)
         b.btnRecordRoute.contentDescription = b.btnRecordRoute.text
-        updateRoutePolyline(points)
+        recordingRouteLine = MapPolylines.updateRoutePolyline(polylineManager, recordingRouteLine, points)
+
     }
 
     private fun resetRouteButton() {
@@ -1368,42 +1185,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         refreshRouteButtonState()
     }
 
-    private fun updateRoutePolyline(points: List<RoutePointPayload>) {
-        val manager = polylineManager ?: return
-        recordingRouteLine?.let { existing ->
-            manager.delete(existing)
-            recordingRouteLine = null
-        }
-        if (points.size < 2) return
-        val latLngs = points.map { LatLng(it.lat, it.lon) }
-        val options: LineOptions = LineOptions()
-            .withLatLngs(latLngs)
-            .withLineColor(MapUiDefaults.ROUTE_LINE_COLOR)
-            .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
-        recordingRouteLine = manager.create(options as LineOptions)
-    }
-
-    private fun clearRecordingLine() {
-        recordingRouteLine?.let { line ->
-            polylineManager?.delete(line)
-        }
-        recordingRouteLine = null
-    }
-
-    private fun fitToRoute(points: List<RoutePointPayload>) {
-        if (points.isEmpty()) return
-        val latLngs = points.map { LatLng(it.lat, it.lon) }
-        if (latLngs.isEmpty()) return
-        if (latLngs.size == 1) {
-            map?.animateCamera(CameraUpdateFactory.newLatLngZoom(latLngs.first(), 15.0))
-            return
-        }
-        val builder = LatLngBounds.Builder()
-        latLngs.forEach { builder.include(it) }
-        val bounds = runCatching { builder.build() }.getOrNull() ?: return
-        val padding = dpToPx(MapUiDefaults.ROUTE_BOUNDS_PADDING_DP)
-        map?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
-    }
 
     private suspend fun persistRoute(
         payload: RoutePayload,
@@ -1445,7 +1226,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         if (noteId <= 0) return
         val center = LatLng(lat, lon)
         setSnapshotInProgress(true)
-        captureMapSnapshot(center = center) { bitmap ->
+        MapSnapshots.captureMapSnapshot(map = map, center = center) { bitmap ->
+
             try {
                 if (bitmap != null) {
                     persistBlockPreview(noteId, blockId, BlockType.LOCATION, bitmap)
@@ -1490,10 +1272,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             tempLine = runCatching { manager.create(options as LineOptions) }.getOrNull()
         }
         setSnapshotInProgress(true)
-        captureMapSnapshot(
+        MapSnapshots.captureMapSnapshot(
+            map = map,
             center = if (bounds == null) center else null,
             bounds = bounds
         ) { bitmap ->
+
             try {
                 tempLine?.let { line ->
                     runCatching { manager?.delete(line) }
@@ -1507,66 +1291,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 onComplete?.invoke()
             }
         }
-    }
-
-    private fun captureMapSnapshot(
-        center: LatLng? = null,
-        bounds: LatLngBounds? = null,
-        onBitmap: (Bitmap?) -> Unit
-    ) {
-        val mapObj = map ?: run {
-            onBitmap(null)
-            return
-        }
-
-        captureMapSnapshotAfterIdle(onBitmap)
-
-        when {
-            bounds != null -> {
-                val padding = dpToPx(MapUiDefaults.ROUTE_BOUNDS_PADDING_DP)
-                mapObj.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
-            }
-            center != null -> {
-                mapObj.animateCamera(CameraUpdateFactory.newLatLngZoom(center, 15.0))
-            }
-        }
-    }
-
-    private fun captureMapSnapshotAfterIdle(
-        onResult: (Bitmap?) -> Unit,
-        timeoutMs: Long = 1500L
-    ) {
-        val mapObj = map ?: run { onResult(null); return }
-        val handler = Handler(Looper.getMainLooper())
-
-        lateinit var timeoutRunnable: Runnable
-        lateinit var idleListener: MapLibreMap.OnCameraIdleListener
-
-        timeoutRunnable = Runnable {
-            // Timeout : on nettoie et on renvoie null
-            runCatching { mapObj.removeOnCameraIdleListener(idleListener) }
-            onResult(null)
-        }
-
-        idleListener = object : MapLibreMap.OnCameraIdleListener {
-            override fun onCameraIdle() {
-                // Idle atteint : on capture, on nettoie le timeout puis on retire le listener
-                mapObj.removeOnCameraIdleListener(this)
-                handler.removeCallbacks(timeoutRunnable)
-                mapObj.snapshot { bmp ->
-                    onResult(bmp)
-                }
-            }
-        }
-
-        // Armer le timeout
-        handler.postDelayed(timeoutRunnable, timeoutMs)
-
-        // Attendre l’idle, puis snapshot
-        mapObj.addOnCameraIdleListener(idleListener)
-
-        // Nudge no-op pour garantir un cycle idle si besoin (ne change pas la vue)
-        mapObj.animateCamera(CameraUpdateFactory.zoomBy(0.0))
     }
 
     private fun persistBlockPreview(noteId: Long, blockId: Long, type: BlockType, bitmap: Bitmap) {
@@ -1597,86 +1321,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             }
         }
     }
-
-    private fun displayLabelFor(place: Place): String {
-        val label = place.label?.takeIf { it.isNotBlank() }
-        return label ?: formatLatLon(place.lat, place.lon)
-    }
-
-    private inner class RouteRecorder(
-        private val locationManager: LocationManager,
-        private val providers: List<String>,
-        private val onPointsChanged: (List<RoutePointPayload>) -> Unit
-    ) : LocationListener {
-
-        private val points = mutableListOf<RoutePointPayload>()
-        private var lastAcceptedAt: Long = 0L
-        private var lastLocation: Location? = null
-
-        @SuppressLint("MissingPermission")
-        fun start() {
-            providers.forEach { provider ->
-                locationManager.requestLocationUpdates(
-                    provider,
-                    MapUiDefaults.REQUEST_INTERVAL_MS,
-                    0f,
-                    this,
-                    Looper.getMainLooper()
-                )
-            }
-            val seed = providers.firstNotNullOfOrNull { provider ->
-                runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
-            }
-            val now = System.currentTimeMillis()
-            seed?.let { accept(it, now) }
-        }
-
-        override fun onLocationChanged(location: Location) {
-            accept(location, System.currentTimeMillis())
-        }
-
-        private fun accept(location: Location, timestamp: Long) {
-            if (points.isNotEmpty()) {
-                val dt = timestamp - lastAcceptedAt
-                val distance = lastLocation?.distanceTo(location) ?: Float.MAX_VALUE
-                if (
-                    dt < MapUiDefaults.MIN_TIME_BETWEEN_UPDATES_MS &&
-                    distance < MapUiDefaults.MIN_DISTANCE_METERS
-                ) {
-                    return
-                }
-                if (points.size >= MapUiDefaults.MAX_ROUTE_POINTS) {
-                    return
-                }
-            }
-            val point = RoutePointPayload(location.latitude, location.longitude, timestamp)
-            points.add(point)
-            lastAcceptedAt = timestamp
-            lastLocation = Location(location)
-            onPointsChanged(points.toList())
-        }
-
-        fun stop(): RoutePayload? {
-            providers.forEach { provider -> locationManager.removeUpdates(this) }
-            if (points.size < 2) return null
-            val first = points.first()
-            val last = points.last()
-            return RoutePayload(
-                startedAt = first.t,
-                endedAt = last.t,
-                points = points.toList()
-            )
-        }
-
-        fun cancel() {
-            providers.forEach { provider -> locationManager.removeUpdates(this) }
-        }
-
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
-    }
-
     private fun showUndoSnackbar(result: LocationAddResult, displayLabel: String) {
         Snackbar.make(b.root, "${getString(R.string.map_location_added)} — $displayLabel", Snackbar.LENGTH_LONG)
             .setAction(R.string.action_undo) {
@@ -1716,7 +1360,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         viewLifecycleOwner.lifecycleScope.launch {
             val list = withContext(Dispatchers.IO) { database.noteDao().getAllWithLocation() }
             allNotes = list
-            renderGroupsForCurrentZoom()
+            MapClusters.renderGroupsForCurrentZoom(map, allNotes)
         }
     }
 
@@ -1755,22 +1399,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }.start()
     }
 
-    private fun makeDot(sizeDp: Int = 18, colorRes: Int): Bitmap {
-        val dm = resources.displayMetrics
-        val px = (sizeDp * dm.density).toInt().coerceAtLeast(10)
-        val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = ContextCompat.getColor(requireContext(), colorRes)
-            style = Paint.Style.FILL
-        }
-        c.drawCircle(px / 2f, px / 2f, px / 2.2f, p)
-        return bmp
-    }
-
-    private fun dpToPx(dp: Int): Int {
-        return (dp * resources.displayMetrics.density).roundToInt()
-    }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
@@ -1795,7 +1423,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         mapView?.onDestroy()
         symbolManager?.onDestroy()
         symbolManager = null
-        clearManualRouteLine()
+        manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
         polylineManager?.onDestroy()
         polylineManager = null
         recordingRouteLine = null
