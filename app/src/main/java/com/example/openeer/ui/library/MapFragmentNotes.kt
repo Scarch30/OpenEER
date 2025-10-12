@@ -1,8 +1,11 @@
 package com.example.openeer.ui.library
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.LocationManager
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType

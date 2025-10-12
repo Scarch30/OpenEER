@@ -2,6 +2,10 @@ package com.example.openeer.ui.library
 
 import android.location.LocationManager
 import androidx.appcompat.widget.PopupMenu
+import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
+import com.example.openeer.ui.library.MapFragment.Companion.MENU_ROUTE_GPS
+import com.example.openeer.ui.library.MapFragment.Companion.MENU_ROUTE_MANUAL
 import com.example.openeer.R
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.data.block.RoutePointPayload
@@ -395,7 +399,7 @@ internal suspend fun MapFragment.persistRoute(
                 payload = payload
             )
         }.onFailure { e ->
-            android.util.Log.e(TAG, "Failed to persist route", e)
+            android.util.Log.e(MapFragment.TAG, "Failed to persist route", e)
         }.getOrNull()
     }
 }
