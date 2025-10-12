@@ -7,6 +7,7 @@ import android.view.View
 import android.widget.Toast
 import androidx.core.os.bundleOf
 import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.core.Place
 import com.example.openeer.core.getOneShotPlace
@@ -175,11 +176,11 @@ internal fun MapFragment.onStartRouteFromSelectionClicked() {
     val place = selectionPlace ?: Place(latLng.latitude, latLng.longitude, null, null)
     val label = MapText.displayLabelFor(place)
     parentFragmentManager.setFragmentResult(
-        RESULT_MANUAL_ROUTE,
+        MapFragment.RESULT_MANUAL_ROUTE,
         bundleOf(
-            RESULT_MANUAL_ROUTE_LAT to latLng.latitude,
-            RESULT_MANUAL_ROUTE_LON to latLng.longitude,
-            RESULT_MANUAL_ROUTE_LABEL to label
+            MapFragment.RESULT_MANUAL_ROUTE_LAT to latLng.latitude,
+            MapFragment.RESULT_MANUAL_ROUTE_LON to latLng.longitude,
+            MapFragment.RESULT_MANUAL_ROUTE_LABEL to label
         )
     )
     showHint(getString(R.string.map_manual_route_seed_hint, label))

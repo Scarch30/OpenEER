@@ -2,9 +2,9 @@ package com.example.openeer.ui.library
 
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.lifecycle.lifecycleScope
 import com.example.openeer.data.Attachment
 import com.example.openeer.data.block.BlockType
-import com.example.openeer.ui.map.MapPreviewStorage
 import com.example.openeer.ui.map.MapSnapshots
 import com.example.openeer.ui.map.MapUiDefaults
 import com.example.openeer.ui.map.RoutePersistResult
@@ -111,7 +111,7 @@ internal fun MapFragment.persistBlockPreview(noteId: Long, blockId: Long, type: 
             )
         }
         if (result.isFailure) {
-            Log.e(TAG, "Failed to persist map preview for block=$blockId", result.exceptionOrNull())
+            Log.e(MapFragment.TAG, "Failed to persist map preview for block=$blockId", result.exceptionOrNull())
         }
     }
 }

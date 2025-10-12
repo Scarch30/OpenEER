@@ -7,10 +7,11 @@ import android.net.Uri
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.core.Place
 import com.example.openeer.core.getOneShotPlace
-import com.example.openeer.data.LocationAddResult
+import com.example.openeer.ui.map.LocationAddResult
 import com.example.openeer.ui.map.MapText
 import com.example.openeer.ui.map.MapUiDefaults
 import com.example.openeer.ui.map.RecentHere
@@ -156,7 +157,7 @@ internal suspend fun MapFragment.appendLocation(place: Place): LocationAddResult
                 previousAccuracy = previousAccuracy
             )
         }.onFailure { e ->
-            Log.e(TAG, "Failed to append location", e)
+            Log.e(MapFragment.TAG, "Failed to append location", e)
         }.getOrNull()
     }
 }

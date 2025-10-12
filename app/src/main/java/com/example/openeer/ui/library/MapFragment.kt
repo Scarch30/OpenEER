@@ -1,11 +1,13 @@
 package com.example.openeer.ui.library
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.util.Log
+import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
@@ -15,6 +17,9 @@ import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.FragmentMapBinding
+import com.example.openeer.databinding.SheetMapSelectedLocationBinding
+import com.example.openeer.core.Place
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Job
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -27,15 +32,15 @@ import org.maplibre.android.plugins.annotation.LineManager
 import org.maplibre.android.plugins.annotation.Symbol
 import org.maplibre.android.plugins.annotation.SymbolManager
 import org.maplibre.geojson.Feature
-import com.example.openeer.ui.map.MapStyleIds
-import com.example.openeer.ui.map.MapPin
-import com.example.openeer.ui.map.RecentHere
-import com.example.openeer.ui.map.RouteRecorder
+import com.example.openeer.ui.map.MapCamera
 import com.example.openeer.ui.map.MapClusters
 import com.example.openeer.ui.map.MapIcons
 import com.example.openeer.ui.map.MapManagers
-import com.example.openeer.ui.map.MapCamera
+import com.example.openeer.ui.map.MapPin
 import com.example.openeer.ui.map.MapPolylines
+import com.example.openeer.ui.map.MapStyleIds
+import com.example.openeer.ui.map.RecentHere
+import com.example.openeer.ui.map.RouteRecorder
 import kotlin.math.max
 
 class MapFragment : Fragment(), OnMapReadyCallback {
@@ -109,8 +114,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         const val RESULT_MANUAL_ROUTE_LON = "manual_route_lon"
         const val RESULT_MANUAL_ROUTE_LABEL = "manual_route_label"
 
-        private const val MENU_ROUTE_GPS = 1
-        private const val MENU_ROUTE_MANUAL = 2
+        internal const val MENU_ROUTE_GPS = 1
+        internal const val MENU_ROUTE_MANUAL = 2
 
         fun newInstance(noteId: Long? = null, blockId: Long? = null, mode: String? = null): MapFragment = MapFragment().apply {
             arguments = Bundle().apply {
