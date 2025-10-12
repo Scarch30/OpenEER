@@ -312,7 +312,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             blockId = block.id,
                             mediaUri = file.absolutePath,
                             mimeType = "image/png",
-                            type = BlockType.PHOTO
+                            type = block.type
                         )
                     } else {
                         null // pas de snapshot : on n’affiche pas (fallback recapture géré ailleurs)
