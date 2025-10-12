@@ -2,8 +2,10 @@ package com.example.openeer.ui.sheets
 
 import android.app.Dialog
 import android.content.Context
+import android.content.Intent
 import android.graphics.PorterDuff
 import android.graphics.Rect
+import android.net.Uri
 import android.os.Bundle
 import android.text.TextUtils
 import android.view.Gravity
@@ -14,7 +16,9 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.os.bundleOf
 import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentManager
@@ -30,6 +34,9 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.ui.library.MapActivity
+import com.example.openeer.ui.library.MapPreviewStorage
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.panel.media.MediaStripItem
@@ -37,8 +44,10 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.card.MaterialCardView
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
@@ -94,6 +103,10 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         val host = requireActivity() as AppCompatActivity
         MediaActions(host, blocksRepo)
     }
+
+    // Pour la pile Carte
+    private val routeGson = Gson()
+    private var mapBlockIds: Set<Long> = emptySet()
 
     /** Set des blockIds liés (Audio/Text ou Video/Text selon la pile). */
     private var linkedBlockIds: Set<Long> = emptySet()
@@ -158,6 +171,15 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
         val adapter = MediaGridAdapter(
             onClick = { item ->
+                // 🔎 Comportement spécial pour la pile Carte
+                if (category == MediaCategory.LOCATION) {
+                    // Tap = ouvrir la carte interne, focus sur la note (comportement homogène à l’éditeur)
+                    startActivity(
+                        MapActivity.newFocusNoteIntent(requireContext(), noteId)
+                    )
+                    return@MediaGridAdapter
+                }
+
                 when (item) {
                     is MediaStripItem.Audio -> {
                         val uriStr = item.mediaUri
@@ -169,26 +191,31 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             )
                         }
                     }
-
                     is MediaStripItem.Image -> {
                         if (item.type == BlockType.VIDEO) {
-                            // 🎥 Dans la grille, on ouvre toujours le lecteur vidéo (jamais la transcription)
-                            val intent = android.content.Intent(requireContext(), com.example.openeer.ui.viewer.VideoPlayerActivity::class.java).apply {
+                            val intent = Intent(
+                                requireContext(),
+                                com.example.openeer.ui.viewer.VideoPlayerActivity::class.java
+                            ).apply {
                                 putExtra(com.example.openeer.ui.viewer.VideoPlayerActivity.EXTRA_URI, item.mediaUri)
-                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             startActivity(intent)
                         } else {
-                            // Pour les photos, comportement normal
                             mediaActions.handleClick(item)
                         }
                     }
-
                     else -> mediaActions.handleClick(item)
                 }
             },
-
-            onLongClick = { clickedView, item -> mediaActions.showMenu(clickedView, item) },
+            onLongClick = { clickedView, item ->
+                if (category == MediaCategory.LOCATION) {
+                    // Long-press = Google Maps
+                    showMapsMenuForMapItem(clickedView, item)
+                } else {
+                    mediaActions.showMenu(clickedView, item)
+                }
+            },
         )
 
         recycler.layoutManager = GridLayoutManager(requireContext(), computeSpanCount())
@@ -198,7 +225,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             val blocks = blocksRepo.observeBlocks(noteId).first()
-            val items = buildItems(blocks, category) // met à jour linkedBlockIds + pairIndex maps
+            val items = buildItems(blocks, category) // met à jour linkedBlockIds / pairIndex maps / mapBlockIds
             adapter.submitList(items)
             title.text = getString(
                 R.string.media_grid_title_format,
@@ -230,6 +257,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
      *  - PHOTO = photos + vidéos + (TEXT liés à une vidéo)
      *  - AUDIO = audios + textes de transcription (TEXT partageant un groupId d’audio)
      *  - TEXT  = textes indépendants (pas liés à un audio **ni** à une vidéo)
+     *  - LOCATION = lieux + itinéraires, affichés en **snapshots** (PNG) si dispo
      */
     private fun buildItems(blocks: List<BlockEntity>, category: MediaCategory): List<MediaStripItem> {
         val audioGroupIds = blocks.filter { it.type == BlockType.AUDIO }.mapNotNull { it.groupId }.toSet()
@@ -239,91 +267,107 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         // Prépare les appariements + couleurs en fonction de la pile
         when (category) {
             MediaCategory.AUDIO -> {
-                // groupIds appariés AUDIO↔TEXT
                 val paired = audioGroupIds.intersect(textGroupIds)
                 linkedBlockIds = blocks.asSequence()
                     .filter { (it.type == BlockType.AUDIO || it.type == BlockType.TEXT) && it.groupId != null && it.groupId in paired }
                     .map { it.id }
                     .toSet()
-                pairIndexByGroupId = paired.sorted().mapIndexed { idx, gid -> gid to (idx + 1) }.toMap()
+                val sortedPaired = paired.sorted()
+                pairIndexByGroupId = sortedPaired.mapIndexed { idx, gid -> gid to (idx + 1) }.toMap()
                 pairIndexByBlockId = blocks.asSequence()
                     .filter { (it.type == BlockType.AUDIO || it.type == BlockType.TEXT) && !it.groupId.isNullOrBlank() && it.groupId in paired }
                     .associate { it.id to (pairIndexByGroupId[it.groupId!!] ?: 0) }
             }
-
             MediaCategory.PHOTO -> {
-                // groupIds appariés VIDEO↔TEXT
                 val paired = videoGroupIds.intersect(textGroupIds)
                 linkedBlockIds = blocks.asSequence()
                     .filter { (it.type == BlockType.VIDEO || it.type == BlockType.TEXT) && it.groupId != null && it.groupId in paired }
                     .map { it.id }
                     .toSet()
-                pairIndexByGroupId = paired.sorted().mapIndexed { idx, gid -> gid to (idx + 1) }.toMap()
+                val sortedPaired = paired.sorted()
+                pairIndexByGroupId = sortedPaired.mapIndexed { idx, gid -> gid to (idx + 1) }.toMap()
                 pairIndexByBlockId = blocks.asSequence()
                     .filter { (it.type == BlockType.VIDEO || it.type == BlockType.TEXT) && !it.groupId.isNullOrBlank() && it.groupId in paired }
                     .associate { it.id to (pairIndexByGroupId[it.groupId!!] ?: 0) }
             }
-
             else -> {
-                // Piles SKETCH/TEXT : pas d’appariement visuel
                 linkedBlockIds = emptySet()
                 pairIndexByGroupId = emptyMap()
                 pairIndexByBlockId = emptyMap()
             }
         }
 
-        val items = blocks.mapNotNull { block ->
-            when (category) {
-                MediaCategory.PHOTO -> when (block.type) {
-                    BlockType.PHOTO, BlockType.VIDEO ->
-                        block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                            MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
-                        }
-                    BlockType.TEXT -> {
-                        // Inclure les TEXT liés à une VIDEO
-                        val linkedToVideo = block.groupId != null && block.groupId in videoGroupIds
-                        if (linkedToVideo) MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty()) else null
+        return when (category) {
+            MediaCategory.LOCATION -> {
+                // 👉 cartes: LOCATION + ROUTE avec preview PNG
+                val ctx = requireContext()
+                val candidates = blocks.filter { it.type == BlockType.LOCATION || it.type == BlockType.ROUTE }
+                mapBlockIds = candidates.map { it.id }.toSet()
+
+                val items = candidates.mapNotNull { block ->
+                    val file = MapPreviewStorage.fileFor(ctx, block.id, block.type)
+                    if (file.exists()) {
+                        // On encode en "image" pour l'adapter (pas d'overlay ▶ car type != VIDEO)
+                        MediaStripItem.Image(
+                            blockId = block.id,
+                            mediaUri = file.absolutePath,
+                            mimeType = "image/png",
+                            type = BlockType.PHOTO
+                        )
+                    } else {
+                        null // pas de snapshot : on n’affiche pas (fallback recapture géré ailleurs)
                     }
-                    else -> null
                 }
+                items.sortedByDescending { it.blockId }
+            }
 
-                MediaCategory.SKETCH -> block.takeIf { it.type == BlockType.SKETCH }
-                    ?.mediaUri?.takeIf { it.isNotBlank() }
-                    ?.let { uri -> MediaStripItem.Image(block.id, uri, block.mimeType, block.type) }
-
-                MediaCategory.AUDIO -> {
-                    when (block.type) {
-                        BlockType.AUDIO ->
-                            block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                                MediaStripItem.Audio(block.id, uri, block.mimeType, block.durationMs)
+            else -> {
+                val items = blocks.mapNotNull { block ->
+                    when (category) {
+                        MediaCategory.PHOTO -> when (block.type) {
+                            BlockType.PHOTO, BlockType.VIDEO ->
+                                block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                                    MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                                }
+                            BlockType.TEXT -> {
+                                val linkedToVideo = block.groupId != null && block.groupId in videoGroupIds
+                                if (linkedToVideo) MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty()) else null
                             }
+                            else -> null
+                        }
 
-                        BlockType.TEXT -> {
-                            val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
-                            if (linkedToAudio) {
-                                MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
+                        MediaCategory.SKETCH -> block.takeIf { it.type == BlockType.SKETCH }
+                            ?.mediaUri?.takeIf { it.isNotBlank() }
+                            ?.let { uri -> MediaStripItem.Image(block.id, uri, block.mimeType, block.type) }
+
+                        MediaCategory.AUDIO -> when (block.type) {
+                            BlockType.AUDIO ->
+                                block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
+                                    MediaStripItem.Audio(block.id, uri, block.mimeType, block.durationMs)
+                                }
+                            BlockType.TEXT -> {
+                                val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
+                                if (linkedToAudio) MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty()) else null
+                            }
+                            else -> null
+                        }
+
+                        MediaCategory.TEXT -> {
+                            if (block.type == BlockType.TEXT) {
+                                val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
+                                val linkedToVideo = block.groupId != null && block.groupId in videoGroupIds
+                                if (!linkedToAudio && !linkedToVideo) {
+                                    MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
+                                } else null
                             } else null
                         }
 
                         else -> null
                     }
                 }
-
-                MediaCategory.TEXT -> {
-                    if (block.type == BlockType.TEXT) {
-                        val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
-                        val linkedToVideo = block.groupId != null && block.groupId in videoGroupIds
-                        // 🔧 IMPORTANT : on exclut aussi les TEXT liés à une VIDÉO
-                        if (!linkedToAudio && !linkedToVideo) {
-                            MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
-                        } else null
-                    } else null
-                }
-                MediaCategory.LOCATION -> null
+                items.sortedByDescending { it.blockId }
             }
         }
-
-        return items.sortedByDescending { it.blockId }
     }
 
     // --- Adapter grille ---
@@ -364,7 +408,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         isVisible = false
                     }
 
-                    // --- Overlays spécifiques pour VIDEO ---
+                    // Overlays "liens" / bandes (utiles pour A/V & TEXT), pas pour LOCATION
                     val badge = ImageView(ctx).apply {
                         setImageResource(R.drawable.ic_link_small)
                         layoutParams = FrameLayout.LayoutParams(
@@ -385,7 +429,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         ).apply { setMargins(0, dp(ctx, 6), dp(ctx, 28), 0) }
                         isVisible = false
                     }
-                    // bande colorée à GAUCHE pour VIDEO
                     val leftStrip = View(ctx).apply {
                         layoutParams = FrameLayout.LayoutParams(dp(ctx, 4), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START)
                         isVisible = false
@@ -449,7 +492,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         isVisible = false
                     }
 
-                    // bande colorée à GAUCHE pour AUDIO
                     val leftStrip = View(ctx).apply {
                         layoutParams = FrameLayout.LayoutParams(dp(ctx, 4), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START)
                         isVisible = false
@@ -501,7 +543,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         isVisible = false
                     }
 
-                    // bande colorée à DROITE pour TEXTE
                     val rightStrip = View(ctx).apply {
                         layoutParams = FrameLayout.LayoutParams(dp(ctx, 4), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END)
                         isVisible = false
@@ -543,29 +584,11 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     .centerCrop()
                     .into(image)
 
-                val isVideo = item.type == BlockType.VIDEO
-                play.isVisible = isVideo
-
-                // Décorations de paire seulement pour VIDEO
-                if (isVideo) {
-                    val isLinked = linkedBlockIds.contains(item.blockId)
-                    badge.isVisible = isLinked
-
-                    val idx = pairIndexByBlockId[item.blockId]
-                    if (isLinked && idx != null && idx > 0) {
-                        counter.isVisible = true
-                        counter.text = formatPairIndex(idx)
-                        leftStrip.isVisible = true
-                        leftStrip.setBackgroundColor(getPairColorForIndex(idx))
-                    } else {
-                        counter.isVisible = false
-                        leftStrip.isVisible = false
-                    }
-                } else {
-                    badge.isVisible = false
-                    counter.isVisible = false
-                    leftStrip.isVisible = false
-                }
+                // Snapshots carte => jamais "▶"
+                play.isVisible = false
+                badge.isVisible = false
+                counter.isVisible = false
+                leftStrip.isVisible = false
 
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {
@@ -638,6 +661,93 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 }
             }
         }
+    }
+
+    // --- Long-press “Google Maps” pour la pile Carte ---
+    private fun showMapsMenuForMapItem(anchor: View, item: MediaStripItem) {
+        val popup = PopupMenu(requireContext(), anchor)
+        popup.menu.add(0, 1, 0, getString(R.string.block_open_in_google_maps))
+        popup.setOnMenuItemClickListener {
+            // On récupère le bloc complet pour ses lat/lon / routeJson
+            viewLifecycleOwner.lifecycleScope.launch {
+                val block = blocksRepo.getBlock(item.blockId)
+                if (block == null) {
+                    Toast.makeText(requireContext(), R.string.media_missing_file, Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                openBlockInGoogleMaps(block)
+            }
+            true
+        }
+        popup.show()
+    }
+
+    private fun openBlockInGoogleMaps(block: BlockEntity) {
+        val ctx = requireContext()
+        when (block.type) {
+            BlockType.LOCATION -> {
+                val lat = block.lat
+                val lon = block.lon
+                if (lat == null || lon == null) {
+                    Toast.makeText(ctx, R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val label = block.placeName?.takeIf { it.isNotBlank() }
+                    ?: ctx.getString(R.string.block_location_coordinates, lat, lon)
+                val encoded = Uri.encode(label)
+                val geo = Uri.parse("geo:0,0?q=$lat,$lon($encoded)")
+                if (!launchMapsIntent(geo)) {
+                    launchWebMaps(lat, lon) || toastMapsUnavailable()
+                }
+            }
+            BlockType.ROUTE -> {
+                val payload = block.routeJson?.let {
+                    runCatching { routeGson.fromJson(it, RoutePayload::class.java) }.getOrNull()
+                }
+                val first = payload?.firstPoint()
+                val lat = first?.lat ?: block.lat
+                val lon = first?.lon ?: block.lon
+                if (lat == null || lon == null) {
+                    Toast.makeText(ctx, R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val label = if (payload != null && payload.pointCount > 0) {
+                    ctx.getString(R.string.block_route_points, payload.pointCount)
+                } else {
+                    ctx.getString(R.string.block_location_coordinates, lat, lon)
+                }
+                val encoded = Uri.encode(label)
+                val geo = Uri.parse("geo:0,0?q=$lat,$lon($encoded)")
+                if (!launchMapsIntent(geo)) {
+                    launchWebMaps(lat, lon) || toastMapsUnavailable()
+                }
+            }
+            else -> {
+                Toast.makeText(ctx, R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun launchMapsIntent(uri: Uri): Boolean {
+        val pm = requireContext().packageManager
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+        return if (intent.resolveActivity(pm) != null) {
+            runCatching { startActivity(intent) }.isSuccess
+        } else false
+    }
+
+    private fun launchWebMaps(lat: Double, lon: Double): Boolean {
+        val url = String.format(Locale.US, "https://www.google.com/maps/search/?api=1&query=%f,%f", lat, lon)
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        val pm = requireContext().packageManager
+        return if (intent.resolveActivity(pm) != null) {
+            runCatching { startActivity(intent) }.isSuccess
+        } else false
+    }
+
+    private fun toastMapsUnavailable(): Boolean {
+        Toast.makeText(requireContext(), R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
+        return false
     }
 
     // --- UI utils ---

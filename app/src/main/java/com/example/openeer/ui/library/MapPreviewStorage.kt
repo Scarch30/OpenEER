@@ -20,9 +20,16 @@ object MapPreviewStorage {
 
     fun ensureDirectory(context: Context): File {
         val dir = File(context.filesDir, DIRECTORY)
-        if (!dir.exists()) {
-            dir.mkdirs()
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw IllegalStateException("Cannot create directory: ${dir.absolutePath}")
         }
         return dir
+    }
+
+    fun clearOldPreviews(context: Context) {
+        val dir = File(context.filesDir, DIRECTORY)
+        if (dir.exists()) {
+            dir.listFiles()?.forEach { f -> f.delete() }
+        }
     }
 }

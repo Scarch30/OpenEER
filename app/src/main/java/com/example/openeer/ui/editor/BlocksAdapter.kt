@@ -11,6 +11,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -22,6 +23,7 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapPreviewStorage
+import com.example.openeer.ui.sheets.LocationPreviewSheet
 import com.google.android.material.chip.Chip
 import com.google.gson.Gson
 import java.util.Locale
@@ -125,17 +127,12 @@ class BlocksAdapter(
         private val preview: TextView = view.findViewById(R.id.txtTranscriptPreview)
 
         fun bind(block: BlockEntity) {
-            // Titre + durée simple
             val dur = block.durationMs ?: 0L
             title.text = "Audio – ${dur / 1000}s"
-
-            // Aperçu de texte si dispo (transcription du bloc audio si tu la stockes dans block.text)
             preview.text = block.text.orEmpty()
 
-            // Binder des contrôles Play/Pause/Seek (défini dans ui/player/AudioBinder.kt)
             com.example.openeer.ui.player.AudioBinder.bind(itemView, block)
 
-            // Option UX: tap sur toute la carte = Play/Pause aussi
             itemView.setOnClickListener {
                 val uri = block.mediaUri ?: return@setOnClickListener
                 val ctx = itemView.context
@@ -175,16 +172,23 @@ class BlocksAdapter(
             chip.setOnClickListener(null)
             chip.setOnLongClickListener(null)
             chip.isLongClickable = hasCoordinates
+
             if (hasCoordinates) {
-                chip.setOnClickListener { view ->
-                    openMap(view, block)
-                }
+                // 👉 Tap = feuille d’aperçu (snapshot + adresse cliquable)
+                chip.setOnClickListener { openPreviewSheet(context, block, label) }
+                // Long-press = menu Google Maps direct
                 chip.setOnLongClickListener { view ->
                     showBlockMenu(view, block)
                     true
                 }
             }
             bindPreview(preview, block)
+
+            // Tap sur la vignette = même comportement que le chip
+            preview.setOnClickListener(null)
+            if (hasCoordinates && preview.visibility == View.VISIBLE) {
+                preview.setOnClickListener { openPreviewSheet(context, block, label) }
+            }
         }
     }
 
@@ -204,22 +208,38 @@ class BlocksAdapter(
                 pointCount,
                 pointCount
             )
-            val canOpen = pointCount > 0 || (block.lat != null && block.lon != null)
+            val firstPoint = payload?.firstPoint()
+            val lat = firstPoint?.lat ?: block.lat
+            val lon = firstPoint?.lon ?: block.lon
+            val canOpen = (pointCount > 0) || (lat != null && lon != null)
+
             chip.isEnabled = canOpen
             chip.alpha = if (canOpen) 1f else 0.5f
             chip.setOnClickListener(null)
             chip.setOnLongClickListener(null)
             chip.isLongClickable = canOpen
+
             if (canOpen) {
-                chip.setOnClickListener { view ->
-                    openMap(view, block)
+                val label = if (payload != null && pointCount > 0) {
+                    context.getString(R.string.block_route_points, pointCount)
+                } else {
+                    context.getString(R.string.block_location_coordinates, lat, lon)
                 }
+                // 👉 Tap = feuille d’aperçu
+                chip.setOnClickListener { openPreviewSheet(context, block, label) }
+                // Long-press = menu Google Maps direct
                 chip.setOnLongClickListener { view ->
                     showBlockMenu(view, block)
                     true
                 }
             }
             bindPreview(preview, block)
+
+            preview.setOnClickListener(null)
+            if (canOpen && preview.visibility == View.VISIBLE) {
+                val label = chip.text?.toString().orEmpty()
+                preview.setOnClickListener { openPreviewSheet(context, block, label) }
+            }
         }
     }
 
@@ -236,6 +256,33 @@ class BlocksAdapter(
             Glide.with(preview).clear(preview)
             preview.visibility = View.GONE
         }
+    }
+
+    // === Feuille d’aperçu (snapshot + adresse) ===
+    private fun openPreviewSheet(context: Context, block: BlockEntity, label: String) {
+        val act = context as? AppCompatActivity ?: return
+        val (lat, lon) = when (block.type) {
+            BlockType.LOCATION -> block.lat to block.lon
+            BlockType.ROUTE -> {
+                val payload = block.routeJson?.let { json ->
+                    runCatching { routeGson.fromJson(json, RoutePayload::class.java) }.getOrNull()
+                }
+                val fp = payload?.firstPoint()
+                (fp?.lat ?: block.lat) to (fp?.lon ?: block.lon)
+            }
+            else -> null to null
+        }
+        if (lat == null || lon == null) return
+        LocationPreviewSheet.show(
+            fm = act.supportFragmentManager,
+            noteId = block.noteId,      // ← AJOUT
+            blockId = block.id,
+            lat = lat,
+            lon = lon,
+            label = label,
+            type = block.type           // ← (facultatif mais propre)
+        )
+
     }
 
     private fun showBlockMenu(view: View, block: BlockEntity) {
@@ -316,6 +363,7 @@ class BlocksAdapter(
         Toast.makeText(context, R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
     }
 
+    // Gardé pour d’autres points d’entrée éventuels
     private fun openMap(view: View, block: BlockEntity) {
         val context = view.context
         Toast.makeText(context, R.string.block_view_on_map, Toast.LENGTH_SHORT).show()

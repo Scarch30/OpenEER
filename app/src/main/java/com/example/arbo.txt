@@ -1,0 +1,187 @@
+Structure du dossier pour le volume OS
+Le numéro de série du volume est B84C-81C8
+C:\USERS\DAVID\ANDROIDSTUDIOPROJECTS\OPENEER\APP\SRC\MAIN\JAVA\COM\EXAMPLE
+¦   arbo.txt
+¦   
++---openeer
+    ¦   arborescence.txt
+    ¦   OpenEERApp.kt
+    ¦   
+    +---audio
+    ¦       PcmRecorder.kt
+    ¦       RecorderService.kt
+    ¦       
+    +---core
+    ¦       FeatureFlags.kt
+    ¦       LocationUtils.kt
+    ¦       RecordingState.kt
+    ¦       
+    +---data
+    ¦   ¦   AppDatabase.kt
+    ¦   ¦   Attachment.kt
+    ¦   ¦   AttachmentDao.kt
+    ¦   ¦   MergeResultExtensions.kt
+    ¦   ¦   Note.kt
+    ¦   ¦   NoteDao.kt
+    ¦   ¦   NoteMergeLogEntity.kt
+    ¦   ¦   NoteMergeMapEntity.kt
+    ¦   ¦   NoteRepository.kt
+    ¦   ¦   
+    ¦   +---audio
+    ¦   ¦       AudioClipEntity.kt
+    ¦   ¦       
+    ¦   +---block
+    ¦   ¦       BlockDao.kt
+    ¦   ¦       BlockEntity.kt
+    ¦   ¦       BlockExtras.kt
+    ¦   ¦       BlockLinkDao.kt
+    ¦   ¦       BlockLinkEntity.kt
+    ¦   ¦       BlockReadDao.kt
+    ¦   ¦       BlocksRepository.kt
+    ¦   ¦       BlockType.kt
+    ¦   ¦       NoteWithBlocks.kt
+    ¦   ¦       RoutePayload.kt
+    ¦   ¦       
+    ¦   +---db
+    ¦   ¦       Converters.kt
+    ¦   ¦       
+    ¦   +---location
+    ¦   ¦       NoteLocationEntity.kt
+    ¦   ¦       
+    ¦   +---merge
+    ¦   ¦       Snapshots.kt
+    ¦   ¦       
+    ¦   +---search
+    ¦   ¦       SearchDao.kt
+    ¦   ¦       SearchIndexer.kt
+    ¦   ¦       SearchIndexFts.kt
+    ¦   ¦       SearchRepository.kt
+    ¦   ¦       
+    ¦   +---tag
+    ¦           TagEntity.kt
+    ¦           
+    +---imports
+    ¦       FileCopy.kt
+    ¦       ImportCoordinator.kt
+    ¦       ImportEvents.kt
+    ¦       MimeResolver.kt
+    ¦       
+    +---media
+    ¦       AudioDenoiser.kt
+    ¦       AudioFromVideoExtractor.kt
+    ¦       decodeWaveFile.kt
+    ¦       WavWriter.kt
+    ¦       
+    +---services
+    ¦       WhisperRefineQueue.kt
+    ¦       WhisperService.kt
+    ¦       
+    +---startup
+    ¦       Startup.kt
+    ¦       
+    +---stt
+    ¦       AacEncoder.kt
+    ¦       MicRecorder.kt
+    ¦       VoskTranscriber.kt
+    ¦       WavUtil.kt
+    ¦       WavWriter.kt
+    ¦       
+    +---ui
+    ¦   ¦   KeyboardCaptureActivity.kt
+    ¦   ¦   LiveTranscriber.kt
+    ¦   ¦   MainActivity.kt
+    ¦   ¦   MicBarController.kt
+    ¦   ¦   NotePanelController.kt
+    ¦   ¦   NotesAdapter.kt
+    ¦   ¦   NotesStubAdapter.kt
+    ¦   ¦   NoteUiFormat.kt
+    ¦   ¦   OnboardingActivity.kt
+    ¦   ¦   PhotoViewerActivity.kt
+    ¦   ¦   SimplePlayer.kt
+    ¦   ¦   StarterActivity.kt
+    ¦   ¦   TopBubbleController.kt
+    ¦   ¦   WhisperRefineQueue.kt
+    ¦   ¦   
+    ¦   +---camera
+    ¦   ¦       CameraCaptureActivity.kt
+    ¦   ¦       
+    ¦   +---capture
+    ¦   ¦       CaptureLauncher.kt
+    ¦   ¦       SketchCaptureActivity.kt
+    ¦   ¦       
+    ¦   +---editor
+    ¦   ¦       BlocksAdapter.kt
+    ¦   ¦       EditorBodyController.kt
+    ¦   ¦       
+    ¦   +---library
+    ¦   ¦       CalendarFragment.kt
+    ¦   ¦       CalendarViewModel.kt
+    ¦   ¦       DayNotesActivity.kt
+    ¦   ¦       LibraryActivity.kt
+    ¦   ¦       LibraryFragment.kt
+    ¦   ¦       LibraryViewModel.kt
+    ¦   ¦       LocationNotesActivity.kt
+    ¦   ¦       MapActivity.kt
+    ¦   ¦       MapFragment.kt
+    ¦   ¦       MapFragmentLocation.kt
+    ¦   ¦       MapFragmentNotes.kt
+    ¦   ¦       MapFragmentRoute.kt
+    ¦   ¦       MapFragmentSelection.kt
+    ¦   ¦       MapFragmentSnapshots.kt
+    ¦   ¦       MapPreviewStorage.kt
+    ¦   ¦       MergeHistoryFragment.kt
+    ¦   ¦       MonthDayAdapter.kt
+    ¦   ¦       NotesBottomSheet.kt
+    ¦   ¦       WeekDayAdapter.kt
+    ¦   ¦       
+    ¦   +---map
+    ¦   ¦       MapCamera.kt
+    ¦   ¦       MapClusters.kt
+    ¦   ¦       MapIcons.kt
+    ¦   ¦       MapManagers.kt
+    ¦   ¦       MapPolylines.kt
+    ¦   ¦       MapRenderers.kt
+    ¦   ¦       MapSnapshots.kt
+    ¦   ¦       MapState.kt
+    ¦   ¦       MapStyleIds.kt
+    ¦   ¦       MapText.kt
+    ¦   ¦       MapUiDefaults.kt
+    ¦   ¦       RouteRecording.kt
+    ¦   ¦       
+    ¦   +---panel
+    ¦   ¦   +---blocks
+    ¦   ¦   ¦       BlockRenderers.kt
+    ¦   ¦   ¦       
+    ¦   ¦   +---media
+    ¦   ¦           MediaActions.kt
+    ¦   ¦           MediaCategory.kt
+    ¦   ¦           MediaStripAdapter.kt
+    ¦   ¦           MediaStripItem.kt
+    ¦   ¦           
+    ¦   +---player
+    ¦   ¦       AudioBinder.kt
+    ¦   ¦       
+    ¦   +---sheets
+    ¦   ¦       AudioQuickPlayerDialog.kt
+    ¦   ¦       ChildTextEditorSheet.kt
+    ¦   ¦       ChildTextViewerSheet.kt
+    ¦   ¦       MediaGridSheet.kt
+    ¦   ¦       
+    ¦   +---sketch
+    ¦   ¦       HsvColorPickerDialog.kt
+    ¦   ¦       SketchView.kt
+    ¦   ¦       
+    ¦   +---util
+    ¦   ¦       ConfigureSystemInsets.kt
+    ¦   ¦       ImeInsets.kt
+    ¦   ¦       OpenNoteTracker.kt
+    ¦   ¦       Snackbar.kt
+    ¦   ¦       Toast.kt
+    ¦   ¦       ViewExt.kt
+    ¦   ¦       
+    ¦   +---viewer
+    ¦           VideoPlayerActivity.kt
+    ¦           
+    +---workers
+            VideoToTextWorker.kt
+            

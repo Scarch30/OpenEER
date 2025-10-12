@@ -37,6 +37,7 @@ import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
 import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.library.LibraryFragment
+import com.example.openeer.ui.library.MapPreviewStorage
 import com.example.openeer.ui.util.toast
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.card.MaterialCardView
@@ -50,7 +51,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.util.Log
-
 
 data class PileCounts(
     val photos: Int = 0,
@@ -448,11 +448,14 @@ class NotePanelController(
      *  - PHOTO = photos + vidéos (+ transcriptions TEXT liées aux vidéos)
      *  - AUDIO = audios + textes de transcription (TEXT partageant le groupId d’un audio)
      *  - TEXT  = textes indépendants (pas liés à un audio ni à une vidéo)
+     *  - LOCATION = lieux + itinéraires (cover = snapshot si dispo, sinon fallback texte)
      *
      *  🔧 Ajustement : la pile TEXT prend désormais en compte les TEXT liés
      *  uniquement pour la COVER/ordre (tri), pas pour le COMPTEUR.
      */
     private fun updateMediaStrip(blocks: List<BlockEntity>) {
+        val ctx = binding.root.context
+
         // Grouper par liens implicites via groupId
         val audioGroupIds = blocks.filter { it.type == BlockType.AUDIO }
             .mapNotNull { it.groupId }
@@ -466,7 +469,9 @@ class NotePanelController(
         val audioItems  = mutableListOf<MediaStripItem.Audio>()
         val textItems   = mutableListOf<MediaStripItem.Text>()   // textes indépendants
         val transcriptTextItems = mutableListOf<MediaStripItem.Text>() // textes liés (A/V)
-        val locationBlocks = blocks.filter { it.type == BlockType.LOCATION }
+
+        // 🗺️ Pile "Carte" : on agrège LOCATION + ROUTE
+        val mapBlocks = blocks.filter { it.type == BlockType.LOCATION || it.type == BlockType.ROUTE }
 
         var transcriptsLinkedToAudio = 0
         var transcriptsLinkedToVideo = 0
@@ -496,7 +501,6 @@ class NotePanelController(
                     when {
                         linkedToAudio -> {
                             transcriptsLinkedToAudio += 1
-                            // ➕ on prend en compte pour la cover/ordre de TEXT
                             transcriptTextItems += MediaStripItem.Text(
                                 blockId = block.id,
                                 noteId = block.noteId,
@@ -505,7 +509,6 @@ class NotePanelController(
                         }
                         linkedToVideo -> {
                             transcriptsLinkedToVideo += 1
-                            // ➕ idem
                             transcriptTextItems += MediaStripItem.Text(
                                 blockId = block.id,
                                 noteId = block.noteId,
@@ -549,6 +552,29 @@ class NotePanelController(
                 val countStandaloneOnly = textItems.size
                 add(MediaStripItem.Pile(MediaCategory.TEXT, countStandaloneOnly, sortedAll.first()))
             }
+
+            // 🗺️ Pile "Carte" (LOCATION + ROUTE) — cover = snapshot si dispo
+            if (mapBlocks.isNotEmpty()) {
+                // Cover = bloc le plus récent ayant un snapshot; sinon fallback texte
+                val sorted = mapBlocks.sortedByDescending { it.id }
+                val coverImage: MediaStripItem.Image? = sorted.firstNotNullOfOrNull { b ->
+                    val file = MapPreviewStorage.fileFor(ctx, b.id, b.type)
+                    if (file.exists()) {
+                        MediaStripItem.Image(
+                            blockId = b.id,
+                            mediaUri = file.absolutePath,
+                            mimeType = "image/png",
+                            type = b.type
+                        )
+                    } else null
+                }
+                val cover: MediaStripItem = coverImage ?: MediaStripItem.Text(
+                    blockId = -999L, // id virtuel cover fallback
+                    noteId = openNoteId ?: 0L,
+                    content = "Carte"
+                )
+                add(MediaStripItem.Pile(MediaCategory.LOCATION, mapBlocks.size, cover))
+            }
         }.sortedByDescending { it.cover.blockId }
 
         val pileUi = piles.map { pile ->
@@ -556,13 +582,6 @@ class NotePanelController(
                 category = pile.category,
                 count = pile.count,
                 coverBlockId = pile.cover.blockId,
-            )
-        }.toMutableList()
-        if (locationBlocks.isNotEmpty()) {
-            pileUi += PileUi(
-                category = MediaCategory.LOCATION,
-                count = locationBlocks.size,
-                coverBlockId = locationBlocks.maxOfOrNull { it.id }
             )
         }
 
