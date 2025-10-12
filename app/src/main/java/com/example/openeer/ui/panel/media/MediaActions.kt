@@ -17,6 +17,7 @@ import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.sheets.ChildTextViewerSheet
+import com.example.openeer.ui.sheets.LocationPreviewSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import com.example.openeer.ui.viewer.VideoPlayerActivity
 import com.google.gson.Gson
@@ -44,44 +45,114 @@ class MediaActions(
             }
 
             is MediaStripItem.Image -> {
-                if (item.type == BlockType.VIDEO) {
-                    // ▶️ Priorité à la transcription liée si présente.
-                    uiScope.launch {
-                        val ctx = withContext(Dispatchers.IO) {
-                            val videoBlock = blocksRepo.getBlock(item.blockId)
-                            val noteId = videoBlock?.noteId
-                            val gid = videoBlock?.groupId
-                            val linkedTextId = if (noteId != null && !gid.isNullOrBlank()) {
-                                val all = blocksRepo.observeBlocks(noteId).first()
-                                all.firstOrNull { it.type == BlockType.TEXT && it.groupId == gid }?.id
-                            } else null
-                            Triple(noteId, linkedTextId, videoBlock?.mediaUri)
+                when (item.type) {
+                    BlockType.VIDEO -> {
+                        // ▶️ Priorité à la transcription liée si présente.
+                        uiScope.launch {
+                            val ctx = withContext(Dispatchers.IO) {
+                                val videoBlock = blocksRepo.getBlock(item.blockId)
+                                val noteId = videoBlock?.noteId
+                                val gid = videoBlock?.groupId
+                                val linkedTextId = if (noteId != null && !gid.isNullOrBlank()) {
+                                    val all = blocksRepo.observeBlocks(noteId).first()
+                                    all.firstOrNull { it.type == BlockType.TEXT && it.groupId == gid }?.id
+                                } else null
+                                Triple(noteId, linkedTextId, videoBlock?.mediaUri)
+                            }
+
+                            val noteId = ctx.first
+                            val linkedTextId = ctx.second
+
+                            if (noteId != null && linkedTextId != null) {
+                                ChildTextViewerSheet.show(
+                                    activity.supportFragmentManager,
+                                    noteId,
+                                    linkedTextId
+                                )
+                                return@launch
+                            }
+
+                            // Fallback : lecteur vidéo
+                            val intent = Intent(activity, VideoPlayerActivity::class.java).apply {
+                                putExtra(VideoPlayerActivity.EXTRA_URI, item.mediaUri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            activity.startActivity(intent)
                         }
+                    }
 
-                        val noteId = ctx.first
-                        val linkedTextId = ctx.second
+                    BlockType.LOCATION, BlockType.ROUTE -> {
+                        uiScope.launch {
+                            val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(item.blockId) }
+                            if (block == null) {
+                                Toast.makeText(
+                                    activity,
+                                    activity.getString(R.string.media_missing_file),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                return@launch
+                            }
 
-                        if (noteId != null && linkedTextId != null) {
-                            ChildTextViewerSheet.show(
-                                activity.supportFragmentManager,
-                                noteId,
-                                linkedTextId
+                            val (lat, lon, label) = when (block.type) {
+                                BlockType.LOCATION -> {
+                                    val lat = block.lat
+                                    val lon = block.lon
+                                    if (lat == null || lon == null) {
+                                        null
+                                    } else {
+                                        val lbl = block.placeName?.takeIf { it.isNotBlank() }
+                                            ?: activity.getString(R.string.block_location_coordinates, lat, lon)
+                                        Triple(lat, lon, lbl)
+                                    }
+                                }
+
+                                BlockType.ROUTE -> {
+                                    val payload = block.routeJson?.let { json ->
+                                        runCatching { routeGson.fromJson(json, RoutePayload::class.java) }.getOrNull()
+                                    }
+                                    val firstPoint = payload?.firstPoint()
+                                    val lat = firstPoint?.lat ?: block.lat
+                                    val lon = firstPoint?.lon ?: block.lon
+                                    if (lat == null || lon == null) {
+                                        null
+                                    } else {
+                                        val lbl = if (payload != null && payload.pointCount > 0) {
+                                            activity.getString(R.string.block_route_points, payload.pointCount)
+                                        } else {
+                                            activity.getString(R.string.block_location_coordinates, lat, lon)
+                                        }
+                                        Triple(lat, lon, lbl)
+                                    }
+                                }
+
+                                else -> null
+                            } ?: run {
+                                Toast.makeText(
+                                    activity,
+                                    activity.getString(R.string.map_location_unavailable),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                return@launch
+                            }
+
+                            LocationPreviewSheet.show(
+                                fm = activity.supportFragmentManager,
+                                noteId = block.noteId,
+                                blockId = block.id,
+                                lat = lat,
+                                lon = lon,
+                                label = label,
+                                type = block.type
                             )
-                            return@launch
                         }
+                    }
 
-                        // Fallback : lecteur vidéo
-                        val intent = Intent(activity, VideoPlayerActivity::class.java).apply {
-                            putExtra(VideoPlayerActivity.EXTRA_URI, item.mediaUri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    else -> {
+                        val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
+                            putExtra("path", item.mediaUri)
                         }
                         activity.startActivity(intent)
                     }
-                } else {
-                    val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
-                        putExtra("path", item.mediaUri)
-                    }
-                    activity.startActivity(intent)
                 }
             }
 
