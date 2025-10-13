@@ -54,7 +54,6 @@ internal fun MapFragment.captureLocationPreview(noteId: Long, blockId: Long, lat
         }
     }
 
-    postSnapshotJob(job)
 }
 
 internal fun MapFragment.captureRoutePreview(
@@ -124,7 +123,6 @@ internal fun MapFragment.captureRoutePreview(
         }
     }
 
-    postSnapshotJob(job)
 }
 
 /**

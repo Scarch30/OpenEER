@@ -113,7 +113,10 @@
             android:exported="false"
             android:label="Notes à proximité" />
 
-
+        <activity
+            android:name=".ui.viewer.MapSnapshotViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
 
         <service
             android:name=".audio.RecorderService"

@@ -190,5 +190,7 @@
     <string name="merge_history_confirm_positive">Défusionner</string>
     <string name="merge_history_undo_success">Défusion effectuée</string>
     <string name="merge_history_undo_failed">Impossible d’annuler</string>
+    <string name="map_snapshot_preview">Aperçu de la carte</string>
+    <string name="map_snapshot_no_capture">Aucune capture disponible</string>
 
 </resources>

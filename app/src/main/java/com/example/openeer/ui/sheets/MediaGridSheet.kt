@@ -173,12 +173,10 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             onClick = { item ->
                 // 🔎 Comportement spécial pour la pile Carte
                 if (category == MediaCategory.LOCATION) {
-                    // Tap = ouvrir la carte interne, focus sur la note (comportement homogène à l’éditeur)
-                    startActivity(
-                        MapActivity.newFocusNoteIntent(requireContext(), noteId)
-                    )
+                    MapSnapshotSheet.show(childFragmentManager, item.blockId)
                     return@MediaGridAdapter
                 }
+
 
                 when (item) {
                     is MediaStripItem.Audio -> {

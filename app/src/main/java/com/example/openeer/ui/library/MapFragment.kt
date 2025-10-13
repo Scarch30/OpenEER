@@ -11,52 +11,47 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
-import com.example.openeer.core.Place
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.AttachmentDao
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
-import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
-import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.databinding.FragmentMapBinding
 import com.example.openeer.databinding.SheetMapSelectedLocationBinding
+import com.example.openeer.core.Place
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import kotlinx.coroutines.Job
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.OnMapReadyCallback
+import com.google.gson.Gson
+import org.maplibre.android.plugins.annotation.Line
+import org.maplibre.android.plugins.annotation.LineManager
+import org.maplibre.android.plugins.annotation.Symbol
+import org.maplibre.android.plugins.annotation.SymbolManager
+import org.maplibre.geojson.Feature
 import com.example.openeer.ui.map.MapCamera
 import com.example.openeer.ui.map.MapClusters
 import com.example.openeer.ui.map.MapIcons
 import com.example.openeer.ui.map.MapManagers
 import com.example.openeer.ui.map.MapPin
 import com.example.openeer.ui.map.MapPolylines
-import com.example.openeer.ui.map.MapRenderers
 import com.example.openeer.ui.map.MapStyleIds
 import com.example.openeer.ui.map.RecentHere
 import com.example.openeer.ui.map.RouteRecorder
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.gson.Gson
-import kotlinx.coroutines.*
-import org.maplibre.android.camera.CameraUpdateFactory
-import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.maps.MapView
-import org.maplibre.android.maps.OnMapReadyCallback
-import org.maplibre.android.plugins.annotation.Line
-import org.maplibre.android.plugins.annotation.LineManager
-import org.maplibre.android.plugins.annotation.Symbol
-import org.maplibre.android.plugins.annotation.SymbolManager
-import org.maplibre.geojson.Feature
+import com.example.openeer.data.block.BlockType
+import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.ui.map.MapRenderers
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.max
 
 class MapFragment : Fragment(), OnMapReadyCallback {
 
-    // ----- Binding sûr -----
     private var _b: FragmentMapBinding? = null
     private val b get() = _b!!
-    private val bindingOrNull get() = _b
-    private inline fun withBinding(block: (FragmentMapBinding) -> Unit) {
-        val bb = _b ?: return
-        if (!isAdded || view == null) return
-        block(bb)
-    }
     internal val binding get() = b
 
     internal var mapView: MapView? = null
@@ -87,11 +82,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var awaitingRoutePermission = false
     internal var isSavingRoute = false
     internal var isManualRouteMode = false
-
-    // ⚠️ Garder ce nom (commençant par `is`) ne pose aucun souci tant que
-    // la fonction n'a PAS le même nom que son setter (donc pas de setSnapshotInProgress()).
     internal var isSnapshotInProgress = false
-
     internal val manualPoints: MutableList<LatLng> = mutableListOf()
     internal var manualAnchorLabel: String? = null
     internal val routeGson by lazy { Gson() }
@@ -103,10 +94,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var selectionSymbol: Symbol? = null
     internal var selectionLatLng: LatLng? = null
     internal var selectionPlace: Place? = null
-
-    // Jobs asynchrones à annuler proprement
     internal var selectionJob: Job? = null
-    private var snapshotJob: Job? = null
 
     // Mémoire
     internal var allNotes: List<Note> = emptyList()
@@ -136,14 +124,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         // Zoom utilisé pour centrer un POI
         private const val POINT_FOCUS_ZOOM = 15.5
 
-        fun newInstance(noteId: Long? = null, blockId: Long? = null, mode: String? = null): MapFragment =
-            MapFragment().apply {
-                arguments = Bundle().apply {
-                    if (noteId != null && noteId > 0) putLong(ARG_NOTE_ID, noteId)
-                    if (blockId != null && blockId > 0) putLong(ARG_BLOCK_ID, blockId)
-                    if (!mode.isNullOrBlank()) putString(ARG_MODE, mode)
-                }
+        fun newInstance(noteId: Long? = null, blockId: Long? = null, mode: String? = null): MapFragment = MapFragment().apply {
+            arguments = Bundle().apply {
+                if (noteId != null && noteId > 0) putLong(ARG_NOTE_ID, noteId)
+                if (blockId != null && blockId > 0) putLong(ARG_BLOCK_ID, blockId)
+                if (!mode.isNullOrBlank()) putString(ARG_MODE, mode)
             }
+        }
     }
 
     override fun onAttach(context: Context) {
@@ -241,14 +228,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
             }
 
-            withBinding { bb ->
-                bb.btnAddHere.isEnabled = true
-                bb.btnRecordRoute.isEnabled = true
-            }
+            b.btnAddHere.isEnabled = true
+            b.btnRecordRoute.isEnabled = true
 
             if (initialMode == MapActivity.MODE_BROWSE) {
-                // tente d’abord de centrer sur l’utilisateur
-                centerOnUserIfPossible()
+                MapCamera.moveCameraToDefault(map)
             }
 
             // Charge les notes brutes (une seule fois)
@@ -297,34 +281,32 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     }
 
     internal fun showHint(text: String, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
-        withBinding { bb ->
-            val hintView = bb.clusterHint
-            val fullText = if (actionLabel != null) "$text\n$actionLabel" else text
-            hintView.animate().cancel()
-            hintDismissRunnable?.let { hintView.removeCallbacks(it) }
-            hintView.text = fullText
-            hintView.visibility = View.VISIBLE
-            hintView.alpha = 0f
-            hintView.setOnClickListener(null)
-            hintView.isClickable = onAction != null
-            hintView.isFocusable = onAction != null
-            if (onAction != null) hintView.setOnClickListener { onAction() }
-            hintView.animate().alpha(1f).setDuration(120).withEndAction {
-                val stayDuration = if (onAction != null) 2000L else 450L
-                val dismissRunnable = Runnable {
-                    hintView.animate().alpha(0f).setDuration(450).withEndAction {
-                        hintView.visibility = View.GONE
-                        hintView.alpha = 1f
-                        hintView.setOnClickListener(null)
-                        hintView.isClickable = false
-                        hintView.isFocusable = false
-                        hintDismissRunnable = null
-                    }.start()
-                }
-                hintDismissRunnable = dismissRunnable
-                hintView.postDelayed(dismissRunnable, stayDuration)
-            }.start()
-        }
+        val hintView = binding.clusterHint
+        val fullText = if (actionLabel != null) "$text\n$actionLabel" else text
+        hintView.animate().cancel()
+        hintDismissRunnable?.let { hintView.removeCallbacks(it) }
+        hintView.text = fullText
+        hintView.visibility = View.VISIBLE
+        hintView.alpha = 0f
+        hintView.setOnClickListener(null)
+        hintView.isClickable = onAction != null
+        hintView.isFocusable = onAction != null
+        if (onAction != null) hintView.setOnClickListener { onAction() }
+        hintView.animate().alpha(1f).setDuration(120).withEndAction {
+            val stayDuration = if (onAction != null) 2000L else 450L
+            val dismissRunnable = Runnable {
+                hintView.animate().alpha(0f).setDuration(450).withEndAction {
+                    hintView.visibility = View.GONE
+                    hintView.alpha = 1f
+                    hintView.setOnClickListener(null)
+                    hintView.isClickable = false
+                    hintView.isFocusable = false
+                    hintDismissRunnable = null
+                }.start()
+            }
+            hintDismissRunnable = dismissRunnable
+            hintView.postDelayed(dismissRunnable, stayDuration)
+        }.start()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -343,10 +325,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     }
     override fun onLowMemory() { super.onLowMemory(); mapView?.onLowMemory() }
     override fun onDestroyView() {
-        // Annulations cruciales pour éviter NPE & fuites
-        snapshotJob?.cancel(); snapshotJob = null
-        selectionJob?.cancel(); selectionJob = null
-
         cancelRouteRecording()
         selectionDialog?.setOnDismissListener(null)
         selectionDialog?.dismiss()
@@ -365,7 +343,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         isStyleReady = false
         pendingBlockFocus = targetBlockId
         locationPins.values.forEach { it.symbol = null }
-        bindingOrNull?.clusterHint?.let { hintView ->
+        _b?.clusterHint?.let { hintView ->
             hintDismissRunnable?.let { hintView.removeCallbacks(it) }
         }
         hintDismissRunnable = null
@@ -378,15 +356,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         if (requestCode == REQ_ROUTE) {
             val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
             awaitingRoutePermission = false
-            if (granted) {
-                startRouteRecording()
-            } else {
+            if (granted) startRouteRecording() else {
                 val shouldShowRationale = permissions.any { shouldShowRequestPermissionRationale(it) }
-                if (shouldShowRationale) {
-                    showHint(getString(R.string.map_location_permission_needed))
-                } else {
-                    showLocationDisabledHint()
-                }
+                if (shouldShowRationale) showHint(getString(R.string.map_location_permission_needed)) else showLocationDisabledHint()
             }
             return
         }
@@ -394,9 +366,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             if (awaitingHerePermission) {
                 val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
                 awaitingHerePermission = false
-                if (granted) {
-                    onAddHereClicked()
-                } else {
+                if (granted) onAddHereClicked() else {
                     val shouldShowRationale = permissions.any { shouldShowRequestPermissionRationale(it) }
                     if (shouldShowRationale) showHint(getString(R.string.map_location_permission_needed)) else showLocationDisabledHint()
                 }
@@ -461,70 +431,5 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             MapActivity.MODE_CENTER_ON_HERE -> recenterToUserOrAll()
             else -> Unit // MODE_FOCUS_NOTE: le focus bloc est géré par applyPendingBlockFocus()
         }
-    }
-
-    /**
-     * Centre automatiquement la carte sur la dernière position connue de l’utilisateur,
-     * ou, si elle est indisponible, sur la vue par défaut (France entière).
-     */
-    private fun centerOnUserIfPossible() {
-        val ctx = context ?: return
-        val locationManager = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
-            ?: return
-
-        val hasFine = requireContext().checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED
-        val hasCoarse = requireContext().checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED
-
-        if (!hasFine && !hasCoarse) {
-            // pas de permission -> vue par défaut
-            MapCamera.moveCameraToDefault(map)
-            return
-        }
-
-        val lastKnown = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-            ?: locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-
-        if (lastKnown != null) {
-            val latLng = LatLng(lastKnown.latitude, lastKnown.longitude)
-            map?.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 14.5))
-        } else {
-            // pas de localisation encore dispo
-            MapCamera.moveCameraToDefault(map)
-        }
-    }
-
-    // ====== Hooks existants appelés depuis d'autres fichiers ======
-    // Renommé pour éviter le conflit avec le setter JVM de `isSnapshotInProgress`.
-    internal fun markSnapshotInProgress(inProgress: Boolean) {
-        if (isSnapshotInProgress == inProgress) return
-        isSnapshotInProgress = inProgress
-        refreshRouteButtonState()
-    }
-
-    internal fun refreshRouteButtonState() {
-        withBinding { bb ->
-            when {
-                isManualRouteMode -> {
-                    // géré côté manuel (updateManualRouteUi)
-                    bb.btnRecordRoute.isEnabled = !isSnapshotInProgress
-                }
-                routeRecorder != null -> {
-                    bb.btnRecordRoute.isEnabled = !isSnapshotInProgress
-                    bb.btnRecordRoute.contentDescription = bb.btnRecordRoute.text
-                }
-                else -> {
-                    bb.btnRecordRoute.isEnabled = !isSavingRoute && !isSnapshotInProgress
-                    bb.btnRecordRoute.contentDescription = getString(R.string.map_route_start_cd)
-                }
-            }
-        }
-    }
-
-    // expose snapshotJob si un utilitaire externe déclenche des captures
-    internal fun postSnapshotJob(job: Job) {
-        snapshotJob?.cancel()
-        snapshotJob = job
     }
 }
