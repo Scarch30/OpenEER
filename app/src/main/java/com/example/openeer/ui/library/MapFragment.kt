@@ -48,6 +48,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 
+// ----------------------------------------------------------------------
+// Utilitaires de trace (réutilisés dans les autres fichiers du package)
+// ----------------------------------------------------------------------
+object MapSnapDiag {
+    const val TAG = "MapSnapDiag"
+    inline fun trace(msg: () -> String) { Log.d(TAG, msg()) }
+    class Ticker {
+        private val t0 = android.os.SystemClock.elapsedRealtime()
+        fun ms() = android.os.SystemClock.elapsedRealtime() - t0
+    }
+}
+
 class MapFragment : Fragment(), OnMapReadyCallback {
 
     private var _b: FragmentMapBinding? = null
@@ -113,6 +125,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         private const val STATE_MODE = "state_mode"
         internal const val TAG = "MapFragment"
 
+        // 🔹 nouvel argument : activer l’overlay des pastilles (Library uniquement)
+        private const val ARG_SHOW_LIBRARY_PINS = "show_library_pins"
+
         const val RESULT_MANUAL_ROUTE = "map_manual_route_seed"
         const val RESULT_MANUAL_ROUTE_LAT = "manual_route_lat"
         const val RESULT_MANUAL_ROUTE_LON = "manual_route_lon"
@@ -121,16 +136,23 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         internal const val MENU_ROUTE_GPS = 1
         internal const val MENU_ROUTE_MANUAL = 2
 
-        // Zoom utilisé pour centrer un POI
-        private const val POINT_FOCUS_ZOOM = 15.5
+        // Zoom utilisé pour centrer/relire les rues (focus bloc)
+        private const val POINT_FOCUS_ZOOM = 17.6
 
-        fun newInstance(noteId: Long? = null, blockId: Long? = null, mode: String? = null): MapFragment = MapFragment().apply {
-            arguments = Bundle().apply {
-                if (noteId != null && noteId > 0) putLong(ARG_NOTE_ID, noteId)
-                if (blockId != null && blockId > 0) putLong(ARG_BLOCK_ID, blockId)
-                if (!mode.isNullOrBlank()) putString(ARG_MODE, mode)
+        fun newInstance(
+            noteId: Long? = null,
+            blockId: Long? = null,
+            mode: String? = null,
+            showLibraryPins: Boolean = false
+        ): MapFragment =
+            MapFragment().apply {
+                arguments = Bundle().apply {
+                    if (noteId != null && noteId > 0) putLong(ARG_NOTE_ID, noteId)
+                    if (blockId != null && blockId > 0) putLong(ARG_BLOCK_ID, blockId)
+                    if (!mode.isNullOrBlank()) putString(ARG_MODE, mode)
+                    putBoolean(ARG_SHOW_LIBRARY_PINS, showLibraryPins) // ⬅️ clé passée au fragment
+                }
             }
-        }
     }
 
     override fun onAttach(context: Context) {
@@ -201,8 +223,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         isStyleReady = false
         val initialMode = startMode ?: MapActivity.MODE_BROWSE
 
+        MapSnapDiag.trace { "MF: onMapReady() — initialMode=$initialMode" }
+
         val styleUrl = "https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json"
         map?.setStyle(styleUrl) { style ->
+            MapSnapDiag.trace { "MF: style loaded ($styleUrl)" }
+
             // Gestes
             map?.uiSettings?.isCompassEnabled = true
             map?.uiSettings?.isRotateGesturesEnabled = true
@@ -232,15 +258,21 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             b.btnRecordRoute.isEnabled = true
 
             if (initialMode == MapActivity.MODE_BROWSE) {
-                MapCamera.moveCameraToDefault(map)
+                // Centrage direct (pas d'animation) pour qu'un snapshot immédiat capture *exactement* ce qui est visible
+                centerOnUserIfPossible()
             }
 
-            // Charge les notes brutes (une seule fois)
+            // Charge les notes brutes (no-op si showLibraryPins = false ; cf. MapFragmentNotes.kt)
+            MapSnapDiag.trace { "MF: loadNotesThenRender()…" }
             loadNotesThenRender()
 
-            // Recalcule l’agrégation quand la caméra s’arrête → nombres corrects selon le zoom
+            // Recalcule l’agrégation quand la caméra s’arrête (Library uniquement)
+            val showPins = arguments?.getBoolean(ARG_SHOW_LIBRARY_PINS, false) == true
             map?.addOnCameraIdleListener {
-                MapClusters.renderGroupsForCurrentZoom(map, allNotes)
+                if (showPins) {
+                    MapSnapDiag.trace { "MF: camera idle → renderGroupsForCurrentZoom (notes=${allNotes.size})" }
+                    MapClusters.renderGroupsForCurrentZoom(map, allNotes)
+                }
                 maybeDismissSelectionOnPan()
             }
 
@@ -249,7 +281,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             applyStartMode(initialMode)
         }
 
-        // Tap : zoom doux + bottom sheet (toujours)
+        // Tap : zoom doux + bottom sheet (si on clique sur une pastille)
         map?.addOnMapClickListener { latLng ->
             if (isManualRouteMode) {
                 handleManualMapTap(latLng)
@@ -382,8 +414,38 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
     }
 
-    // ========= Focus bloc au démarrage =========
+    /**
+     * Centre instantanément la caméra sur la dernière position connue de l’utilisateur.
+     * Pas d’animation → si on déclenche un snapshot immédiatement après, on capture pile le viewport courant.
+     */
+    private fun centerOnUserIfPossible() {
+        val ctx = context ?: return
+        val locationManager = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+            ?: return
 
+        val hasFine = requireContext().checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        val hasCoarse = requireContext().checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+
+        if (!hasFine && !hasCoarse) {
+            MapCamera.moveCameraToDefault(map)
+            return
+        }
+
+        val lastKnown = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+            ?: locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+
+        if (lastKnown != null) {
+            val latLng = LatLng(lastKnown.latitude, lastKnown.longitude)
+            val STREET_READABLE_ZOOM = 17.6
+            map?.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, STREET_READABLE_ZOOM))
+        } else {
+            MapCamera.moveCameraToDefault(map)
+        }
+    }
+
+    // ========= Focus bloc au démarrage =========
     private fun applyPendingBlockFocus() {
         val blockId = pendingBlockFocus ?: return
         if (!isStyleReady || map == null) return

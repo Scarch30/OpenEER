@@ -23,7 +23,16 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import kotlin.math.max
 
+// --- Nouveau : flag d’activation de l’overlay “notes de la librairie” ---
+// On lit un argument posé à la création du fragment. Par défaut = false (donc AUCUN point en Carte/Map).
+private const val ARG_SHOW_LIBRARY_PINS = "show_library_pins"
+private val MapFragment.showLibraryPins: Boolean
+    get() = arguments?.getBoolean(ARG_SHOW_LIBRARY_PINS, false) ?: false
+
 internal fun MapFragment.loadNotesThenRender() {
+    // En mode Carte/Map, on ne charge pas/affiche pas l’overlay des notes
+    if (!showLibraryPins) return
+
     val dao = database.noteDao()
     viewLifecycleOwner.lifecycleScope.launch {
         allNotes = withContext(Dispatchers.IO) { dao.getAllWithLocation() }
@@ -123,6 +132,9 @@ internal fun MapFragment.focusOnRoute(block: BlockEntity): Boolean {
 }
 
 internal fun MapFragment.refreshNotesAsync() {
+    // En mode Carte/Map, on ne met pas à jour l’overlay des notes (no-op)
+    if (!showLibraryPins) return
+
     viewLifecycleOwner.lifecycleScope.launch {
         val list = withContext(Dispatchers.IO) { database.noteDao().getAllWithLocation() }
         allNotes = list

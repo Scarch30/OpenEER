@@ -192,5 +192,6 @@
     <string name="merge_history_undo_failed">Impossible d’annuler</string>
     <string name="map_snapshot_preview">Aperçu de la carte</string>
     <string name="map_snapshot_no_capture">Aucune capture disponible</string>
+    <string name="address_resolving_fallback">Adresse en cours de résolution… (%1$s)</string>
 
 </resources>

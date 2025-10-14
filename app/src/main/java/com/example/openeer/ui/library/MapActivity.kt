@@ -25,8 +25,10 @@ class MapActivity : AppCompatActivity() {
             val noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L).takeIf { it > 0 }
             val blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
             val mode = intent.getStringExtra(EXTRA_MODE)
+            // 🔹 nouveau : lit l’extra pour afficher (ou non) les pastilles Library
+            val showPins = intent.getBooleanExtra(EXTRA_SHOW_LIBRARY_PINS, false)
 
-            val fragment = MapFragment.newInstance(noteId, blockId, mode)
+            val fragment = MapFragment.newInstance(noteId, blockId, mode, showPins)
             supportFragmentManager
                 .beginTransaction()
                 .replace(R.id.map_container, fragment, MAP_FRAGMENT_TAG)
@@ -43,6 +45,8 @@ class MapActivity : AppCompatActivity() {
         const val EXTRA_NOTE_ID = "com.example.openeer.map.EXTRA_NOTE_ID"
         const val EXTRA_BLOCK_ID = "com.example.openeer.map.EXTRA_BLOCK_ID"
         const val EXTRA_MODE = "com.example.openeer.map.EXTRA_MODE"
+        // 🔹 nouveau : extra pour activer l’overlay des pastilles (vue Library)
+        const val EXTRA_SHOW_LIBRARY_PINS = "com.example.openeer.map.EXTRA_SHOW_LIBRARY_PINS"
 
         const val MODE_BROWSE = "BROWSE"
         const val MODE_CENTER_ON_HERE = "CENTER_ON_HERE"
@@ -59,11 +63,22 @@ class MapActivity : AppCompatActivity() {
             putExtra(EXTRA_MODE, MODE_BROWSE)
             noteId?.takeIf { it > 0 }?.let { putExtra(EXTRA_NOTE_ID, it) }
             blockId?.takeIf { it > 0 }?.let { putExtra(EXTRA_BLOCK_ID, it) }
+            // En mode Carte standard (prise de notes), on ne veut PAS d’overlay
+            putExtra(EXTRA_SHOW_LIBRARY_PINS, false)
         }
+
+        // 🔹 helper explicite pour la vue “Library > Carte” (affiche les pastilles)
+        @JvmStatic
+        fun newLibraryMapIntent(context: Context): Intent =
+            Intent(context, MapActivity::class.java).apply {
+                putExtra(EXTRA_MODE, MODE_BROWSE)
+                putExtra(EXTRA_SHOW_LIBRARY_PINS, true)
+            }
 
         @JvmStatic
         fun newCenterHereIntent(context: Context): Intent = Intent(context, MapActivity::class.java).apply {
             putExtra(EXTRA_MODE, MODE_CENTER_ON_HERE)
+            putExtra(EXTRA_SHOW_LIBRARY_PINS, false)
         }
 
         @JvmStatic
@@ -75,6 +90,7 @@ class MapActivity : AppCompatActivity() {
             putExtra(EXTRA_MODE, MODE_FOCUS_NOTE)
             putExtra(EXTRA_NOTE_ID, noteId)
             blockId?.takeIf { it > 0 }?.let { putExtra(EXTRA_BLOCK_ID, it) }
+            putExtra(EXTRA_SHOW_LIBRARY_PINS, false)
         }
     }
 }

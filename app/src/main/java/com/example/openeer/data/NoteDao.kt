@@ -98,5 +98,6 @@ interface NoteDao {
         ORDER BY l.createdAt DESC
         """
     )
+    
     suspend fun listMergeLogsUi(): List<MergeLogUiRow>
 }

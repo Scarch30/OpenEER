@@ -9,8 +9,10 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.core.os.bundleOf
 import androidx.fragment.app.FragmentManager
+import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.example.openeer.R
+import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapPreviewStorage
@@ -20,12 +22,17 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.textview.MaterialTextView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 /**
- * Affiche 1) la capture (snapshot) et 2) une adresse/étiquette
- * cliquable qui ouvre Google Maps. Bouton "Voir la carte" pour
- * ouvrir MapActivity centrée sur la note/bloc.
+ * Affiche la vignette (snapshot) + une adresse cliquable.
+ * Si le label initial est un fallback (coords / "geo:" / "Position actuelle"),
+ * on montre "Adresse en cours de résolution…" puis on remplace automatiquement
+ * dès que la DB contient une vraie adresse (reverse geocoding terminé).
  */
 class LocationPreviewSheet : BottomSheetDialogFragment() {
 
@@ -63,11 +70,14 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
     private val blockId: Long by lazy { requireArguments().getLong(ARG_BLOCK_ID) }
     private val lat: Double by lazy { requireArguments().getDouble(ARG_LAT) }
     private val lon: Double by lazy { requireArguments().getDouble(ARG_LON) }
-    private val label: String by lazy { requireArguments().getString(ARG_LABEL).orEmpty() }
+    private val initialLabel: String by lazy { requireArguments().getString(ARG_LABEL).orEmpty() }
     private val type: BlockType by lazy {
-        val s = requireArguments().getString(ARG_TYPE) ?: BlockType.LOCATION.name
-        runCatching { BlockType.valueOf(s) }.getOrDefault(BlockType.LOCATION)
+        runCatching { BlockType.valueOf(requireArguments().getString(ARG_TYPE) ?: BlockType.LOCATION.name) }
+            .getOrDefault(BlockType.LOCATION)
     }
+
+    // Accès direct au DAO (simple et fiable)
+    private val noteDao by lazy { AppDatabase.get(requireContext().applicationContext).noteDao() }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         return BottomSheetDialog(requireContext(), theme).also { dialog ->
@@ -78,9 +88,10 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
                 bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
                     height = ViewGroup.LayoutParams.WRAP_CONTENT
                 }
-                val behavior = BottomSheetBehavior.from(bottomSheet)
-                behavior.skipCollapsed = true
-                behavior.state = BottomSheetBehavior.STATE_EXPANDED
+                BottomSheetBehavior.from(bottomSheet).apply {
+                    skipCollapsed = true
+                    state = BottomSheetBehavior.STATE_EXPANDED
+                }
             }
         }
     }
@@ -106,25 +117,45 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
             image.visibility = View.GONE
         }
 
-        // 2) Adresse/étiquette cliquable → Google Maps
-        val display = label.ifBlank {
-            String.format(
-                Locale.US,
-                getString(R.string.block_location_coordinates),
-                lat,
-                lon
-            )
+        // 2) Texte initial
+        val coordsPretty = String.format(Locale.US, "%.6f, %.6f", lat, lon)
+        val initialIsFallback = isFallbackLabel(initialLabel)
+        addressText.text = if (initialIsFallback) {
+            // "Adresse en cours de résolution… (lat, lon)"
+            getString(R.string.address_resolving_fallback, coordsPretty)
+        } else {
+            initialLabel
         }
-        addressText.text = display
+
+        // 3) Si fallback, on relit la DB (immédiat), puis on poll ~5s pour capter la mise à jour
+        viewLifecycleOwner.lifecycleScope.launchWhenStarted {
+            val fromDb = withContext(Dispatchers.IO) { noteDao.getByIdOnce(noteId)?.placeLabel }
+            if (!fromDb.isNullOrBlank() && !isFallbackLabel(fromDb)) {
+                addressText.text = fromDb
+            } else if (initialIsFallback) {
+                val updated = withTimeoutOrNull(5000L) {
+                    var v: String?
+                    do {
+                        delay(400L)
+                        v = withContext(Dispatchers.IO) { noteDao.getByIdOnce(noteId)?.placeLabel }
+                    } while (v.isNullOrBlank() || isFallbackLabel(v))
+                    v
+                }
+                if (!updated.isNullOrBlank()) {
+                    addressText.text = updated
+                }
+            }
+        }
+
+        // 4) Ouvrir dans Google Maps — utilise TOUJOURS le texte courant
         val openMapsAction: (View) -> Unit = {
+            val display = addressText.text?.toString().orEmpty().ifBlank { coordsPretty }
             val encoded = Uri.encode(display)
             val geoUri = Uri.parse("geo:0,0?q=$lat,$lon($encoded)")
             val intent = Intent(Intent.ACTION_VIEW, geoUri)
             val pm = requireContext().packageManager
             val launched = runCatching {
-                if (intent.resolveActivity(pm) != null) {
-                    startActivity(intent); true
-                } else false
+                if (intent.resolveActivity(pm) != null) { startActivity(intent); true } else false
             }.getOrDefault(false)
             if (!launched) {
                 val url = String.format(
@@ -138,7 +169,7 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
         addressText.setOnClickListener(openMapsAction)
         openMaps.setOnClickListener(openMapsAction)
 
-        // 3) Bouton "Voir la carte" → focus sur la note/bloc (zoom précis)
+        // 5) Bouton "Voir la carte"
         openMapLibre.setOnClickListener {
             startActivity(
                 MapActivity.newFocusNoteIntent(
@@ -150,5 +181,14 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
         }
 
         return root
+    }
+
+    /** Détection de fallback : vide, "Position actuelle", "geo:…", ou "lat, lon". */
+    private fun isFallbackLabel(s: String?): Boolean {
+        if (s.isNullOrBlank()) return true
+        if (s.equals("Position actuelle", ignoreCase = true)) return true
+        if (s.startsWith("geo:", ignoreCase = true)) return true
+        val regexCoord = Regex("""^\s*[-+]?\d{1,3}\.\d{3,}\s*,\s*[-+]?\d{1,3}\.\d{3,}\s*$""")
+        return regexCoord.matches(s)
     }
 }

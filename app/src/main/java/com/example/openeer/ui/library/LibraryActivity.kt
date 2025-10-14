@@ -47,7 +47,8 @@ class LibraryActivity : AppCompatActivity() {
             R.id.action_list -> { showList(); true }
             R.id.action_calendar -> { showCalendar(); true }
             R.id.action_map -> {
-                startActivity(MapActivity.newBrowseIntent(this))
+                // 🔹 Ouvre la carte en mode Library (avec pastilles)
+                startActivity(MapActivity.newLibraryMapIntent(this))
                 true
             }
             R.id.action_merge_history -> { showMergeHistory(); true }
@@ -65,8 +66,6 @@ class LibraryActivity : AppCompatActivity() {
             showList()
         }
     }
-
-
 
     private fun showList() {
         clearBackStack()

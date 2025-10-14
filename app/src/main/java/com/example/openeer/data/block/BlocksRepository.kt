@@ -25,7 +25,15 @@ class BlocksRepository(
         const val LINK_AUDIO_TRANSCRIPTION = "AUDIO_TRANSCRIPTION"
         const val LINK_VIDEO_TRANSCRIPTION = "VIDEO_TRANSCRIPTION"
     }
-
+    suspend fun updateLocationLabel(blockId: Long, newPlaceName: String) {
+        withContext(io) {
+            val current = blockDao.getById(blockId) ?: return@withContext
+            val now = System.currentTimeMillis()
+            if (current.type == BlockType.LOCATION) {
+                blockDao.update(current.copy(placeName = newPlaceName, updatedAt = now))
+            }
+        }
+    }
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
 
     suspend fun getBlock(blockId: Long): BlockEntity? = withContext(io) {

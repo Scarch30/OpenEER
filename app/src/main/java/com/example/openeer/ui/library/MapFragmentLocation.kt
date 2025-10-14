@@ -3,6 +3,7 @@ package com.example.openeer.ui.library
 import android.Manifest
 import android.content.Intent
 import android.location.Location
+import android.location.LocationManager
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
@@ -16,24 +17,34 @@ import com.example.openeer.ui.map.MapText
 import com.example.openeer.ui.map.MapUiDefaults
 import com.example.openeer.ui.map.RecentHere
 import com.google.android.material.snackbar.Snackbar
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import java.util.Locale
+
+// --- Scope app pour les tâches qui doivent survivre à la fermeture de la carte ---
+private object AppScopes {
+    val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+}
+
+// --- Utilitaires UI safe : n’interagissent avec la vue que si elle existe encore ---
+private inline fun MapFragment.tryUi(block: () -> Unit) {
+    runCatching {
+        if (isAdded && view != null) block()
+    }
+}
 
 internal fun MapFragment.hasLocationPermission(): Boolean {
     val ctx = requireContext()
     val fine = ActivityCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION)
     val coarse = ActivityCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION)
-    return fine == android.content.pm.PackageManager.PERMISSION_GRANTED || coarse == android.content.pm.PackageManager.PERMISSION_GRANTED
+    return fine == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+            coarse == android.content.pm.PackageManager.PERMISSION_GRANTED
 }
 
 internal fun MapFragment.showLocationDisabledHint() {
     showHint(
         getString(R.string.map_location_disabled),
         getString(R.string.map_location_open_settings)
-    ) {
-        openAppSettings()
-    }
+    ) { openAppSettings() }
 }
 
 internal fun MapFragment.openAppSettings() {
@@ -47,7 +58,11 @@ internal fun MapFragment.openAppSettings() {
 
 internal fun MapFragment.onAddHereClicked() {
     val ctx = requireContext()
+    val tick = MapSnapDiag.Ticker()
+    MapSnapDiag.trace { "HERE click: start" }
+
     if (!hasLocationPermission()) {
+        MapSnapDiag.trace { "HERE: no permission → request" }
         val previouslyRequested = hasRequestedLocationPermission
         val showFineRationale = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
         val showCoarseRationale = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -62,114 +77,228 @@ internal fun MapFragment.onAddHereClicked() {
         hasRequestedLocationPermission = true
         if (previouslyRequested && !showFineRationale && !showCoarseRationale) {
             showLocationDisabledHint()
-        } else {
-            showHint(getString(R.string.map_location_permission_needed))
-        }
+        } else tryUi { showHint(getString(R.string.map_location_permission_needed)) }
         return
     }
+
     if (symbolManager == null) {
-        showHint(getString(R.string.map_location_unavailable))
+        MapSnapDiag.trace { "HERE: symbolManager is null → location unavailable" }
+        tryUi { showHint(getString(R.string.map_location_unavailable)) }
         return
     }
 
     viewLifecycleOwner.lifecycleScope.launch {
-        binding.btnAddHere.isEnabled = false
+        tryUi { binding.btnAddHere.isEnabled = false }
         try {
-            val place = withContext(Dispatchers.IO) {
-                runCatching { getOneShotPlace(ctx) }.getOrNull()
-            }
+            MapSnapDiag.trace { "HERE: getFastPlace()…" }
+            val place = getFastPlace()
+            MapSnapDiag.trace { "HERE: got place=${place?.label ?: "null"} in ${tick.ms()} ms" }
+
             if (place == null) {
-                showHint(getString(R.string.map_location_unavailable))
+                tryUi { showHint(getString(R.string.map_location_unavailable)) }
                 return@launch
             }
+
             val now = System.currentTimeMillis()
             val last = lastHereLocation
             if (last != null && now - last.timestamp < MapUiDefaults.HERE_COOLDOWN_MS) {
                 val results = FloatArray(1)
                 Location.distanceBetween(last.lat, last.lon, place.lat, place.lon, results)
                 if (results[0] < MapUiDefaults.HERE_COOLDOWN_DISTANCE_M) {
-                    showHint(getString(R.string.map_location_recent_duplicate))
+                    MapSnapDiag.trace { "HERE: recent duplicate rejected (d=${results[0]}m)" }
+                    tryUi { showHint(getString(R.string.map_location_recent_duplicate)) }
                     return@launch
                 }
             }
+
+            MapSnapDiag.trace { "HERE: appendLocation()…" }
             val result = appendLocation(place)
+            MapSnapDiag.trace { "HERE: appendLocation() done in ${tick.ms()} ms (noteId=${result?.noteId}, block=${result?.locationBlockId})" }
+
             if (result == null) {
-                showHint(getString(R.string.map_location_unavailable))
+                tryUi { showHint(getString(R.string.map_location_unavailable)) }
                 return@launch
             }
+
             targetNoteId = result.noteId
             val displayLabel = MapText.displayLabelFor(place)
-            addCustomPin(result.locationBlockId, place.lat, place.lon)
-            showHint(getString(R.string.map_location_added))
-            refreshNotesAsync()
-            showUndoSnackbar(result, displayLabel)
-            captureLocationPreview(result.noteId, result.locationBlockId, place.lat, place.lon)
+            tryUi { addCustomPin(result.locationBlockId, place.lat, place.lon) }
+            tryUi { showHint(getString(R.string.map_location_added)) }
+            tryUi { refreshNotesAsync() }
+            tryUi { showUndoSnackbar(result, displayLabel) }
+
+            MapSnapDiag.trace { "HERE: captureLocationPreview()…" }
+            // Best-effort : si la vue n'existe plus, on ignore silencieusement
+            runCatching {
+                captureLocationPreview(result.noteId, result.locationBlockId, place.lat, place.lon)
+            }
+            MapSnapDiag.trace { "HERE: captureLocationPreview() returned in ${tick.ms()} ms" }
+
             lastHereLocation = RecentHere(place.lat, place.lon, now)
+
+            // Si fallback label → enrichir async (note + bloc LOCATION + bloc miroir)
+            if (place.label == null || place.label == "Position actuelle" || place.label.startsWith("geo:")) {
+                enrichNoteLabelAsync(
+                    noteId = result.noteId,
+                    locationBlockId = result.locationBlockId,   // on passe l’ID du bloc LOCATION
+                    mirrorBlockId = result.mirrorBlockId,
+                    lat = place.lat,
+                    lon = place.lon
+                )
+            }
         } finally {
-            binding.btnAddHere.isEnabled = true
+            tryUi { binding.btnAddHere.isEnabled = true }
         }
     }
 }
 
-internal suspend fun MapFragment.appendLocation(place: Place): LocationAddResult? {
-    return withContext(Dispatchers.IO) {
+/** Place rapide : timeout 1.2 s puis fallback sur dernière position connue. */
+private suspend fun MapFragment.getFastPlace(timeoutMs: Long = 1200L): Place? {
+    val ctx = requireContext()
+    val fromOneShot = withContext(Dispatchers.IO) {
+        withTimeoutOrNull(timeoutMs) { runCatching { getOneShotPlace(ctx) }.getOrNull() }
+    }
+    if (fromOneShot != null) return fromOneShot
+
+    val last = lastKnownQuick() ?: return null
+    val label = "geo:${"%.6f".format(Locale.US, last.latitude)},${"%.6f".format(Locale.US, last.longitude)}"
+    return Place(lat = last.latitude, lon = last.longitude, label = label, accuracyM = null)
+}
+
+/** Dernière position connue rapide. */
+private suspend fun MapFragment.lastKnownQuick(): Location? = withContext(Dispatchers.IO) {
+    val lm = context?.getSystemService(android.content.Context.LOCATION_SERVICE) as? LocationManager ?: return@withContext null
+    for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)) {
+        try {
+            @Suppress("MissingPermission")
+            val loc = lm.getLastKnownLocation(p)
+            if (loc != null) return@withContext loc
+        } catch (_: SecurityException) {}
+    }
+    null
+}
+
+/** Enrichit la note, le bloc LOCATION et le bloc miroir quand une adresse lisible est trouvée. */
+private fun MapFragment.enrichNoteLabelAsync(
+    noteId: Long,
+    locationBlockId: Long,
+    mirrorBlockId: Long,
+    lat: Double,
+    lon: Double
+) {
+    // Lance sur un scope app : continue même si le fragment est détruit
+    AppScopes.io.launch {
+        MapSnapDiag.trace { "HERE: enrichNoteLabelAsync(start) note=$noteId @ $lat,$lon" }
+
+        val label = reverseGeocodeWithTimeout(lat, lon, 3000L)
+        if (label.isNullOrBlank()) {
+            MapSnapDiag.trace { "HERE: enrichNoteLabelAsync(no-label)" }
+            return@launch
+        }
+
+        // 1) Met à jour la note (placeLabel)
+        runCatching {
+            noteRepo.updateLocation(
+                id = noteId,
+                lat = lat,
+                lon = lon,
+                place = label,
+                accuracyM = null
+            )
+        }
+
+        // 2) Met à jour le bloc LOCATION (placeName) — clé pour le chip & la sheet
+        runCatching {
+            // ⚠️ nécessite BlocksRepository.updateLocationLabel(blockId, newPlaceName)
+            blocksRepo.updateLocationLabel(locationBlockId, label)
+        }
+
+        // 3) Met à jour le bloc miroir texte (esthétique)
+        runCatching {
+            val mirrorText = MapText.buildMirrorText(
+                Place(lat = lat, lon = lon, label = label, accuracyM = null)
+            )
+            blocksRepo.updateText(mirrorBlockId, mirrorText)
+        }
+
+        MapSnapDiag.trace { "HERE: enrichNoteLabelAsync(done) label=\"$label\"" }
+        // Essayez un refresh si la vue est encore là
+        runCatching { withContext(Dispatchers.Main) { tryUi { refreshNotesAsync() } } }
+    }
+}
+
+/** Reverse-geocoding moderne avec timeout. */
+private suspend fun MapFragment.reverseGeocodeWithTimeout(
+    lat: Double,
+    lon: Double,
+    timeoutMs: Long = 3000L
+): String? = withContext(Dispatchers.IO) {
+    try {
+        val geocoder = android.location.Geocoder(requireContext(), Locale.getDefault())
+
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            suspendCancellableCoroutine<String?> { cont ->
+                val start = System.nanoTime()
+                val listener = android.location.Geocoder.GeocodeListener { results ->
+                    val addr = results?.firstOrNull()
+                    val label = addr?.getAddressLine(0) ?: addr?.locality ?: addr?.subLocality
+                    val ms = (System.nanoTime() - start) / 1_000_000
+                    MapSnapDiag.trace { "RG: callback ${label ?: "null"} in ${ms}ms" }
+                    cont.resume(label, null)
+                }
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                val timeout = Runnable { if (cont.isActive) cont.resume(null, null) }
+                handler.postDelayed(timeout, timeoutMs)
+                geocoder.getFromLocation(lat, lon, 1, listener)
+                cont.invokeOnCancellation { handler.removeCallbacks(timeout) }
+            }
+        } else {
+            withTimeoutOrNull(timeoutMs) {
+                @Suppress("DEPRECATION")
+                geocoder.getFromLocation(lat, lon, 1)?.firstOrNull()?.let {
+                    it.getAddressLine(0) ?: it.locality ?: it.subLocality
+                }
+            }
+        }
+    } catch (_: Throwable) {
+        null
+    }
+}
+
+internal suspend fun MapFragment.appendLocation(place: Place): LocationAddResult? =
+    withContext(Dispatchers.IO) {
         runCatching {
             var noteId = targetNoteId
-            var previousLat: Double? = null
-            var previousLon: Double? = null
-            var previousPlace: String? = null
-            var previousAccuracy: Float? = null
+            var prevLat: Double? = null
+            var prevLon: Double? = null
+            var prevPlace: String? = null
+            var prevAcc: Float? = null
 
             if (noteId != null) {
                 val existing = noteRepo.noteOnce(noteId)
-                previousLat = existing?.lat
-                previousLon = existing?.lon
-                previousPlace = existing?.placeLabel
-                previousAccuracy = existing?.accuracyM
+                prevLat = existing?.lat
+                prevLon = existing?.lon
+                prevPlace = existing?.placeLabel
+                prevAcc = existing?.accuracyM
             } else {
-                noteId = noteRepo.createTextNote(
-                    body = "",
-                    lat = place.lat,
-                    lon = place.lon,
-                    place = place.label,
-                    accuracyM = place.accuracyM
-                )
+                noteId = noteRepo.createTextNote("", place.lat, place.lon, place.label, place.accuracyM)
             }
 
-            noteRepo.updateLocation(
-                id = noteId!!,
-                lat = place.lat,
-                lon = place.lon,
-                place = place.label,
-                accuracyM = place.accuracyM
-            )
+            noteRepo.updateLocation(noteId!!, place.lat, place.lon, place.label, place.accuracyM)
+            val locBlockId = blocksRepo.appendLocation(noteId, place.lat, place.lon, place.label)
+            val mirrorBlockId = blocksRepo.appendText(noteId, MapText.buildMirrorText(place))
 
-            val locationBlockId = blocksRepo.appendLocation(noteId!!, place.lat, place.lon, place.label)
-            val mirrorBlockId = blocksRepo.appendText(noteId!!, MapText.buildMirrorText(place))
-
-            LocationAddResult(
-                noteId = noteId!!,
-                locationBlockId = locationBlockId,
-                mirrorBlockId = mirrorBlockId,
-                previousLat = previousLat,
-                previousLon = previousLon,
-                previousPlace = previousPlace,
-                previousAccuracy = previousAccuracy
-            )
-        }.onFailure { e ->
-            Log.e(MapFragment.TAG, "Failed to append location", e)
-        }.getOrNull()
+            LocationAddResult(noteId, locBlockId, mirrorBlockId, prevLat, prevLon, prevPlace, prevAcc)
+        }.onFailure { e -> Log.e(MapFragment.TAG, "Failed to append location", e) }.getOrNull()
     }
-}
 
 internal fun MapFragment.showUndoSnackbar(result: LocationAddResult, displayLabel: String) {
-    Snackbar.make(binding.root, "${getString(R.string.map_location_added)} — $displayLabel", Snackbar.LENGTH_LONG)
-        .setAction(R.string.action_undo) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                undoLocationAdd(result)
-            }
-        }
-        .show()
+    tryUi {
+        Snackbar.make(binding.root, "${getString(R.string.map_location_added)} — $displayLabel", Snackbar.LENGTH_LONG)
+            .setAction(R.string.action_undo) {
+                viewLifecycleOwner.lifecycleScope.launch { undoLocationAdd(result) }
+            }.show()
+    }
 }
 
 internal suspend fun MapFragment.undoLocationAdd(result: LocationAddResult) {
@@ -186,13 +315,18 @@ internal suspend fun MapFragment.undoLocationAdd(result: LocationAddResult) {
             )
         }.isSuccess
     }
+
     if (success) {
-        removeCustomPin(result.locationBlockId)
-        refreshNotesAsync()
-        showHint(getString(R.string.map_location_undo_success))
-        Snackbar.make(binding.root, getString(R.string.map_location_undo_success), Snackbar.LENGTH_SHORT).show()
+        tryUi { removeCustomPin(result.locationBlockId) }
+        tryUi { refreshNotesAsync() }
+        tryUi { showHint(getString(R.string.map_location_undo_success)) }
+        runCatching {
+            Snackbar.make(binding.root, getString(R.string.map_location_undo_success), Snackbar.LENGTH_SHORT).show()
+        }
         lastHereLocation = null
     } else {
-        Snackbar.make(binding.root, getString(R.string.map_location_unavailable), Snackbar.LENGTH_SHORT).show()
+        runCatching {
+            Snackbar.make(binding.root, getString(R.string.map_location_unavailable), Snackbar.LENGTH_SHORT).show()
+        }
     }
 }

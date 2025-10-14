@@ -24,6 +24,7 @@ import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapPreviewStorage
 import com.example.openeer.ui.sheets.LocationPreviewSheet
+import com.example.openeer.ui.map.MapText   // ⬅️ pour détecter le fallback coordonnées
 import com.google.android.material.chip.Chip
 import com.google.gson.Gson
 import java.util.Locale
@@ -154,19 +155,27 @@ class BlocksAdapter(
             val lat = block.lat
             val lon = block.lon
             val hasCoordinates = lat != null && lon != null
-            val label = block.placeName?.takeIf { it.isNotBlank() }
+
+            val baseLabel = block.placeName?.takeIf { it.isNotBlank() }
                 ?: if (hasCoordinates) {
                     String.format(
                         Locale.US,
                         context.getString(R.string.block_location_coordinates),
-                        lat,
-                        lon
+                        lat, lon
                     )
                 } else {
                     context.getString(R.string.block_location_unknown)
                 }
-            chip.text = label
-            chip.contentDescription = context.getString(R.string.block_location_chip_cd, label)
+
+            // ⬇️ Si c'est un fallback “lat, lon”, on ajoute “ — en cours…”
+            val displayLabel = if (MapText.isFallbackLabel(baseLabel)) {
+                "$baseLabel — en cours…"
+            } else {
+                baseLabel
+            }
+
+            chip.text = displayLabel
+            chip.contentDescription = context.getString(R.string.block_location_chip_cd, displayLabel)
             chip.isEnabled = hasCoordinates
             chip.alpha = if (hasCoordinates) 1f else 0.5f
             chip.setOnClickListener(null)
@@ -174,20 +183,18 @@ class BlocksAdapter(
             chip.isLongClickable = hasCoordinates
 
             if (hasCoordinates) {
-                // 👉 Tap = feuille d’aperçu (snapshot + adresse cliquable)
-                chip.setOnClickListener { openPreviewSheet(context, block, label) }
-                // Long-press = menu Google Maps direct
+                chip.setOnClickListener { openPreviewSheet(context, block, displayLabel) }
                 chip.setOnLongClickListener { view ->
                     showBlockMenu(view, block)
                     true
                 }
             }
+
             bindPreview(preview, block)
 
-            // Tap sur la vignette = même comportement que le chip
             preview.setOnClickListener(null)
             if (hasCoordinates && preview.visibility == View.VISIBLE) {
-                preview.setOnClickListener { openPreviewSheet(context, block, label) }
+                preview.setOnClickListener { openPreviewSheet(context, block, displayLabel) }
             }
         }
     }
@@ -202,16 +209,32 @@ class BlocksAdapter(
                 runCatching { routeGson.fromJson(json, RoutePayload::class.java) }.getOrNull()
             }
             val pointCount = payload?.points?.size ?: 0
-            chip.text = context.getString(R.string.block_route_points, pointCount)
-            chip.contentDescription = context.resources.getQuantityString(
-                R.plurals.block_route_chip_cd,
-                pointCount,
-                pointCount
-            )
             val firstPoint = payload?.firstPoint()
             val lat = firstPoint?.lat ?: block.lat
             val lon = firstPoint?.lon ?: block.lon
             val canOpen = (pointCount > 0) || (lat != null && lon != null)
+
+            val baseLabel = if (payload != null && pointCount > 0) {
+                context.getString(R.string.block_route_points, pointCount)
+            } else if (lat != null && lon != null) {
+                context.getString(R.string.block_location_coordinates, lat, lon)
+            } else {
+                context.getString(R.string.block_location_unknown)
+            }
+
+            // ⬇️ Si le label est juste des coords (cas route minimaliste), on indique “ — en cours…”
+            val displayLabel = if (MapText.isFallbackLabel(baseLabel)) {
+                "$baseLabel — en cours…"
+            } else {
+                baseLabel
+            }
+
+            chip.text = displayLabel
+            chip.contentDescription = context.resources.getQuantityString(
+                R.plurals.block_route_chip_cd,
+                pointCount.coerceAtLeast(1),
+                pointCount
+            )
 
             chip.isEnabled = canOpen
             chip.alpha = if (canOpen) 1f else 0.5f
@@ -220,14 +243,7 @@ class BlocksAdapter(
             chip.isLongClickable = canOpen
 
             if (canOpen) {
-                val label = if (payload != null && pointCount > 0) {
-                    context.getString(R.string.block_route_points, pointCount)
-                } else {
-                    context.getString(R.string.block_location_coordinates, lat, lon)
-                }
-                // 👉 Tap = feuille d’aperçu
-                chip.setOnClickListener { openPreviewSheet(context, block, label) }
-                // Long-press = menu Google Maps direct
+                chip.setOnClickListener { openPreviewSheet(context, block, displayLabel) }
                 chip.setOnLongClickListener { view ->
                     showBlockMenu(view, block)
                     true
@@ -237,8 +253,7 @@ class BlocksAdapter(
 
             preview.setOnClickListener(null)
             if (canOpen && preview.visibility == View.VISIBLE) {
-                val label = chip.text?.toString().orEmpty()
-                preview.setOnClickListener { openPreviewSheet(context, block, label) }
+                preview.setOnClickListener { openPreviewSheet(context, block, displayLabel) }
             }
         }
     }
@@ -275,14 +290,13 @@ class BlocksAdapter(
         if (lat == null || lon == null) return
         LocationPreviewSheet.show(
             fm = act.supportFragmentManager,
-            noteId = block.noteId,      // ← AJOUT
+            noteId = block.noteId,
             blockId = block.id,
             lat = lat,
             lon = lon,
             label = label,
-            type = block.type           // ← (facultatif mais propre)
+            type = block.type
         )
-
     }
 
     private fun showBlockMenu(view: View, block: BlockEntity) {
