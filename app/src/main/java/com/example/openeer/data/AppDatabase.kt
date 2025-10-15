@@ -6,19 +6,19 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.openeer.data.audio.AudioClipEntity
 import com.example.openeer.data.audio.AudioTranscriptEntity
+import com.example.openeer.data.audio.AudioDao
 import com.example.openeer.data.block.BlockDao
 import com.example.openeer.data.block.BlockEntity
-import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlockLinkDao
 import com.example.openeer.data.block.BlockLinkEntity
+import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.db.Converters
 import com.example.openeer.data.location.NoteLocationEntity
+import com.example.openeer.data.search.SearchDao
 import com.example.openeer.data.search.SearchIndexFts
 import com.example.openeer.data.tag.NoteTagCrossRef
-import com.example.openeer.data.tag.TagEntity
 import com.example.openeer.data.tag.TagDao
-import com.example.openeer.data.search.SearchDao
-import com.example.openeer.data.audio.AudioDao
+import com.example.openeer.data.tag.TagEntity
 
 @Database(
     entities = [
@@ -42,11 +42,13 @@ import com.example.openeer.data.audio.AudioDao
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
+
+    // --- DAOs principaux ---
     abstract fun noteDao(): NoteDao
     abstract fun attachmentDao(): AttachmentDao
     abstract fun blockDao(): BlockDao
 
-    // DAOs Sprint 3
+    // --- DAOs Sprint 3 ---
     abstract fun tagDao(): TagDao
     abstract fun searchDao(): SearchDao
     abstract fun audioDao(): AudioDao
@@ -58,45 +60,47 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
 
+        // 2 -> 3 : table attachments
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
-                   CREATE TABLE IF NOT EXISTS attachments (
-                       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                       noteId INTEGER NOT NULL,
-                       type TEXT NOT NULL,
-                       path TEXT NOT NULL,
-                       createdAt INTEGER NOT NULL
-                   )
+                    CREATE TABLE IF NOT EXISTS attachments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        noteId INTEGER NOT NULL,
+                        type TEXT NOT NULL,
+                        path TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
                 """.trimIndent())
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_attachments_noteId ON attachments(noteId)")
             }
         }
 
+        // 3 -> 4 : table blocks + index
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
-                   CREATE TABLE IF NOT EXISTS blocks (
-                       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                       noteId INTEGER NOT NULL,
-                       type TEXT NOT NULL,
-                       position INTEGER NOT NULL,
-                       groupId TEXT,
-                       text TEXT,
-                       mediaUri TEXT,
-                       mimeType TEXT,
-                       durationMs INTEGER,
-                       width INTEGER,
-                       height INTEGER,
-                       lat REAL,
-                       lon REAL,
-                       placeName TEXT,
-                       routeJson TEXT,
-                       extra TEXT,
-                       createdAt INTEGER NOT NULL,
-                       updatedAt INTEGER NOT NULL,
-                       FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE
-                   )
+                    CREATE TABLE IF NOT EXISTS blocks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        noteId INTEGER NOT NULL,
+                        type TEXT NOT NULL,
+                        position INTEGER NOT NULL,
+                        groupId TEXT,
+                        text TEXT,
+                        mediaUri TEXT,
+                        mimeType TEXT,
+                        durationMs INTEGER,
+                        width INTEGER,
+                        height INTEGER,
+                        lat REAL,
+                        lon REAL,
+                        placeName TEXT,
+                        routeJson TEXT,
+                        extra TEXT,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE
+                    )
                 """.trimIndent())
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_blocks_noteId ON blocks(noteId)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_blocks_noteId_position ON blocks(noteId, position)")
@@ -104,7 +108,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // 4 -> 5 : tags/lieux/audio/FTS (avec index unique tags & cross-ref sans FK)
+        // 4 -> 5 : tags / cross-ref / lieux / audio / FTS
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Tags
@@ -117,7 +121,7 @@ abstract class AppDatabase : RoomDatabase() {
                 """.trimIndent())
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_tags_name ON tags(name)")
 
-                // Cross-ref (format simple attendu par Room)
+                // Cross-ref (simple)
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS note_tag_cross_ref (
                         noteId INTEGER NOT NULL,
@@ -155,7 +159,7 @@ abstract class AppDatabase : RoomDatabase() {
                 """.trimIndent())
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_audio_clips_noteId ON audio_clips(noteId)")
 
-                // Transcripts (provisoirement sans FK, on normalise en 7->8)
+                // Transcripts (provisoire sans FK)
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS audio_transcripts (
                         clipId INTEGER PRIMARY KEY NOT NULL,
@@ -177,7 +181,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // 5 -> 6 : idempotent (placeLabel)
+        // 5 -> 6 : ajout notes.placeLabel si absent
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 val cursor = db.query("PRAGMA table_info('notes')")
@@ -197,7 +201,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // 6 -> 7 : normalisation cross-ref (noms d’index attendus)
+        // 6 -> 7 : normalisation cross-ref
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 val tableExists = db.query(
@@ -235,7 +239,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // 7 -> 8 : normalisation audio_transcripts (ajout FK CASCADE vers audio_clips.id)
+        // 7 -> 8 : transcripts avec FK CASCADE
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 val tableExists = db.query(
@@ -243,7 +247,6 @@ abstract class AppDatabase : RoomDatabase() {
                 ).use { it.moveToFirst() }
 
                 if (!tableExists) {
-                    // Install propre : créer directement au format attendu par l'Entity
                     db.execSQL("""
                         CREATE TABLE IF NOT EXISTS audio_transcripts (
                             clipId INTEGER PRIMARY KEY NOT NULL,
@@ -257,7 +260,6 @@ abstract class AppDatabase : RoomDatabase() {
                     return
                 }
 
-                // Recréer avec FK
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS audio_transcripts_new (
                         clipId INTEGER PRIMARY KEY NOT NULL,
@@ -279,7 +281,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // 8 -> 9 : création de block_links (+ index)
+        // 8 -> 9 : table block_links + index
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -296,6 +298,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // 9 -> 10 : isMerged + note_merge_map
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE notes ADD COLUMN isMerged INTEGER NOT NULL DEFAULT 0")
@@ -310,6 +313,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // 10 -> 11 : note_merge_log
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -326,12 +330,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        fun get(context: Context): AppDatabase =
+        /** Nouveau nom “officiel” pour l’accès global au singleton */
+        fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "openEER.db"
+                    "openEER.db" // ⚠ garde le même nom que ton ancien builder
                 )
                     .addMigrations(
                         MIGRATION_2_3,
@@ -340,12 +345,19 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9, // 🔗
+                        MIGRATION_8_9,
                         MIGRATION_9_10,
                         MIGRATION_10_11
                     )
                     .build()
                     .also { INSTANCE = it }
             }
+
+        /** Compat rétro : ton ancien nom de méthode */
+        @Deprecated(
+            message = "Utilise getInstance(context) désormais.",
+            replaceWith = ReplaceWith("getInstance(context)")
+        )
+        fun get(context: Context): AppDatabase = getInstance(context)
     }
 }

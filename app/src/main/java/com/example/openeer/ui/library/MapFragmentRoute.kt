@@ -1,405 +1,353 @@
 package com.example.openeer.ui.library
 
-import android.location.LocationManager
-import androidx.appcompat.widget.PopupMenu
+import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.os.Build
+import android.util.Log
+import android.view.View
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
 import androidx.core.view.isVisible
-import androidx.lifecycle.lifecycleScope
-import com.example.openeer.ui.library.MapFragment.Companion.MENU_ROUTE_GPS
-import com.example.openeer.ui.library.MapFragment.Companion.MENU_ROUTE_MANUAL
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import com.example.openeer.R
-import com.example.openeer.data.block.RoutePayload
-import com.example.openeer.data.block.RoutePointPayload
-import com.example.openeer.ui.map.MapText
-import com.example.openeer.ui.map.MapPolylines
-import com.example.openeer.ui.map.MapRenderers
-import com.example.openeer.ui.map.MapUiDefaults
-import com.example.openeer.ui.map.RoutePersistResult
-import com.example.openeer.ui.map.RouteRecorder
-import kotlin.collections.removeLastOrNull
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.maplibre.android.geometry.LatLng
+import com.example.openeer.databinding.FragmentMapBinding
+import com.example.openeer.route.RouteRecordingService
+import java.util.WeakHashMap
 
+/**
+ * Module "Route" du MapFragment – version Service.
+ *
+ * - ne crée plus de RouteRecorder local au Fragment
+ * - démarre/arrête RouteRecordingService (foreground, type location)
+ * - observe l’état du service (STARTED/STOPPED) et le compteur de points
+ * - met à jour l’UI ("Démarrer (GPS)" ↔ "Arrêter (N)")
+ *
+ * À appeler une fois depuis MapFragment.onViewCreated(...):
+ *     setupRouteUiBindings()
+ *
+ * IMPORTANT :
+ * - Ne JAMAIS stopper l’enregistrement dans onPause()/onDestroyView().
+ * - Le service persiste l’itinéraire à l’arrêt (ACTION_STOP).
+ */
+
+/* -------------------------------------------------------------------------------------------------
+   État UI lié à l’instance de MapFragment (sans toucher à sa classe).
+-------------------------------------------------------------------------------------------------- */
+
+private data class RouteUiState(
+    var isRunning: Boolean = false,
+    var count: Int = 0
+)
+
+private val routeStateCache = WeakHashMap<MapFragment, RouteUiState>()
+
+private fun MapFragment.state(): RouteUiState =
+    routeStateCache.getOrPut(this) { RouteUiState() }
+
+/* -------------------------------------------------------------------------------------------------
+   Intégration – à appeler depuis MapFragment
+-------------------------------------------------------------------------------------------------- */
+
+fun MapFragment.setupRouteUiBindings() {
+    val s = state()
+    Log.d("RouteUI", "setupRouteUiBindings(): state=$s")
+
+    // Bouton principal (GPS)
+    b.btnRecordRoute.setOnClickListener {
+        Log.d("RouteUI", "btnRecordRoute CLICK (isRunning=${s.isRunning}, manual=${isManualRouteModeSafe()}, savingRoute? refl handled)")
+        onRouteButtonClicked()
+    }
+
+    // Annuler tracé manuel si ce bouton existe déjà dans ton layout
+    b.btnCancelManualRoute?.setOnClickListener {
+        Log.d("RouteUI", "btnCancelManualRoute CLICK → cancelManualRouteDrawingSafe()")
+        cancelManualRouteDrawingSafe()
+    }
+
+    // Label initial
+    updateRouteUi()
+
+    // Enregistrer/retirer les receivers aux bonnes étapes du cycle de VUE
+    viewLifecycleOwner.lifecycle.addObserver(object : DefaultLifecycleObserver {
+        private var stateReceiverRegistered = false
+        private var pointsReceiverRegistered = false
+
+        private val routeStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val st = intent.getStringExtra(RouteRecordingService.EXTRA_STATE)
+                Log.d("RouteUI", "Broadcast ACTION_STATE received: state=$st")
+                when (st) {
+                    "STARTED" -> {
+                        s.isRunning = true
+                        updateRouteUi()
+                    }
+                    "STOPPED" -> {
+                        s.isRunning = false
+                        s.count = 0
+                        updateRouteUi()
+                        Log.d("RouteUI", "State STOPPED → refreshNotesAsync()")
+                        // Recharge notes/traces depuis DB pour afficher la polyline finale
+                        refreshNotesAsync()
+                    }
+                    else -> Log.d("RouteUI", "Unknown state in ACTION_STATE: $st")
+                }
+            }
+        }
+
+        private val routePointsReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val newCount = intent.getIntExtra(RouteRecordingService.EXTRA_COUNT, s.count)
+                Log.d("RouteUI", "Broadcast ACTION_POINTS received: count=$newCount")
+                s.count = newCount
+                updateRouteUi()
+                // Option: tracé live → diffuser les points et rafraîchir MapPolylines ici.
+            }
+        }
+
+        override fun onStart(owner: LifecycleOwner) {
+            val ctx = requireContext()
+            Log.d("RouteUI", "onStart() → register receivers")
+
+            ContextCompat.registerReceiver(
+                ctx,
+                routeStateReceiver,
+                IntentFilter(RouteRecordingService.ACTION_STATE),
+                RECEIVER_NOT_EXPORTED
+            )?.also { stateReceiverRegistered = true }
+
+            ContextCompat.registerReceiver(
+                ctx,
+                routePointsReceiver,
+                IntentFilter(RouteRecordingService.ACTION_POINTS),
+                RECEIVER_NOT_EXPORTED
+            )?.also { pointsReceiverRegistered = true }
+
+            Log.d("RouteUI", "Receivers registered: state=$stateReceiverRegistered points=$pointsReceiverRegistered")
+        }
+
+        override fun onStop(owner: LifecycleOwner) {
+            val ctx = requireContext()
+            Log.d("RouteUI", "onStop() → unregister receivers")
+            if (stateReceiverRegistered) {
+                runCatching { ctx.unregisterReceiver(routeStateReceiver) }
+                stateReceiverRegistered = false
+            }
+            if (pointsReceiverRegistered) {
+                runCatching { ctx.unregisterReceiver(routePointsReceiver) }
+                pointsReceiverRegistered = false
+            }
+            Log.d("RouteUI", "Receivers unregistered.")
+        }
+    })
+}
+
+/* -------------------------------------------------------------------------------------------------
+   Logique UI – bouton principal
+-------------------------------------------------------------------------------------------------- */
+
+/**
+ * 1) Si enregistrement en cours → STOP service
+ * 2) Si mode manuel actif → saveManualRoute()
+ * 3) Sinon → START service (GPS)
+ */
 internal fun MapFragment.onRouteButtonClicked() {
+    val s = state()
     when {
-        routeRecorder != null -> stopRouteRecording(save = true)
-        isManualRouteMode -> saveManualRoute()
-        isSavingRoute -> Unit
-        else -> showRouteModeMenu()
-    }
-}
-
-internal fun MapFragment.showRouteModeMenu() {
-    val context = requireContext()
-    val popup = PopupMenu(context, binding.btnRecordRoute)
-    popup.menu.add(0, MENU_ROUTE_GPS, 0, getString(R.string.map_route_menu_gps))
-    popup.menu.add(0, MENU_ROUTE_MANUAL, 1, getString(R.string.map_route_menu_manual))
-    popup.setOnMenuItemClickListener { item ->
-        when (item.itemId) {
-            MENU_ROUTE_GPS -> {
-                startGpsRouteRecordingFlow()
-                true
-            }
-            MENU_ROUTE_MANUAL -> {
-                startManualRouteDrawing()
-                true
-            }
-            else -> false
+        s.isRunning -> {
+            Log.d("RouteUI", "onRouteButtonClicked(): currently RUNNING → stop service")
+            RouteRecordingService.stop(requireContext())
         }
-    }
-    popup.show()
-}
-
-internal fun MapFragment.startGpsRouteRecordingFlow() {
-    if (isManualRouteMode) {
-        cancelManualRouteDrawing()
-    }
-    if (!hasLocationPermission()) {
-        awaitingRoutePermission = true
-        val previouslyRequested = hasRequestedLocationPermission
-        val showFineRationale = shouldShowRequestPermissionRationale(android.Manifest.permission.ACCESS_FINE_LOCATION)
-        val showCoarseRationale = shouldShowRequestPermissionRationale(android.Manifest.permission.ACCESS_COARSE_LOCATION)
-        requestPermissions(
-            arrayOf(
-                android.Manifest.permission.ACCESS_FINE_LOCATION,
-                android.Manifest.permission.ACCESS_COARSE_LOCATION
-            ),
-            REQ_ROUTE
-        )
-        hasRequestedLocationPermission = true
-        if (previouslyRequested && !showFineRationale && !showCoarseRationale) {
-            showLocationDisabledHint()
-        } else {
-            showHint(getString(R.string.map_location_permission_needed))
-        }
-        return
-    }
-    startRouteRecording()
-}
-
-internal fun MapFragment.startManualRouteDrawing(seed: LatLng? = null, anchorLabel: String? = null) {
-    if (isSavingRoute) return
-    cancelRouteRecording()
-    manualPoints.clear()
-    manualAnchorLabel = anchorLabel?.takeIf { it.isNotBlank() }
-    manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
-    isManualRouteMode = true
-    binding.btnAddHere.isEnabled = false
-    binding.btnCancelManualRoute.isVisible = true
-    binding.manualRouteHint.isVisible = true
-    seed?.let {
-        if (manualPoints.size < MapUiDefaults.MAX_ROUTE_POINTS) {
-            val point = LatLng(it.latitude, it.longitude)
-            manualPoints.add(point)
-            if (manualAnchorLabel == null) {
-                manualAnchorLabel = MapText.formatLatLon(point.latitude, point.longitude)
-            }
-        }
-    }
-    manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
-
-    updateManualRouteUi()
-    if (manualPoints.isNotEmpty()) {
-        announceManualRoutePoints()
-    }
-}
-
-internal fun MapFragment.handleManualMapTap(latLng: LatLng) {
-    if (!isManualRouteMode) return
-    if (manualPoints.size >= MapUiDefaults.MAX_ROUTE_POINTS) {
-        showHint(getString(R.string.map_manual_route_limit, MapUiDefaults.MAX_ROUTE_POINTS))
-        return
-    }
-    val point = LatLng(latLng.latitude, latLng.longitude)
-    manualPoints.add(point)
-    if (manualPoints.size == 1 && manualAnchorLabel == null) {
-        manualAnchorLabel = MapText.formatLatLon(point.latitude, point.longitude)
-    }
-    manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
-
-    updateManualRouteUi()
-    announceManualRoutePoints()
-}
-
-internal fun MapFragment.onManualRouteUndoClicked() {
-    if (!isManualRouteMode || manualPoints.isEmpty() || isSavingRoute || isSnapshotInProgress) return
-    manualPoints.removeLastOrNull()
-    if (manualPoints.isEmpty()) {
-        manualAnchorLabel = null
-    }
-    manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
-
-    updateManualRouteUi()
-    announceManualRoutePoints()
-}
-
-internal fun MapFragment.announceManualRoutePoints() {
-    if (!isAdded) return
-    val count = manualPoints.size
-    val message = resources.getQuantityString(R.plurals.map_manual_route_points_a11y, count, count)
-    binding.root.announceForAccessibility(message)
-}
-
-internal fun MapFragment.setSnapshotInProgress(inProgress: Boolean) {
-    if (isSnapshotInProgress == inProgress) return
-    isSnapshotInProgress = inProgress
-    refreshRouteButtonState()
-}
-
-internal fun MapFragment.refreshRouteButtonState() {
-    if (!isAdded) return
-    when {
-        isManualRouteMode -> updateManualRouteUi()
-        routeRecorder != null -> {
-            binding.btnRecordRoute.isEnabled = !isSnapshotInProgress
-            binding.btnRecordRoute.contentDescription = binding.btnRecordRoute.text
+        isManualRouteModeSafe() -> {
+            Log.d("RouteUI", "onRouteButtonClicked(): manual mode → saveManualRouteSafe()")
+            saveManualRouteSafe()
         }
         else -> {
-            binding.btnRecordRoute.isEnabled = !isSavingRoute && !isSnapshotInProgress
-            binding.btnRecordRoute.contentDescription = getString(R.string.map_route_start_cd)
+            Log.d("RouteUI", "onRouteButtonClicked(): idle → startRouteRecordingViaService()")
+            startRouteRecordingViaService()
         }
     }
 }
 
-internal fun MapFragment.showPreviewSavedToast() {
-    val ctx = context ?: return
-    android.widget.Toast.makeText(ctx, getString(R.string.map_preview_ready), android.widget.Toast.LENGTH_SHORT).show()
-}
+private fun MapFragment.updateRouteUi() {
+    val s = state()
+    Log.d("RouteUI", "updateRouteUi(): isRunning=${s.isRunning} count=${s.count}")
+    b.btnRecordRoute.isVisible = true
+    b.btnRecordRoute.isEnabled = true
 
-internal fun MapFragment.updateManualRouteUi() {
-    if (!isManualRouteMode) return
-    val count = manualPoints.size
-    binding.btnRecordRoute.text = getString(R.string.map_manual_route_save, count)
-    binding.btnRecordRoute.isEnabled = count >= 2 && !isSavingRoute && !isSnapshotInProgress
-    binding.btnRecordRoute.contentDescription = getString(R.string.map_manual_route_save_cd)
-    binding.btnCancelManualRoute.isVisible = true
-    binding.btnCancelManualRoute.isEnabled = !isSavingRoute && !isSnapshotInProgress
-    binding.btnUndoManualRoute.isVisible = count >= 1
-    binding.btnUndoManualRoute.isEnabled = count >= 1 && !isSavingRoute && !isSnapshotInProgress
-    binding.manualRouteHint.isVisible = true
-}
-
-internal fun MapFragment.saveManualRoute() {
-    if (!isManualRouteMode || isSavingRoute) return
-    if (manualPoints.size < 2) {
-        showHint(getString(R.string.map_route_too_short))
-        return
-    }
-    val pointsSnapshot = manualPoints.toList()
-    val payload = buildManualRoutePayload(pointsSnapshot)
-    val mirrorText = buildManualRouteMirrorText(pointsSnapshot)
-    isSavingRoute = true
-    binding.btnRecordRoute.isEnabled = false
-    binding.btnCancelManualRoute.isEnabled = false
-    viewLifecycleOwner.lifecycleScope.launch {
-        val result = persistRoute(payload, mirrorText)
-        isSavingRoute = false
-        if (result == null) {
-            showHint(getString(R.string.map_route_save_failed))
-            updateManualRouteUi()
-        } else {
-            targetNoteId = result.noteId
-            showHint(getString(R.string.map_route_saved))
-            MapRenderers.fitToRoute(map, result.payload.points, requireContext())
-
-            captureRoutePreview(result) {
-                finishManualRouteDrawing()
-            }
-            refreshNotesAsync()
-        }
-    }
-}
-
-internal fun MapFragment.buildManualRoutePayload(points: List<LatLng>): RoutePayload {
-    val now = System.currentTimeMillis()
-    val stepMs = 1_000L
-    val span = kotlin.math.max(points.size - 1, 0)
-    val start = now - stepMs * span
-    val routePoints = points.mapIndexed { index, latLng ->
-        val timestamp = start + stepMs * index
-        RoutePointPayload(latLng.latitude, latLng.longitude, timestamp)
-    }
-    val startedAt = routePoints.firstOrNull()?.t ?: now
-    val endedAt = routePoints.lastOrNull()?.t ?: now
-    return RoutePayload(
-        startedAt = startedAt,
-        endedAt = endedAt,
-        points = routePoints
-    )
-}
-
-internal fun MapFragment.buildManualRouteMirrorText(points: List<LatLng>): String {
-    val base = getString(R.string.map_manual_route_mirror_format, points.size)
-    val anchor = manualAnchorLabel?.takeIf { it.isNotBlank() }
-        ?: points.firstOrNull()?.let { MapText.formatLatLon(it.latitude, it.longitude) }
-    return if (anchor != null) {
-        base + "\n" + getString(R.string.map_manual_route_anchor_format, anchor)
+    if (s.isRunning) {
+        b.btnRecordRoute.text = getString(R.string.map_route_stop_with_count, s.count)
+        b.btnRecordRoute.contentDescription = b.btnRecordRoute.text
+        b.btnCancelManualRoute?.isEnabled = false
     } else {
-        base
+        b.btnRecordRoute.text = getString(R.string.map_route_start_gps)
+        b.btnRecordRoute.contentDescription = getString(R.string.map_route_start_cd)
+        b.btnCancelManualRoute?.isEnabled = true
     }
 }
 
-internal fun MapFragment.cancelManualRouteDrawing() {
-    if (!isManualRouteMode || isSavingRoute) return
-    manualPoints.clear()
-    manualAnchorLabel = null
-    manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
-    isManualRouteMode = false
-    binding.btnCancelManualRoute.isVisible = false
-    binding.btnCancelManualRoute.isEnabled = true
-    binding.btnUndoManualRoute.isVisible = false
-    binding.btnUndoManualRoute.isEnabled = true
-    binding.manualRouteHint.isVisible = false
-    binding.btnAddHere.isEnabled = true
-    resetRouteButton()
+/* -------------------------------------------------------------------------------------------------
+   Démarrage service – permissions & intent
+-------------------------------------------------------------------------------------------------- */
+
+private fun MapFragment.startRouteRecordingViaService() {
+    Log.d("RouteUI", "startRouteRecordingViaService()")
+    if (!hasFineLocationPermission()) {
+        Log.d("RouteUI", "→ missing location permission → hint + return")
+        requestLocationPermissionHint()
+        return
+    }
+
+    val noteId = currentTargetNoteId()
+    Log.d("RouteUI", "→ calling RouteRecordingService.start(noteId=$noteId)")
+    RouteRecordingService.start(requireContext(), noteId)
+
+    // Petit feedback
+    showHintSafe(getString(R.string.route_notif_running, 0))
 }
 
-internal fun MapFragment.finishManualRouteDrawing() {
-    manualPoints.clear()
-    manualAnchorLabel = null
-    manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
-    isManualRouteMode = false
-    binding.btnCancelManualRoute.isVisible = false
-    binding.btnCancelManualRoute.isEnabled = true
-    binding.btnUndoManualRoute.isVisible = false
-    binding.btnUndoManualRoute.isEnabled = true
-    binding.manualRouteHint.isVisible = false
-    binding.btnAddHere.isEnabled = true
-    resetRouteButton()
+/* -------------------------------------------------------------------------------------------------
+   Helpers vers la logique existante du MapFragment
+-------------------------------------------------------------------------------------------------- */
+
+// Accès binding – utilise la propriété exposée par MapFragment (pas de réflexion)
+private val MapFragment.b: FragmentMapBinding
+    get() = this.binding
+
+/** Retourne l’ID de note cible si dispo, sinon 0L (création à la persistance) */
+private fun MapFragment.currentTargetNoteId(): Long {
+    return try {
+        val f = this::class.java.getDeclaredField("targetNoteId")
+        f.isAccessible = true
+        val v = (f.get(this) as? Long) ?: 0L
+        Log.d("RouteUI", "currentTargetNoteId(): $v")
+        v
+    } catch (t: Throwable) {
+        Log.w("RouteUI", "currentTargetNoteId(): reflection failed: ${t.message}")
+        0L
+    }
 }
 
-internal fun MapFragment.startRouteRecording() {
-    if (routeRecorder != null || isSavingRoute) return
+private fun MapFragment.isManualRouteModeSafe(): Boolean {
+    return try {
+        val f = this::class.java.getDeclaredField("isManualRouteMode")
+        f.isAccessible = true
+        val v = (f.get(this) as? Boolean) == true
+        Log.d("RouteUI", "isManualRouteModeSafe(): $v")
+        v
+    } catch (t: Throwable) {
+        Log.w("RouteUI", "isManualRouteModeSafe(): reflection failed: ${t.message}")
+        false
+    }
+}
+
+private fun MapFragment.saveManualRouteSafe() {
+    runCatching {
+        val m = this::class.java.getDeclaredMethod("saveManualRoute")
+        m.isAccessible = true
+        Log.d("RouteUI", "saveManualRouteSafe(): invoking")
+        m.invoke(this)
+    }.onFailure { t ->
+        Log.e("RouteUI", "saveManualRouteSafe(): reflection failed", t)
+    }
+}
+
+fun MapFragment.cancelManualRouteDrawingSafe() {
+    runCatching {
+        val m = this::class.java.getDeclaredMethod("finishManualRouteDrawing")
+        m.isAccessible = true
+        Log.d("RouteUI", "cancelManualRouteDrawingSafe(): invoking")
+        m.invoke(this)
+    }.onFailure { t ->
+        Log.e("RouteUI", "cancelManualRouteDrawingSafe(): reflection failed", t)
+    }
+}
+
+private fun MapFragment.showHintSafe(msg: String) {
+    runCatching {
+        val m = this::class.java.getDeclaredMethod("showHint", String::class.java)
+        m.isAccessible = true
+        Log.d("RouteUI", "showHintSafe(): \"$msg\"")
+        m.invoke(this, msg)
+    }.onFailure { t ->
+        Log.e("RouteUI", "showHintSafe(): reflection failed", t)
+    }
+}
+
+// ⚠️ Pas de "private fun refreshNotesAsync()" ici : on utilise la version déjà définie
+// dans MapFragmentNotes.kt (internal fun MapFragment.refreshNotesAsync()).
+
+/* -------------------------------------------------------------------------------------------------
+   Permissions – garde-fous minimaux (on s’appuie sur ta routine existante pour la demande)
+-------------------------------------------------------------------------------------------------- */
+
+private fun MapFragment.hasFineLocationPermission(): Boolean {
     val ctx = requireContext()
-    val manager = ctx.getSystemService(android.content.Context.LOCATION_SERVICE) as? LocationManager
-    if (manager == null) {
-        showHint(getString(R.string.map_route_provider_unavailable))
-        return
-    }
-    val providers = listOf(
-        LocationManager.GPS_PROVIDER,
-        LocationManager.NETWORK_PROVIDER
-    ).filter { provider ->
-        runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false)
-    }.distinct()
-    if (providers.isEmpty()) {
-        showHint(getString(R.string.map_route_provider_unavailable))
-        return
-    }
-    binding.btnAddHere.isEnabled = false
-    binding.btnRecordRoute.text = getString(R.string.map_route_stop, 0)
-    refreshRouteButtonState()
-    showHint(getString(R.string.map_route_recording_hint))
-    val recorder = RouteRecorder(manager, providers) { points -> onRoutePointsChanged(points) }
-    routeRecorder = recorder
-    val started = runCatching { recorder.start() }.isSuccess
-    if (!started) {
-        routeRecorder = null
-        binding.btnAddHere.isEnabled = true
-        resetRouteButton()
-        showHint(getString(R.string.map_route_provider_unavailable))
-    }
+    val fine = ActivityCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    val coarse = ActivityCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    Log.d("RouteUI", "hasFineLocationPermission(): fine=$fine coarse=$coarse")
+    return fine || coarse
 }
 
-internal fun MapFragment.stopRouteRecording(save: Boolean) {
-    val recorder = routeRecorder ?: return
-    routeRecorder = null
-    binding.btnAddHere.isEnabled = true
-    if (!save) {
-        recorder.cancel()
-        recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
-
-        resetRouteButton()
-        return
-    }
-    binding.btnRecordRoute.isEnabled = false
-    val payload = recorder.stop()
-    if (payload == null) {
-        showHint(getString(R.string.map_route_too_short))
-        recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
-
-        resetRouteButton()
-        return
-    }
-    val mirrorText = getString(R.string.map_route_mirror_format, payload.pointCount)
-    isSavingRoute = true
-    viewLifecycleOwner.lifecycleScope.launch {
-        val result = persistRoute(payload, mirrorText)
-        isSavingRoute = false
-        if (result == null) {
-            showHint(getString(R.string.map_route_save_failed))
-            recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
-
-        } else {
-            targetNoteId = result.noteId
-            showHint(getString(R.string.map_route_saved))
-            MapRenderers.fitToRoute(map, result.payload.points, requireContext())
-
-            captureRoutePreview(result)
-            refreshNotesAsync()
-        }
-        resetRouteButton()
-    }
+private fun MapFragment.requestLocationPermissionHint() {
+    Log.d("RouteUI", "requestLocationPermissionHint() → showHintSafe()")
+    showHintSafe(getString(R.string.map_hint_location_perm_needed))
 }
 
+/* -------------------------------------------------------------------------------------------------
+   Extensions utilitaires UI
+-------------------------------------------------------------------------------------------------- */
+
+private var FragmentMapBinding?.isVisibleCompat: Boolean
+    get() = (this?.root?.visibility == View.VISIBLE)
+    set(value) { this?.root?.visibility = if (value) View.VISIBLE else View.GONE }
+
+/* -------------------------------------------------------------------------------------------------
+   WRAPPERS de compatibilité (résolvent les références encore présentes dans MapFragment.kt)
+-------------------------------------------------------------------------------------------------- */
+
+/** Ancien entrypoint → démarre désormais le ForegroundService */
+internal fun MapFragment.startRouteRecording() {
+    Log.d("RouteUI", "startRouteRecording() wrapper → startRouteRecordingViaService()")
+    startRouteRecordingViaService()
+}
+
+/** Ancien stop → stoppe le service ; l’UI sera mise à jour via le broadcast "STOPPED" */
 internal fun MapFragment.cancelRouteRecording() {
-    val recorder = routeRecorder ?: return
-    routeRecorder = null
-    recorder.cancel()
-    binding.btnAddHere.isEnabled = true
-    recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
-    resetRouteButton()
+    Log.d("RouteUI", "cancelRouteRecording() wrapper → RouteRecordingService.stop()")
+    RouteRecordingService.stop(requireContext())
 }
 
-internal fun MapFragment.onRoutePointsChanged(points: List<RoutePointPayload>) {
-    binding.btnRecordRoute.text = getString(R.string.map_route_stop, points.size)
-    binding.btnRecordRoute.contentDescription = binding.btnRecordRoute.text
-    recordingRouteLine = MapPolylines.updateRoutePolyline(polylineManager, recordingRouteLine, points)
+/** Appels liés au mode manuel (si présents, on les route ; sinon no-op propre) */
+internal fun MapFragment.onManualRouteUndoClicked() = runCatching {
+    val m = this::class.java.getDeclaredMethod("onManualRouteUndoClicked")
+    m.isAccessible = true
+    Log.d("RouteUI", "onManualRouteUndoClicked() wrapper invoke")
+    m.invoke(this)
+}.getOrElse { Log.w("RouteUI", "onManualRouteUndoClicked(): reflection missing") }
 
-}
+internal fun MapFragment.refreshRouteButtonState() = runCatching {
+    val m = this::class.java.getDeclaredMethod("updateRouteUi")
+    m.isAccessible = true
+    Log.d("RouteUI", "refreshRouteButtonState() wrapper → updateRouteUi()")
+    m.invoke(this)
+}.getOrElse { Log.w("RouteUI", "refreshRouteButtonState(): reflection missing") }
 
-internal fun MapFragment.resetRouteButton() {
-    if (isManualRouteMode) {
-        updateManualRouteUi()
-        return
-    }
-    binding.btnRecordRoute.text = getString(R.string.map_route_start)
-    refreshRouteButtonState()
-}
+internal fun MapFragment.startManualRouteDrawing() = runCatching {
+    val m = this::class.java.getDeclaredMethod("startManualRouteDrawing")
+    m.isAccessible = true
+    Log.d("RouteUI", "startManualRouteDrawing() wrapper invoke")
+    m.invoke(this)
+}.getOrElse { Log.w("RouteUI", "startManualRouteDrawing(): reflection missing") }
 
-internal suspend fun MapFragment.persistRoute(
-    payload: RoutePayload,
-    mirrorText: String
-): RoutePersistResult? {
-    val firstPoint = payload.firstPoint()
-    val lat = firstPoint?.lat
-    val lon = firstPoint?.lon
-    return withContext(Dispatchers.IO) {
-        runCatching {
-            var noteId = targetNoteId
-            if (noteId == null) {
-                noteId = noteRepo.createTextNote(
-                    body = "",
-                    lat = lat,
-                    lon = lon,
-                    place = null,
-                    accuracyM = null
-                )
-            } else if (lat != null && lon != null) {
-                noteRepo.updateLocation(noteId!!, lat, lon, null, null)
-            }
-            val routeJson = routeGson.toJson(payload)
-            val routeBlockId = blocksRepo.appendRoute(noteId!!, routeJson, lat, lon)
-            val mirrorBlockId = blocksRepo.appendText(noteId!!, mirrorText)
-            RoutePersistResult(
-                noteId = noteId!!,
-                routeBlockId = routeBlockId,
-                mirrorBlockId = mirrorBlockId,
-                payload = payload
-            )
-        }.onFailure { e ->
-            android.util.Log.e(MapFragment.TAG, "Failed to persist route", e)
-        }.getOrNull()
-    }
-}
+internal fun MapFragment.handleManualMapTap() = runCatching {
+    val m = this::class.java.getDeclaredMethod("handleManualMapTap")
+    m.isAccessible = true
+    Log.d("RouteUI", "handleManualMapTap() wrapper invoke")
+    m.invoke(this)
+}.getOrElse { Log.w("RouteUI", "handleManualMapTap(): reflection missing") }

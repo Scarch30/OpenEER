@@ -16,5 +16,7 @@ class OpenEERApp : Application() {
         CoroutineScope(Dispatchers.IO).launch {
             WhisperService.loadModel(applicationContext)
         }
+        // Channel du service d'itinéraire
+        com.example.openeer.route.RouteRecordingService.ensureChannel(this)
     }
 }

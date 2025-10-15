@@ -1,199 +1,307 @@
 package com.example.openeer.route
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.app.Service
-import android.content.Context
-import android.content.Intent
+import android.app.*
+import android.content.*
+import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
-import com.example.openeer.ui.library.MapActivity
-import com.example.openeer.ui.map.RouteRecorder
+import com.example.openeer.data.block.RoutePointPayload
+import com.example.openeer.data.route.RoutePersister
+import com.example.openeer.ui.map.MapUiDefaults
+import com.google.gson.Gson
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicInteger
 
-class RouteRecordingService : Service() {
+class RouteRecordingService : Service(), LocationListener {
 
     companion object {
-        private const val CHANNEL_ID = "route_recording_channel"
-        private const val CHANNEL_NAME = "Enregistrement d’itinéraire"
-        private const val NOTIF_ID = 4242
+        private const val TAG = "RouteSvc"
 
-        private const val ACTION_START = "com.example.openeer.route.ACTION_START"
-        private const val ACTION_STOP  = "com.example.openeer.route.ACTION_STOP"
-        private const val EXTRA_NOTE_ID = "extra_note_id"
+        const val ACTION_START = "com.example.openeer.route.ACTION_START"
+        const val ACTION_STOP  = "com.example.openeer.route.ACTION_STOP"
+
+        const val ACTION_STATE  = "com.example.openeer.route.STATE"
+        const val ACTION_POINTS = "com.example.openeer.route.POINTS"
+
+        const val EXTRA_NOTE_ID = "extra_note_id"
+        const val EXTRA_STATE   = "extra_state"
+        const val EXTRA_COUNT   = "extra_count"
+
+        private const val CHANNEL_ID = "route_recording"
+        private const val NOTIF_ID   = 42
+
+        // Fallback local si non exposé par MapUiDefaults
+        private const val MIN_INTERVAL_MS: Long = 1500L
 
         fun start(context: Context, noteId: Long) {
             val i = Intent(context, RouteRecordingService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_NOTE_ID, noteId)
+            Log.d(TAG, "start(): noteId=$noteId")
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i) else context.startService(i)
         }
-
         fun stop(context: Context) {
+            Log.d(TAG, "stop() requested")
             val i = Intent(context, RouteRecordingService::class.java).setAction(ACTION_STOP)
             context.startService(i)
         }
+
+        fun ensureChannel(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val ch = NotificationChannel(
+                    CHANNEL_ID,
+                    context.getString(R.string.route_channel_name),
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = context.getString(R.string.route_channel_desc)
+                }
+                nm.createNotificationChannel(ch)
+            }
+        }
     }
 
-    // DB / Repos
-    private val db by lazy { AppDatabase.get(applicationContext) }
-    private val blocksRepo by lazy { BlocksRepository(db.blockDao(), db.noteDao(), io = Dispatchers.IO, linkDao = db.blockLinkDao()) }
-    private val noteRepo   by lazy { NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo) }
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // Location
+    // DI
+    private lateinit var noteRepo: NoteRepository
+    private lateinit var blocksRepo: BlocksRepository
+    private val routeGson by lazy { Gson() }
+
     private lateinit var lm: LocationManager
-    private var recorder: RouteRecorder? = null
 
-    // Contexte courant
-    private var noteId: Long = 0L
+    private val points = mutableListOf<RoutePointPayload>()
     private val pointCount = AtomicInteger(0)
+    private var lastAcceptedAt: Long = 0L
+    private var lastLocation: Location? = null
+    private var targetNoteId: Long = 0L
 
-    // Scope service
-    private val svcScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-
-    override fun onBind(intent: Intent?): IBinder? = null
+    private val providers: List<String> by lazy {
+        buildList {
+            runCatching { if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) add(LocationManager.GPS_PROVIDER) }
+            runCatching { if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) add(LocationManager.NETWORK_PROVIDER) }
+            if (isEmpty()) add(LocationManager.PASSIVE_PROVIDER)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
-        createChannel()
+        Log.d(TAG, "onCreate()")
         lm = getSystemService(LOCATION_SERVICE) as LocationManager
+        ensureChannel(this)
+
+        // ⚠️ Utilise la factory présente dans ton AppDatabase
+        val db = AppDatabase.get(applicationContext)
+        val noteDao       = db.noteDao()
+        val blockDao      = db.blockDao()
+        val attachmentDao = db.attachmentDao()
+        val blockReadDao  = db.blockReadDao()
+
+        // Assure-toi que ces constructeurs correspondent à tes classes
+        blocksRepo = BlocksRepository(
+            blockDao = blockDao,
+            noteDao = noteDao,
+            linkDao = db.blockLinkDao()
+        )
+        noteRepo   = NoteRepository(noteDao, attachmentDao, blockReadDao, blocksRepo)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                noteId = intent.getLongExtra(EXTRA_NOTE_ID, 0L)
-                startInForeground()
-                startRecorder()
+                targetNoteId = intent.getLongExtra(EXTRA_NOTE_ID, 0L)
+                Log.d(TAG, "onStartCommand(ACTION_START): noteId=$targetNoteId")
+                startForeground(NOTIF_ID, buildNotif(getString(R.string.route_notif_running, 0)))
+                emitState("STARTED")
+                startListening()
             }
             ACTION_STOP -> {
-                svcScope.launch { stopAndPersist() }
+                Log.d(TAG, "onStartCommand(ACTION_STOP)")
+                serviceScope.launch { persistAndStop() }
+            }
+            else -> {
+                Log.w(TAG, "onStartCommand(): unknown action=${intent?.action}")
             }
         }
         return START_STICKY
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        recorder?.cancel()
-        recorder = null
-        svcScope.cancel()
+    private fun buildStopPendingIntent(): PendingIntent {
+        val stop = Intent(this, RouteRecordingService::class.java).setAction(ACTION_STOP)
+        val flags = if (Build.VERSION.SDK_INT >= 23)
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        else
+            PendingIntent.FLAG_UPDATE_CURRENT
+        return PendingIntent.getService(this, 1, stop, flags)
     }
 
-    // ---------- Foreground / notifications -----------
-
-    private fun startInForeground() {
-        val n = buildNotif("Enregistrement de l’itinéraire…", ongoing = true)
-        startForeground(NOTIF_ID, n)
-    }
-
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            val ch = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW)
-            nm.createNotificationChannel(ch)
-        }
-    }
-
-    private fun buildNotif(content: String, ongoing: Boolean): Notification {
-        val openIntent = Intent(this, MapActivity::class.java)
-        val contentPi = PendingIntent.getActivity(
-            this, 0, openIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val stopIntent = Intent(this, RouteRecordingService::class.java).setAction(ACTION_STOP)
-        val stopPi = PendingIntent.getService(
-            this, 1, stopIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
+    private fun buildNotif(content: String, ongoing: Boolean = true): Notification {
+        val stopAction = NotificationCompat.Action.Builder(
+            R.drawable.ic_stop, getString(R.string.route_action_stop), buildStopPendingIntent()
+        ).build()
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher) // ✅ icône appli par défaut
-            .setContentTitle("OpenEER")
+            .setSmallIcon(R.drawable.ic_route_rec)
+            .setContentTitle(getString(R.string.route_notif_title))
             .setContentText(content)
-            .setContentIntent(contentPi)
             .setOngoing(ongoing)
-            .addAction(0, "Arrêter", stopPi) // ✅ libellé inline
             .setOnlyAlertOnce(true)
+            .addAction(stopAction)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
-    private fun updateNotif(points: Int) {
+    private fun updateNotif(count: Int) {
+        Log.d(TAG, "updateNotif(count=$count)")
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIF_ID, buildNotif("Enregistrement en cours — $points pts", ongoing = true))
+        nm.notify(NOTIF_ID, buildNotif(getString(R.string.route_notif_running, count)))
     }
 
-    // --------------- Enregistrement ------------------
+    private fun emitState(state: String) {
+        Log.d(TAG, "emitState($state)")
+        sendBroadcast(
+            Intent(ACTION_STATE)
+                .setPackage(packageName)      // 🔒 cible ton app
+                .putExtra(EXTRA_STATE, state)
+        )
+    }
 
-    private fun startRecorder() {
-        val providers = buildList {
-            if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) add(LocationManager.GPS_PROVIDER)
-            if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) add(LocationManager.NETWORK_PROVIDER)
-        }.ifEmpty { listOf(LocationManager.PASSIVE_PROVIDER) }
+    private fun emitCount(count: Int) {
+        Log.d(TAG, "emitCount($count)")
+        sendBroadcast(
+            Intent(ACTION_POINTS)
+                .setPackage(packageName)      // 🔒 cible ton app
+                .putExtra(EXTRA_COUNT, count)
+        )
+    }
 
-        recorder = RouteRecorder(
-            locationManager = lm,
-            providers = providers
-        ) { points ->
-            val previous = pointCount.getAndSet(points.size)
-            if (points.size != previous) updateNotif(points.size)
-        }
+    @Suppress("MissingPermission")
+    private fun startListening() {
+        points.clear()
+        pointCount.set(0)
+        lastAcceptedAt = 0L
+        lastLocation = null
 
-        try {
-            recorder?.start()
-        } catch (_: SecurityException) {
-            stopSelf()
+        Log.d(TAG, "startListening(): providers=$providers, interval=${MapUiDefaults.REQUEST_INTERVAL_MS}ms")
+        providers.forEach { provider ->
+            runCatching {
+                lm.requestLocationUpdates(
+                    provider,
+                    MapUiDefaults.REQUEST_INTERVAL_MS,
+                    0f,
+                    this
+                )
+                Log.d(TAG, "requestLocationUpdates(provider=$provider) OK")
+            }.onFailure {
+                Log.e(TAG, "requestLocationUpdates(provider=$provider) FAILED", it)
+            }
         }
     }
 
-    private suspend fun stopAndPersist() = withContext(Dispatchers.IO) {
-        val payload: RoutePayload? = runCatching { recorder?.stop() }.getOrNull()
-        recorder = null
+    override fun onLocationChanged(location: Location) {
+        val now = System.currentTimeMillis()
 
-        if (payload == null || payload.points.isNullOrEmpty() || noteId == 0L) {
+        // Throttle temps
+        if (now - lastAcceptedAt < MIN_INTERVAL_MS) return
+
+        // Throttle distance
+        lastLocation?.let { prev ->
+            val d = location.distanceTo(prev)
+            if (d < MapUiDefaults.MIN_DISTANCE_METERS) return
+        }
+
+        // Limite dure
+        if (points.size >= MapUiDefaults.MAX_ROUTE_POINTS) return
+
+        points.add(RoutePointPayload(location.latitude, location.longitude, now))
+        lastAcceptedAt = now
+        lastLocation = Location(location)
+
+        val c = pointCount.incrementAndGet()
+        Log.d(TAG, "onLocationChanged(): accepted point #$c @ ${location.latitude},${location.longitude}")
+        updateNotif(c)
+        emitCount(c)
+    }
+
+    private suspend fun persistAndStop() {
+        Log.d(TAG, "persistAndStop(): points=${points.size}, noteId=$targetNoteId")
+
+        // Arrête les updates
+        runCatching { providers.forEach { lm.removeUpdates(this) } }
+            .onFailure { Log.w(TAG, "removeUpdates error", it) }
+
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+
+        if (points.size < 2) {
+            Log.w(TAG, "Too few points → no route persisted")
             withContext(Dispatchers.Main) {
-                val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-                nm.notify(NOTIF_ID, buildNotif("Enregistrement arrêté", ongoing = false))
+                nm.notify(NOTIF_ID, buildNotif(getString(R.string.route_notif_done_empty), ongoing = false))
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
+                emitState("STOPPED")
             }
-            return@withContext
+            return
         }
 
-        val last = payload.points.last()
-        runCatching {
-            val json = com.google.gson.Gson().toJson(payload)
-            blocksRepo.appendRoute(
-                noteId = noteId,
-                routeJson = json,
-                lat = last.lat,
-                lon = last.lon
+        val payload = RoutePayload(
+            startedAt = points.first().t,
+            endedAt = points.last().t,
+            points = points.toList()
+        )
+
+        val mirrorText = "Itinéraire • ${points.size} pts • ${formatTime(payload.startedAt)} → ${formatTime(payload.endedAt)}"
+
+        // Persistance via data-layer (aucune dépendance UI)
+        val persisted = runCatching {
+            RoutePersister.persistRoute(
+                noteRepo,
+                blocksRepo,
+                routeGson,
+                targetNoteId,
+                payload,
+                mirrorText
             )
-            // Optionnel : ancrer la note à la fin de l’itinéraire
-            noteRepo.updateLocation(
-                id = noteId,
-                lat = last.lat,
-                lon = last.lon,
-                place = null,
-                accuracyM = null
-            )
-        }
+        }.onFailure { e ->
+            Log.e(TAG, "persistRoute() failed", e)
+        }.isSuccess
 
         withContext(Dispatchers.Main) {
-            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(NOTIF_ID, buildNotif("Itinéraire enregistré", ongoing = false))
+            if (persisted) {
+                Log.d(TAG, "persistRoute() OK")
+                nm.notify(NOTIF_ID, buildNotif(getString(R.string.route_notif_done), ongoing = false))
+            } else {
+                Log.w(TAG, "persistRoute() NOT saved")
+                nm.notify(NOTIF_ID, buildNotif(getString(R.string.route_notif_done_empty), ongoing = false))
+            }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
+            emitState("STOPPED")
         }
     }
+
+    private fun formatTime(ts: Long): String {
+        val h = java.text.SimpleDateFormat("HH:mm")
+        return h.format(java.util.Date(ts))
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onDestroy() {
+        Log.d(TAG, "onDestroy()")
+        super.onDestroy()
+        serviceScope.cancel()
+    }
+
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+    override fun onProviderEnabled(provider: String) {}
+    override fun onProviderDisabled(provider: String) {}
 }

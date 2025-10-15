@@ -194,4 +194,21 @@
     <string name="map_snapshot_no_capture">Aucune capture disponible</string>
     <string name="address_resolving_fallback">Adresse en cours de résolution… (%1$s)</string>
 
+    <!-- Foreground Service / Notifications -->
+    <string name="route_channel_name">Suivi d’itinéraire</string>
+    <string name="route_channel_desc">Enregistrement GPS en cours</string>
+
+    <string name="route_notif_title">OpenEER — Itinéraire</string>
+    <string name="route_notif_running">Enregistrement en cours • %1$d points</string>
+    <string name="route_notif_done">Itinéraire enregistré</string>
+    <string name="route_notif_done_empty">Aucun point enregistré</string>
+    <string name="route_action_stop">Arrêter</string>
+
+    <!-- UI MapFragment (bouton principal) -->
+    <string name="map_route_start_gps">Démarrer (GPS)</string>
+    <string name="map_route_stop_with_count">Arrêter (%1$d)</string>
+
+    <!-- Hint permission localisation -->
+    <string name="map_hint_location_perm_needed">Autorise la localisation pour enregistrer l’itinéraire.</string>
+
 </resources>

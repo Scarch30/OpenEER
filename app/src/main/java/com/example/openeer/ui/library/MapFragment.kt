@@ -40,7 +40,6 @@ import com.example.openeer.ui.map.MapPin
 import com.example.openeer.ui.map.MapPolylines
 import com.example.openeer.ui.map.MapStyleIds
 import com.example.openeer.ui.map.RecentHere
-import com.example.openeer.ui.map.RouteRecorder
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.map.MapRenderers
@@ -90,7 +89,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var polylineManager: LineManager? = null
     internal var recordingRouteLine: Line? = null
     internal var manualRouteLine: Line? = null
-    internal var routeRecorder: RouteRecorder? = null
+    // RouteRecorder supprimé (service désormais)
     internal var awaitingRoutePermission = false
     internal var isSavingRoute = false
     internal var isManualRouteMode = false
@@ -150,7 +149,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                     if (noteId != null && noteId > 0) putLong(ARG_NOTE_ID, noteId)
                     if (blockId != null && blockId > 0) putLong(ARG_BLOCK_ID, blockId)
                     if (!mode.isNullOrBlank()) putString(ARG_MODE, mode)
-                    putBoolean(ARG_SHOW_LIBRARY_PINS, showLibraryPins) // ⬅️ clé passée au fragment
+                    putBoolean(ARG_SHOW_LIBRARY_PINS, showLibraryPins)
                 }
             }
     }
@@ -206,7 +205,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         b.btnUndoManualRoute.isVisible = false
         b.btnUndoManualRoute.setOnClickListener { onManualRouteUndoClicked() }
         b.btnCancelManualRoute.isVisible = false
-        b.btnCancelManualRoute.setOnClickListener { cancelManualRouteDrawing() }
+        b.btnCancelManualRoute.setOnClickListener { cancelManualRouteDrawingSafe() }
         refreshRouteButtonState()
 
         parentFragmentManager.setFragmentResultListener(RESULT_MANUAL_ROUTE, viewLifecycleOwner) { _, bundle ->
@@ -214,8 +213,14 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             val lon = bundle.getDouble(RESULT_MANUAL_ROUTE_LON, Double.NaN)
             if (lat.isNaN() || lon.isNaN()) return@setFragmentResultListener
             val label = bundle.getString(RESULT_MANUAL_ROUTE_LABEL)
-            startManualRouteDrawing(LatLng(lat, lon), label)
+            // Pré-positionne le seed pour le mode manuel puis démarre sans arguments
+            selectionLatLng = LatLng(lat, lon)
+            manualAnchorLabel = label
+            startManualRouteDrawing()
         }
+
+        // 🔗 Branche la logique Route (service + receivers + libellé bouton)
+        setupRouteUiBindings()
     }
 
     override fun onMapReady(mapboxMap: MapLibreMap) {
@@ -281,10 +286,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             applyStartMode(initialMode)
         }
 
-        // Tap : zoom doux + bottom sheet (si on clique sur une pastille)
+        // Tap carte
         map?.addOnMapClickListener { latLng ->
             if (isManualRouteMode) {
-                handleManualMapTap(latLng)
+                handleManualMapTap() // wrapper sans argument
                 return@addOnMapClickListener true
             }
             val screenPt = map?.projection?.toScreenLocation(latLng) ?: return@addOnMapClickListener false
@@ -351,13 +356,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     // MapView lifecycle
     override fun onResume() { super.onResume(); mapView?.onResume() }
     override fun onPause() {
-        cancelRouteRecording()
+        // ❌ on ne stoppe plus l’enregistrement ici : le service gère la vie en arrière-plan
         mapView?.onPause()
         super.onPause()
     }
     override fun onLowMemory() { super.onLowMemory(); mapView?.onLowMemory() }
     override fun onDestroyView() {
-        cancelRouteRecording()
+        // ❌ idem : ne pas stopper le service ici
         selectionDialog?.setOnDismissListener(null)
         selectionDialog?.dismiss()
         handleSelectionDismissed()
@@ -414,10 +419,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
     }
 
-    /**
-     * Centre instantanément la caméra sur la dernière position connue de l’utilisateur.
-     * Pas d’animation → si on déclenche un snapshot immédiatement après, on capture pile le viewport courant.
-     */
     private fun centerOnUserIfPossible() {
         val ctx = context ?: return
         val locationManager = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
@@ -462,7 +463,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                     val lon = block.lon
                     if (lat != null && lon != null) {
                         map?.animateCamera(
-                            CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), POINT_FOCUS_ZOOM)
+                            CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 17.6)
                         )
                     }
                 }
@@ -478,7 +479,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                         val lon = block.lon
                         if (lat != null && lon != null) {
                             map?.animateCamera(
-                                CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), POINT_FOCUS_ZOOM)
+                                CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 17.6)
                             )
                         }
                     }
@@ -491,7 +492,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private fun applyStartMode(initialMode: String) {
         when (initialMode) {
             MapActivity.MODE_CENTER_ON_HERE -> recenterToUserOrAll()
-            else -> Unit // MODE_FOCUS_NOTE: le focus bloc est géré par applyPendingBlockFocus()
+            else -> Unit
         }
     }
 }
