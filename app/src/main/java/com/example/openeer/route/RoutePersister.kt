@@ -5,6 +5,7 @@ import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
 import com.google.gson.Gson
+import com.example.openeer.ui.map.RoutePersistResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.lang.reflect.Method
@@ -43,10 +44,10 @@ object RoutePersister {
         noteId: Long,
         payload: RoutePayload,
         mirrorText: String,
-        fallbackSaver: (suspend () -> Unit)? = null
-    ) = withContext(Dispatchers.IO) {
+        fallbackSaver: (suspend () -> RoutePersistResult)? = null
+    ): RoutePersistResult? = withContext(Dispatchers.IO) {
         // 1) Tentative via MapData.persistRoute(...) par réflexion
-        val ok = runCatching {
+        val result = runCatching {
             val mapDataClass = Class.forName(MAPDATA_FQCN)
             val method: Method = mapDataClass.getDeclaredMethod(
                 MAPDATA_METHOD,
@@ -59,7 +60,7 @@ object RoutePersister {
             ).apply { isAccessible = true }
 
             // Appel statique : MapData.persistRoute(...)
-            method.invoke(
+            val invokeResult = method.invoke(
                 /* obj = */ null,
                 noteRepo,
                 blocksRepo,
@@ -68,24 +69,25 @@ object RoutePersister {
                 payload,
                 mirrorText
             )
-            true
+            (invokeResult as? RoutePersistResult)?.also {
+                Log.d(TAG, "Route persistance: MapData.persistRoute() appelé avec succès.")
+            }
         }.onFailure { e ->
             Log.d(TAG, "MapData.persistRoute non disponible ou signature différente: ${e.message}")
-        }.getOrDefault(false)
+        }.getOrNull()
 
-        if (ok) {
-            Log.d(TAG, "Route persistance: MapData.persistRoute() appelé avec succès.")
-            return@withContext
+        if (result != null) {
+            return@withContext result
         }
 
         // 2) Fallback optionnel
         if (fallbackSaver != null) {
             Log.d(TAG, "Route persistance: fallbackSaver() (impl data-layer) …")
-            fallbackSaver.invoke()
-            return@withContext
+            return@withContext fallbackSaver.invoke()
         }
 
         // 3) Rien d’autre : on log et on laisse l’appelant gérer le rechargement UI
         Log.w(TAG, "Route persistance: ni MapData.persistRoute ni fallback fournis. Rien n’a été écrit.")
+        null
     }
 }

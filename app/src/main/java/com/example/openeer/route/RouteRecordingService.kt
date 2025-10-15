@@ -8,6 +8,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.openeer.R
@@ -25,17 +26,23 @@ import java.util.concurrent.atomic.AtomicInteger
 class RouteRecordingService : Service(), LocationListener {
 
     companion object {
-        private const val TAG = "RouteSvc"
+        private const val TAG = "RouteService"
 
         const val ACTION_START = "com.example.openeer.route.ACTION_START"
         const val ACTION_STOP  = "com.example.openeer.route.ACTION_STOP"
 
         const val ACTION_STATE  = "com.example.openeer.route.STATE"
         const val ACTION_POINTS = "com.example.openeer.route.POINTS"
+        const val ACTION_SAVED  = "com.example.openeer.route.SAVED"
 
         const val EXTRA_NOTE_ID = "extra_note_id"
         const val EXTRA_STATE   = "extra_state"
         const val EXTRA_COUNT   = "extra_count"
+        const val EXTRA_LAST_LAT = "extra_last_lat"
+        const val EXTRA_LAST_LON = "extra_last_lon"
+        const val EXTRA_LAST_TS  = "extra_last_ts"
+        const val EXTRA_ROUTE_BLOCK_ID  = "extra_route_block_id"
+        const val EXTRA_MIRROR_BLOCK_ID = "extra_mirror_block_id"
 
         private const val CHANNEL_ID = "route_recording"
         private const val NOTIF_ID   = 42
@@ -176,15 +183,6 @@ class RouteRecordingService : Service(), LocationListener {
         )
     }
 
-    private fun emitCount(count: Int) {
-        Log.d(TAG, "emitCount($count)")
-        sendBroadcast(
-            Intent(ACTION_POINTS)
-                .setPackage(packageName)      // 🔒 cible ton app
-                .putExtra(EXTRA_COUNT, count)
-        )
-    }
-
     @Suppress("MissingPermission")
     private fun startListening() {
         points.clear()
@@ -192,14 +190,15 @@ class RouteRecordingService : Service(), LocationListener {
         lastAcceptedAt = 0L
         lastLocation = null
 
-        Log.d(TAG, "startListening(): providers=$providers, interval=${MapUiDefaults.REQUEST_INTERVAL_MS}ms")
+        Log.d(TAG, "startListening() providers=$providers")
         providers.forEach { provider ->
             runCatching {
                 lm.requestLocationUpdates(
                     provider,
                     MapUiDefaults.REQUEST_INTERVAL_MS,
                     0f,
-                    this
+                    this,
+                    Looper.getMainLooper()
                 )
                 Log.d(TAG, "requestLocationUpdates(provider=$provider) OK")
             }.onFailure {
@@ -223,14 +222,22 @@ class RouteRecordingService : Service(), LocationListener {
         // Limite dure
         if (points.size >= MapUiDefaults.MAX_ROUTE_POINTS) return
 
-        points.add(RoutePointPayload(location.latitude, location.longitude, now))
+        val point = RoutePointPayload(location.latitude, location.longitude, now)
+        points.add(point)
         lastAcceptedAt = now
         lastLocation = Location(location)
 
         val c = pointCount.incrementAndGet()
-        Log.d(TAG, "onLocationChanged(): accepted point #$c @ ${location.latitude},${location.longitude}")
+        Log.d(TAG, "point #$c ${point.lat},${point.lon} @${point.t}")
         updateNotif(c)
-        emitCount(c)
+        sendBroadcast(
+            Intent(ACTION_POINTS)
+                .setPackage(packageName)
+                .putExtra(EXTRA_COUNT, c)
+                .putExtra(EXTRA_LAST_LAT, point.lat)
+                .putExtra(EXTRA_LAST_LON, point.lon)
+                .putExtra(EXTRA_LAST_TS, point.t)
+        )
     }
 
     private suspend fun persistAndStop() {
@@ -262,21 +269,33 @@ class RouteRecordingService : Service(), LocationListener {
         val mirrorText = "Itinéraire • ${points.size} pts • ${formatTime(payload.startedAt)} → ${formatTime(payload.endedAt)}"
 
         // Persistance via data-layer (aucune dépendance UI)
-        val persisted = runCatching {
+        val result = runCatching {
             RoutePersister.persistRoute(
-                noteRepo,
-                blocksRepo,
-                routeGson,
-                targetNoteId,
-                payload,
-                mirrorText
+                noteRepo = noteRepo,
+                blocksRepo = blocksRepo,
+                gson = routeGson,
+                noteId = targetNoteId,
+                payload = payload,
+                mirrorText = mirrorText
             )
         }.onFailure { e ->
             Log.e(TAG, "persistRoute() failed", e)
-        }.isSuccess
+        }.getOrNull()
+
+        result?.let {
+            Log.d(TAG, "persistAndStop(): saved note=${it.noteId} routeBlock=${it.routeBlockId}")
+            sendBroadcast(
+                Intent(ACTION_SAVED)
+                    .setPackage(packageName)
+                    .putExtra(EXTRA_NOTE_ID, it.noteId)
+                    .putExtra(EXTRA_ROUTE_BLOCK_ID, it.routeBlockId)
+                    .putExtra(EXTRA_MIRROR_BLOCK_ID, it.mirrorBlockId)
+                    .putExtra(EXTRA_COUNT, points.size)
+            )
+        }
 
         withContext(Dispatchers.Main) {
-            if (persisted) {
+            if (result != null) {
                 Log.d(TAG, "persistRoute() OK")
                 nm.notify(NOTIF_ID, buildNotif(getString(R.string.route_notif_done), ongoing = false))
             } else {
