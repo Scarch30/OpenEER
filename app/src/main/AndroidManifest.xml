@@ -32,6 +32,15 @@
     <!-- Réseau -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Localisation en arrière-plan (Android 10+) -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- Types de foreground services (Android 10+/14+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- (Optionnel mais utile) éviter l’endormissement CPU pendant le suivi -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application
         android:name=".OpenEERApp"
         android:allowBackup="true"
@@ -119,6 +128,11 @@
             android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
 
         <service
+            android:name=".route.RouteRecordingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <service
             android:name=".audio.RecorderService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
@@ -127,6 +141,7 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
 
         <provider
             android:name="androidx.core.content.FileProvider"
