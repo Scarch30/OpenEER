@@ -7,12 +7,12 @@ import android.view.Menu
 import android.view.MenuItem
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
-import com.example.openeer.BuildConfig
 import com.example.openeer.R
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.example.openeer.ui.map.MapUiDefaults
+import com.example.openeer.util.isDebugBuild
 
 class MapActivity : AppCompatActivity() {
 
@@ -50,7 +50,7 @@ class MapActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         val superResult = super.onCreateOptionsMenu(menu)
-        if (!BuildConfig.DEBUG) return superResult
+        if (!isDebugBuild()) return superResult
         menuInflater.inflate(R.menu.menu_map_debug, menu)
         return true
     }
