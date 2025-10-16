@@ -95,6 +95,7 @@ fun MapFragment.setupRouteUiBindings() {
                         s.count = 0
                         liveRoutePoints.clear()
                         recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
+                        RouteDebugOverlay.hide(this@setupRouteUiBindings)
                         updateRouteUi()
                     }
                     "STOPPED" -> {
@@ -168,6 +169,8 @@ fun MapFragment.setupRouteUiBindings() {
                         val simplified = RouteSimplifier.simplifyMeters(payload.points, adaptiveEpsilon)
                         val previewPoints = if (simplified.size >= 2) simplified else payload.points
 
+                        RouteDebugOverlay.update(this@setupRouteUiBindings, payload.points)
+
                         // Recadrer la carte sur la route puis capturer le snapshot
                         MapRenderers.fitToRoute(map, previewPoints, requireContext())
 
@@ -192,6 +195,7 @@ fun MapFragment.setupRouteUiBindings() {
                         // Pas de payload récupéré : on notifie quand même, et la liste est rafraîchie
                         targetNoteId = noteId
                         showHint(getString(R.string.map_route_saved))
+                        RouteDebugOverlay.hide(this@setupRouteUiBindings)
                     }
 
                     updateRouteUi()
@@ -243,6 +247,10 @@ fun MapFragment.setupRouteUiBindings() {
                 runCatching { ctx.unregisterReceiver(routeSavedReceiver) }
                 savedReceiverRegistered = false
             }
+        }
+
+        override fun onDestroy(owner: LifecycleOwner) {
+            RouteDebugOverlay.hide(this@setupRouteUiBindings)
         }
     })
 }
