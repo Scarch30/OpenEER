@@ -98,8 +98,11 @@ internal fun MapFragment.captureRoutePreview(
     }
     val points = result.payload.points
     if (points.isEmpty()) {
+        RouteDebugOverlay.hide(this)
         onComplete?.invoke(); return
     }
+
+    RouteDebugOverlay.update(this, points)
 
     val adaptiveEpsilon = RouteSimplifier.adaptiveEpsilonMeters(points)
     val simplified = RouteSimplifier.simplifyMeters(points, adaptiveEpsilon)

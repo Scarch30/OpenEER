@@ -121,4 +121,8 @@
             android:contentDescription="@string/map_manual_route_cancel_cd" />
     </LinearLayout>
 
+    <include
+        android:id="@+id/routeDebugOverlay"
+        layout="@layout/view_route_debug_overlay" />
+
 </FrameLayout>
