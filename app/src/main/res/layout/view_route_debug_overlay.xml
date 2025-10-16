@@ -50,7 +50,7 @@
 
         <com.google.android.material.slider.Slider
             android:id="@+id/sliderEpsilon"
-            android:layout_width="200dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:value="8"
             app:valueFrom="1"
@@ -84,7 +84,7 @@
 
         <com.google.android.material.slider.Slider
             android:id="@+id/sliderMinInterval"
-            android:layout_width="200dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:value="1200"
             app:stepSize="100"
@@ -118,7 +118,7 @@
 
         <com.google.android.material.slider.Slider
             android:id="@+id/sliderMinDisplacement"
-            android:layout_width="200dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:value="8"
             app:stepSize="1"
@@ -152,7 +152,7 @@
 
         <com.google.android.material.slider.Slider
             android:id="@+id/sliderMaxAccuracy"
-            android:layout_width="200dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:value="25"
             app:stepSize="1"
