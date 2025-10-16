@@ -91,6 +91,14 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
                 return@launch
             }
 
+            val routePayload = if (block.type == BlockType.ROUTE) {
+                block.routeJson?.let {
+                    runCatching { routeGson.fromJson(it, RoutePayload::class.java) }.getOrNull()
+                }
+            } else {
+                null
+            }
+
             val file = MapPreviewStorage.fileFor(requireContext(), block.id, block.type)
             if (!file.exists()) {
                 Toast.makeText(requireContext(), "Aucune capture disponible", Toast.LENGTH_SHORT).show()
@@ -103,22 +111,24 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
                 .centerCrop()
                 .into(img)
 
-            val label = buildLabel(block)
+            val label = buildLabel(block, routePayload)
             title.text = label
 
             btn.setOnClickListener {
                 openInGoogleMaps(block)
             }
 
-            setupRouteButton(routeBtn, block)
+            setupRouteButton(routeBtn, block, routePayload)
         }
 
         return view
     }
 
-    private fun buildLabel(block: BlockEntity): String {
+    private fun buildLabel(block: BlockEntity, routePayload: RoutePayload?): String {
         return when {
             !block.placeName.isNullOrBlank() -> block.placeName!!
+            block.type == BlockType.ROUTE && routePayload != null ->
+                getString(R.string.block_route_points, routePayload.points.size)
             block.lat != null && block.lon != null -> String.format(
                 Locale.US,
                 "%.5f, %.5f",
@@ -144,18 +154,14 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private fun setupRouteButton(routeBtn: Button, block: BlockEntity) {
-        if (block.type != BlockType.ROUTE) {
+    private fun setupRouteButton(routeBtn: Button, block: BlockEntity, payload: RoutePayload?) {
+        if (block.type != BlockType.ROUTE || payload == null) {
             routeBtn.visibility = View.GONE
             routeBtn.setOnClickListener(null)
             return
         }
 
-        val payload = block.routeJson?.let {
-            runCatching { routeGson.fromJson(it, RoutePayload::class.java) }.getOrNull()
-        }
-
-        val points = payload?.points?.map { LatLng(it.lat, it.lon) } ?: emptyList()
+        val points = payload.points.map { LatLng(it.lat, it.lon) }
         val url = buildMapsUrl(points)
 
         if (url != null) {
@@ -165,7 +171,7 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
             }
         } else {
             routeBtn.visibility = View.GONE
-            Toast.makeText(requireContext(), R.string.map_route_url_error, Toast.LENGTH_SHORT).show()
+            routeBtn.setOnClickListener(null)
         }
     }
 

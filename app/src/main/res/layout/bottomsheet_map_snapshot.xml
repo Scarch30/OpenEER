@@ -13,7 +13,7 @@
         android:scaleType="centerCrop"
         android:adjustViewBounds="true"
         android:background="@drawable/shape_rounded_bg"
-        android:contentDescription="@string/map_snapshot_preview" />
+        android:contentDescription="@string/block_map_preview_cd" />
 
     <TextView
         android:id="@+id/mapSnapshotTitle"
