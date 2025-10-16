@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.data.Attachment
 import com.example.openeer.data.block.BlockType
+import com.example.openeer.map.RouteSimplifier
 import com.example.openeer.ui.map.MapSnapshots
 import com.example.openeer.ui.map.MapUiDefaults
 import com.example.openeer.ui.map.RoutePersistResult
@@ -100,7 +101,11 @@ internal fun MapFragment.captureRoutePreview(
         onComplete?.invoke(); return
     }
 
-    val latLngs = points.map { LatLng(it.lat, it.lon) }
+    val adaptiveEpsilon = RouteSimplifier.adaptiveEpsilonMeters(points)
+    val simplified = RouteSimplifier.simplifyMeters(points, adaptiveEpsilon)
+    val previewPoints = if (simplified.size >= 2) simplified else points
+
+    val latLngs = previewPoints.map { LatLng(it.lat, it.lon) }
     val bounds = if (latLngs.size >= 2) {
         val builder = LatLngBounds.Builder()
         latLngs.forEach { builder.include(it) }

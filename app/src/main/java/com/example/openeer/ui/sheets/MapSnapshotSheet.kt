@@ -19,6 +19,7 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.map.RouteSimplifier
 import com.example.openeer.map.buildMapsUrl
 import com.example.openeer.ui.library.MapPreviewStorage
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -161,8 +162,11 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
             return
         }
 
-        val points = payload.points.map { LatLng(it.lat, it.lon) }
-        val url = buildMapsUrl(points)
+        val adaptiveEpsilon = RouteSimplifier.adaptiveEpsilonMeters(payload.points)
+        val simplified = RouteSimplifier.simplifyMeters(payload.points, adaptiveEpsilon)
+        val effectivePoints = if (simplified.size >= 2) simplified else payload.points
+        val latLngPoints = effectivePoints.map { LatLng(it.lat, it.lon) }
+        val url = buildMapsUrl(latLngPoints)
 
         if (url != null) {
             routeBtn.visibility = View.VISIBLE
