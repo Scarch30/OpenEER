@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel // ✅ pour serviceScope.cancel()
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.max
 
 class RouteRecordingService : Service(), LocationListener {
 
@@ -226,18 +227,22 @@ class RouteRecordingService : Service(), LocationListener {
         if (!shouldAccept(location)) return
 
         val previous = lastAccepted
+        val speed = computeSpeed(location)
+        val minDisp = minDisplacementFor(speed)
         val dt = previous?.let { location.time - lastAcceptedAt }
         val dd = previous?.distanceTo(location)
         Log.d(
             GPS_TAG,
-            "accept acc=${location.accuracy} dt=${dt ?: "-"} dd=${dd ?: "-"}"
+            "accept acc=${location.accuracy} dt=${dt ?: "-"} dd=${dd ?: "-"} v=$speed minDisp=$minDisp"
         )
 
         val alpha = when {
-            location.accuracy <= 8 -> 0.7
-            location.accuracy <= 15 -> 0.5
-            else -> 0.3
-        }
+            speed > 10f -> MapUiDefaults.ROUTE_EMA_FAST_ALPHA
+            speed > 3f -> MapUiDefaults.ROUTE_EMA_MED_ALPHA
+            speed >= 0f -> MapUiDefaults.ROUTE_EMA_SLOW_ALPHA
+            else -> MapUiDefaults.ROUTE_EMA_MED_ALPHA
+        }.toDouble()
+
         val lat = previous?.let { alpha * location.latitude + (1 - alpha) * it.latitude }
             ?: location.latitude
         val lon = previous?.let { alpha * location.longitude + (1 - alpha) * it.longitude }
@@ -252,37 +257,73 @@ class RouteRecordingService : Service(), LocationListener {
         lastAcceptedAt = location.time
     }
 
+    private fun computeSpeed(loc: Location): Float {
+        return when {
+            loc.hasSpeed() -> loc.speed
+            lastAccepted != null -> {
+                val dtMs = loc.time - lastAcceptedAt
+                if (dtMs <= 0L) return -1f
+                val dtSeconds = dtMs / 1_000f
+                if (dtSeconds <= 0f) -1f else lastAccepted!!.distanceTo(loc) / dtSeconds
+            }
+            else -> -1f
+        }
+    }
+
+    private fun minDisplacementFor(speed: Float): Float {
+        val base = MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M
+        return when {
+            speed < 0f -> max(base, 10f)
+            speed <= 1f -> max(base, 6f)
+            speed <= 3f -> max(base, 10f)
+            else -> base
+        }
+    }
+
     private fun shouldAccept(loc: Location): Boolean {
+        val speed = computeSpeed(loc)
+        val minDisp = minDisplacementFor(speed)
         if (loc.isFromMockProvider) {
-            Log.d(GPS_TAG, "reject: mock provider")
+            Log.d(GPS_TAG, "reject: mock provider v=$speed minDisp=$minDisp")
             return false
         }
         if (!loc.hasAccuracy()) {
-            Log.d(GPS_TAG, "reject: no accuracy")
+            Log.d(GPS_TAG, "reject: no accuracy v=$speed minDisp=$minDisp")
             return false
         }
         if (loc.accuracy > MapUiDefaults.ROUTE_MAX_ACCURACY_M) {
-            Log.d(GPS_TAG, "reject: accuracy=${loc.accuracy}")
+            Log.d(GPS_TAG, "reject: accuracy=${loc.accuracy} v=$speed minDisp=$minDisp")
             return false
         }
 
         if (loc.hasSpeed()) {
-            val speed = loc.speed
-            if (speed < 0f || speed > MapUiDefaults.ROUTE_MAX_SPEED_MPS) {
-                Log.d(GPS_TAG, "reject: speed=$speed")
+            val rawSpeed = loc.speed
+            if (rawSpeed < 0f || rawSpeed > MapUiDefaults.ROUTE_MAX_SPEED_MPS) {
+                Log.d(GPS_TAG, "reject: speed=$rawSpeed v=$speed minDisp=$minDisp")
                 return false
             }
         }
 
         lastAccepted?.let { prev ->
-            val dt = loc.time - lastAcceptedAt
-            if (dt < MapUiDefaults.ROUTE_MIN_INTERVAL_MS) {
-                Log.d(GPS_TAG, "reject: dt=$dt (<${MapUiDefaults.ROUTE_MIN_INTERVAL_MS})")
+            val dd = loc.distanceTo(prev)
+            if (dd < MapUiDefaults.ROUTE_JITTER_REJECT_M) {
+                Log.d(
+                    GPS_TAG,
+                    "reject: jitter dd=$dd (<${MapUiDefaults.ROUTE_JITTER_REJECT_M}) v=$speed minDisp=$minDisp"
+                )
                 return false
             }
-            val dd = loc.distanceTo(prev)
-            if (dd < MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M) {
-                Log.d(GPS_TAG, "reject: dd=$dd (<${MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M})")
+
+            val dt = loc.time - lastAcceptedAt
+            if (dt < MapUiDefaults.ROUTE_MIN_INTERVAL_MS) {
+                Log.d(
+                    GPS_TAG,
+                    "reject: dt=$dt (<${MapUiDefaults.ROUTE_MIN_INTERVAL_MS}) v=$speed minDisp=$minDisp"
+                )
+                return false
+            }
+            if (dd < minDisp) {
+                Log.d(GPS_TAG, "reject: dd=$dd (<$minDisp) v=$speed minDisp=$minDisp")
                 return false
             }
         }
