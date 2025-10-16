@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // Tracé & rendu
+import com.example.openeer.map.RouteSimplifier
 import com.example.openeer.ui.map.MapPolylines
 import com.example.openeer.ui.map.MapRenderers
 import com.example.openeer.ui.map.MapText
@@ -163,8 +164,12 @@ fun MapFragment.setupRouteUiBindings() {
                     }
 
                     if (payload != null && payload.points.isNotEmpty()) {
+                        val adaptiveEpsilon = RouteSimplifier.adaptiveEpsilonMeters(payload.points)
+                        val simplified = RouteSimplifier.simplifyMeters(payload.points, adaptiveEpsilon)
+                        val previewPoints = if (simplified.size >= 2) simplified else payload.points
+
                         // Recadrer la carte sur la route puis capturer le snapshot
-                        MapRenderers.fitToRoute(map, payload.points, requireContext())
+                        MapRenderers.fitToRoute(map, previewPoints, requireContext())
 
                         val result = RoutePersistResult(
                             noteId = noteId,
