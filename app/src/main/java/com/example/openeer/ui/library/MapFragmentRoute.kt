@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
 import androidx.core.view.isVisible
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
@@ -32,6 +33,7 @@ import com.example.openeer.ui.map.MapUiDefaults
 import com.example.openeer.ui.map.RoutePersistResult
 import com.example.openeer.data.block.RoutePointPayload
 import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.ui.sheets.MapSnapshotSheet
 
 private const val RTAG = "RouteUI"
 
@@ -172,7 +174,11 @@ fun MapFragment.setupRouteUiBindings() {
                         )
                         // Reprend ton flux normal de capture
                         captureRoutePreview(result) {
-                            // callback après snapshot : rien de spécial
+                            val lifecycle = viewLifecycleOwner.lifecycle
+                            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                                MapSnapshotSheet.show(parentFragmentManager, routeBlockId)
+                                Log.d(RTAG, "RouteUI: opened snapshot sheet for route $routeBlockId")
+                            }
                         }
 
                         targetNoteId = noteId

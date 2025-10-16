@@ -24,6 +24,7 @@ import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapPreviewStorage
 import com.example.openeer.ui.sheets.LocationPreviewSheet
+import com.example.openeer.ui.sheets.MapSnapshotSheet
 import com.example.openeer.ui.map.MapText   // ⬅️ pour détecter le fallback coordonnées
 import com.google.android.material.chip.Chip
 import com.google.gson.Gson
@@ -252,8 +253,15 @@ class BlocksAdapter(
             bindPreview(preview, block)
 
             preview.setOnClickListener(null)
-            if (canOpen && preview.visibility == View.VISIBLE) {
-                preview.setOnClickListener { openPreviewSheet(context, block, displayLabel) }
+            if (preview.visibility == View.VISIBLE) {
+                if (block.type == BlockType.ROUTE) {
+                    preview.setOnClickListener {
+                        val act = context as? AppCompatActivity ?: return@setOnClickListener
+                        MapSnapshotSheet.show(act.supportFragmentManager, block.id)
+                    }
+                } else if (canOpen) {
+                    preview.setOnClickListener { openPreviewSheet(context, block, displayLabel) }
+                }
             }
         }
     }
