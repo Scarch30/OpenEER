@@ -1,13 +1,19 @@
 package com.example.openeer.route
 
-import android.app.*
-import android.content.*
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.openeer.R
@@ -19,43 +25,64 @@ import com.example.openeer.data.block.RoutePointPayload
 import com.example.openeer.data.route.RoutePersister
 import com.example.openeer.ui.map.MapUiDefaults
 import com.google.gson.Gson
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.cancel // ✅ pour serviceScope.cancel()
 import java.util.concurrent.atomic.AtomicInteger
 
 class RouteRecordingService : Service(), LocationListener {
 
     companion object {
-        private const val TAG = "RouteSvc"
+        private const val TAG = "RouteService"
 
         const val ACTION_START = "com.example.openeer.route.ACTION_START"
         const val ACTION_STOP  = "com.example.openeer.route.ACTION_STOP"
 
         const val ACTION_STATE  = "com.example.openeer.route.STATE"
         const val ACTION_POINTS = "com.example.openeer.route.POINTS"
+        const val ACTION_SAVED  = "com.example.openeer.route.SAVED"
 
         const val EXTRA_NOTE_ID = "extra_note_id"
         const val EXTRA_STATE   = "extra_state"
         const val EXTRA_COUNT   = "extra_count"
 
+        const val EXTRA_LAST_LAT = "extra_last_lat"
+        const val EXTRA_LAST_LON = "extra_last_lon"
+        const val EXTRA_LAST_TS  = "extra_last_ts"
+
+        const val EXTRA_ROUTE_BLOCK_ID  = "extra_route_block_id"
+        const val EXTRA_MIRROR_BLOCK_ID = "extra_mirror_block_id"
+
         private const val CHANNEL_ID = "route_recording"
         private const val NOTIF_ID   = 42
-
-        // Fallback local si non exposé par MapUiDefaults
         private const val MIN_INTERVAL_MS: Long = 1500L
 
+        /** Lance le service en mode foreground pour enregistrer un itinéraire GPS. */
         fun start(context: Context, noteId: Long) {
-            val i = Intent(context, RouteRecordingService::class.java)
+            val intent = Intent(context, RouteRecordingService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_NOTE_ID, noteId)
             Log.d(TAG, "start(): noteId=$noteId")
-            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i) else context.startService(i)
-        }
-        fun stop(context: Context) {
-            Log.d(TAG, "stop() requested")
-            val i = Intent(context, RouteRecordingService::class.java).setAction(ACTION_STOP)
-            context.startService(i)
+            if (Build.VERSION.SDK_INT >= 26) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         }
 
+        /** Arrête le service proprement et déclenche la sauvegarde du tracé. */
+        fun stop(context: Context) {
+            Log.d(TAG, "stop() requested")
+            val intent = Intent(context, RouteRecordingService::class.java)
+                .setAction(ACTION_STOP)
+            context.startService(intent)
+        }
+
+        /** ✅ Version statique pour pouvoir l’appeler depuis OpenEERApp (et ici). */
+        @JvmStatic
         fun ensureChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -73,11 +100,9 @@ class RouteRecordingService : Service(), LocationListener {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // DI
     private lateinit var noteRepo: NoteRepository
     private lateinit var blocksRepo: BlocksRepository
     private val routeGson by lazy { Gson() }
-
     private lateinit var lm: LocationManager
 
     private val points = mutableListOf<RoutePointPayload>()
@@ -98,20 +123,19 @@ class RouteRecordingService : Service(), LocationListener {
         super.onCreate()
         Log.d(TAG, "onCreate()")
         lm = getSystemService(LOCATION_SERVICE) as LocationManager
-        ensureChannel(this)
+        // ⬇️ utilise la version statique du companion
+        RouteRecordingService.ensureChannel(this)
 
-        // ⚠️ Utilise la factory présente dans ton AppDatabase
         val db = AppDatabase.get(applicationContext)
         val noteDao       = db.noteDao()
         val blockDao      = db.blockDao()
         val attachmentDao = db.attachmentDao()
         val blockReadDao  = db.blockReadDao()
 
-        // Assure-toi que ces constructeurs correspondent à tes classes
         blocksRepo = BlocksRepository(
             blockDao = blockDao,
-            noteDao = noteDao,
-            linkDao = db.blockLinkDao()
+            noteDao  = noteDao,
+            linkDao  = db.blockLinkDao()
         )
         noteRepo   = NoteRepository(noteDao, attachmentDao, blockReadDao, blocksRepo)
     }
@@ -129,9 +153,7 @@ class RouteRecordingService : Service(), LocationListener {
                 Log.d(TAG, "onStartCommand(ACTION_STOP)")
                 serviceScope.launch { persistAndStop() }
             }
-            else -> {
-                Log.w(TAG, "onStartCommand(): unknown action=${intent?.action}")
-            }
+            else -> Log.w(TAG, "onStartCommand(): unknown action=${intent?.action}")
         }
         return START_STICKY
     }
@@ -171,17 +193,8 @@ class RouteRecordingService : Service(), LocationListener {
         Log.d(TAG, "emitState($state)")
         sendBroadcast(
             Intent(ACTION_STATE)
-                .setPackage(packageName)      // 🔒 cible ton app
+                .setPackage(packageName)
                 .putExtra(EXTRA_STATE, state)
-        )
-    }
-
-    private fun emitCount(count: Int) {
-        Log.d(TAG, "emitCount($count)")
-        sendBroadcast(
-            Intent(ACTION_POINTS)
-                .setPackage(packageName)      // 🔒 cible ton app
-                .putExtra(EXTRA_COUNT, count)
         )
     }
 
@@ -199,7 +212,8 @@ class RouteRecordingService : Service(), LocationListener {
                     provider,
                     MapUiDefaults.REQUEST_INTERVAL_MS,
                     0f,
-                    this
+                    this,
+                    Looper.getMainLooper()
                 )
                 Log.d(TAG, "requestLocationUpdates(provider=$provider) OK")
             }.onFailure {
@@ -210,33 +224,32 @@ class RouteRecordingService : Service(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         val now = System.currentTimeMillis()
-
-        // Throttle temps
         if (now - lastAcceptedAt < MIN_INTERVAL_MS) return
-
-        // Throttle distance
-        lastLocation?.let { prev ->
-            val d = location.distanceTo(prev)
-            if (d < MapUiDefaults.MIN_DISTANCE_METERS) return
-        }
-
-        // Limite dure
+        lastLocation?.let { prev -> if (location.distanceTo(prev) < MapUiDefaults.MIN_DISTANCE_METERS) return }
         if (points.size >= MapUiDefaults.MAX_ROUTE_POINTS) return
 
-        points.add(RoutePointPayload(location.latitude, location.longitude, now))
+        val p = RoutePointPayload(location.latitude, location.longitude, now)
+        points.add(p)
         lastAcceptedAt = now
         lastLocation = Location(location)
 
         val c = pointCount.incrementAndGet()
-        Log.d(TAG, "onLocationChanged(): accepted point #$c @ ${location.latitude},${location.longitude}")
+        Log.d(TAG, "point #$c ${p.lat},${p.lon} @${p.t}")
         updateNotif(c)
-        emitCount(c)
+
+        sendBroadcast(
+            Intent(ACTION_POINTS)
+                .setPackage(packageName)
+                .putExtra(EXTRA_COUNT, c)
+                .putExtra(EXTRA_LAST_LAT, p.lat)
+                .putExtra(EXTRA_LAST_LON, p.lon)
+                .putExtra(EXTRA_LAST_TS,  p.t)
+        )
     }
 
     private suspend fun persistAndStop() {
         Log.d(TAG, "persistAndStop(): points=${points.size}, noteId=$targetNoteId")
 
-        // Arrête les updates
         runCatching { providers.forEach { lm.removeUpdates(this) } }
             .onFailure { Log.w(TAG, "removeUpdates error", it) }
 
@@ -255,14 +268,13 @@ class RouteRecordingService : Service(), LocationListener {
 
         val payload = RoutePayload(
             startedAt = points.first().t,
-            endedAt = points.last().t,
-            points = points.toList()
+            endedAt   = points.last().t,
+            points    = points.toList()
         )
 
         val mirrorText = "Itinéraire • ${points.size} pts • ${formatTime(payload.startedAt)} → ${formatTime(payload.endedAt)}"
 
-        // Persistance via data-layer (aucune dépendance UI)
-        val persisted = runCatching {
+        val result = runCatching {
             RoutePersister.persistRoute(
                 noteRepo,
                 blocksRepo,
@@ -273,28 +285,40 @@ class RouteRecordingService : Service(), LocationListener {
             )
         }.onFailure { e ->
             Log.e(TAG, "persistRoute() failed", e)
-        }.isSuccess
+        }.getOrNull()
+
+        result?.let {
+            Log.d(TAG, "persistAndStop(): saved note=${it.noteId} routeBlock=${it.routeBlockId}")
+            sendBroadcast(
+                Intent(ACTION_SAVED)
+                    .setPackage(packageName)
+                    .putExtra(EXTRA_NOTE_ID, it.noteId)
+                    .putExtra(EXTRA_ROUTE_BLOCK_ID, it.routeBlockId)
+                    .putExtra(EXTRA_MIRROR_BLOCK_ID, it.mirrorBlockId)
+                    .putExtra(EXTRA_COUNT, points.size)
+            )
+        }
 
         withContext(Dispatchers.Main) {
-            if (persisted) {
-                Log.d(TAG, "persistRoute() OK")
-                nm.notify(NOTIF_ID, buildNotif(getString(R.string.route_notif_done), ongoing = false))
-            } else {
-                Log.w(TAG, "persistRoute() NOT saved")
-                nm.notify(NOTIF_ID, buildNotif(getString(R.string.route_notif_done_empty), ongoing = false))
-            }
+            nm.notify(
+                NOTIF_ID,
+                buildNotif(
+                    if (result != null) getString(R.string.route_notif_done)
+                    else getString(R.string.route_notif_done_empty),
+                    ongoing = false
+                )
+            )
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             emitState("STOPPED")
         }
     }
 
-    private fun formatTime(ts: Long): String {
-        val h = java.text.SimpleDateFormat("HH:mm")
-        return h.format(java.util.Date(ts))
-    }
+    private fun formatTime(ts: Long): String =
+        java.text.SimpleDateFormat("HH:mm").format(java.util.Date(ts))
 
     override fun onBind(intent: Intent?): IBinder? = null
+
     override fun onDestroy() {
         Log.d(TAG, "onDestroy()")
         super.onDestroy()

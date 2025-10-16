@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.ui.map.RoutePersistResult
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -14,10 +15,10 @@ import java.lang.reflect.Method
  *
  * Stratégie :
  *  1) Tenter d’appeler par réflexion MapData.persistRoute(noteRepo, blocksRepo, gson, noteId, payload, mirrorText)
- *     si elle existe (même signature) dans le module UI.
- *  2) Sinon, exécuter un fallback (optionnel) fourni par l’appelant, typiquement une impl directe via les repositories.
+ *     (même signature) et récupérer un RoutePersistResult.
+ *  2) Sinon, exécuter un fallback (optionnel) fourni par l’appelant, qui retourne aussi un RoutePersistResult?.
  *
- * Résultat : pas de "Unresolved reference: MapData" et une API unique utilisable depuis le Service.
+ * Résultat : API unique utilisable depuis le Service, avec retour des IDs créés.
  */
 object RoutePersister {
 
@@ -26,15 +27,15 @@ object RoutePersister {
     private const val MAPDATA_METHOD = "persistRoute"
 
     /**
-     * Persiste l’itinéraire.
+     * Persiste l’itinéraire et retourne les IDs créés, ou null si rien n’a été écrit.
      *
-     * @param noteRepo       Ton NoteRepository
-     * @param blocksRepo     Ton BlocksRepository
-     * @param gson           Instance Gson (même que celle utilisée côté UI)
-     * @param noteId         Note cible (0 = laisse ta logique décider de créer/associer)
+     * @param noteRepo       NoteRepository
+     * @param blocksRepo     BlocksRepository
+     * @param gson           Instance Gson (alignée avec l’UI)
+     * @param noteId         Note cible (0 => création gérée par la logique de persistance)
      * @param payload        Données de l’itinéraire
-     * @param mirrorText     Texte résumé (même format que l’UI)
-     * @param fallbackSaver  Optionnel : implémentation de repli si MapData n’est pas trouvée
+     * @param mirrorText     Résumé texte miroir
+     * @param fallbackSaver  Impl de repli si MapData n’est pas dispo (retourne RoutePersistResult?)
      */
     suspend fun persistRoute(
         noteRepo: NoteRepository,
@@ -43,23 +44,23 @@ object RoutePersister {
         noteId: Long,
         payload: RoutePayload,
         mirrorText: String,
-        fallbackSaver: (suspend () -> Unit)? = null
-    ) = withContext(Dispatchers.IO) {
+        fallbackSaver: (suspend () -> RoutePersistResult)? = null
+    ): RoutePersistResult? = withContext(Dispatchers.IO) {
         // 1) Tentative via MapData.persistRoute(...) par réflexion
-        val ok = runCatching {
+        val resultFromReflection = runCatching {
             val mapDataClass = Class.forName(MAPDATA_FQCN)
             val method: Method = mapDataClass.getDeclaredMethod(
                 MAPDATA_METHOD,
                 NoteRepository::class.java,
                 BlocksRepository::class.java,
                 Gson::class.java,
-                java.lang.Long.TYPE,     // long primitive
+                java.lang.Long.TYPE, // primitive long
                 RoutePayload::class.java,
                 String::class.java
             ).apply { isAccessible = true }
 
             // Appel statique : MapData.persistRoute(...)
-            method.invoke(
+            val res = method.invoke(
                 /* obj = */ null,
                 noteRepo,
                 blocksRepo,
@@ -68,24 +69,25 @@ object RoutePersister {
                 payload,
                 mirrorText
             )
-            true
+            (res as? RoutePersistResult)?.also {
+                Log.d(TAG, "MapData.persistRoute() OK → noteId=${it.noteId}, routeBlockId=${it.routeBlockId}")
+            }
         }.onFailure { e ->
-            Log.d(TAG, "MapData.persistRoute non disponible ou signature différente: ${e.message}")
-        }.getOrDefault(false)
+            Log.d(TAG, "MapData.persistRoute indisponible ou signature différente: ${e.message}")
+        }.getOrNull()
 
-        if (ok) {
-            Log.d(TAG, "Route persistance: MapData.persistRoute() appelé avec succès.")
-            return@withContext
-        }
+        if (resultFromReflection != null) return@withContext resultFromReflection
 
         // 2) Fallback optionnel
         if (fallbackSaver != null) {
-            Log.d(TAG, "Route persistance: fallbackSaver() (impl data-layer) …")
-            fallbackSaver.invoke()
-            return@withContext
+            Log.d(TAG, "Route persistance: fallbackSaver()…")
+            return@withContext runCatching { fallbackSaver.invoke() }
+                .onFailure { Log.e(TAG, "fallbackSaver() a échoué", it) }
+                .getOrNull()
         }
 
-        // 3) Rien d’autre : on log et on laisse l’appelant gérer le rechargement UI
+        // 3) Rien d’autre → log et retourner null
         Log.w(TAG, "Route persistance: ni MapData.persistRoute ni fallback fournis. Rien n’a été écrit.")
+        null
     }
 }
