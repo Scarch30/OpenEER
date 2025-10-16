@@ -11,14 +11,17 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
+import com.example.openeer.core.Place
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.AttachmentDao
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.data.block.RoutePointPayload
 import com.example.openeer.databinding.FragmentMapBinding
 import com.example.openeer.databinding.SheetMapSelectedLocationBinding
-import com.example.openeer.core.Place
+import com.example.openeer.ui.sheets.MapSnapshotSheet
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Job
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -41,9 +44,9 @@ import com.example.openeer.ui.map.MapPolylines
 import com.example.openeer.ui.map.MapStyleIds
 import com.example.openeer.ui.map.RecentHere
 import com.example.openeer.data.block.BlockType
-import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.map.MapRenderers
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 
@@ -60,6 +63,11 @@ object MapSnapDiag {
 }
 
 class MapFragment : Fragment(), OnMapReadyCallback {
+
+    private companion object {
+        private const val MANUAL_ROUTE_MAX_POINTS = 120
+        private const val MANUAL_ROUTE_LOG_TAG = "ManualRoute"
+    }
 
     private var _b: FragmentMapBinding? = null
     private val b get() = _b!!
@@ -202,10 +210,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         b.btnAddHere.setOnClickListener { onAddHereClicked() }
         b.btnRecordRoute.isEnabled = false
         b.btnRecordRoute.setOnClickListener { onRouteButtonClicked() }
+        b.manualRouteHint.isClickable = false
+        b.manualRouteHint.isLongClickable = false
         b.btnUndoManualRoute.isVisible = false
         b.btnUndoManualRoute.setOnClickListener { onManualRouteUndoClicked() }
         b.btnCancelManualRoute.isVisible = false
-        b.btnCancelManualRoute.setOnClickListener { cancelManualRouteDrawingSafe() }
+        b.btnCancelManualRoute.setOnClickListener { onManualRouteCancelClicked() }
         refreshRouteButtonState()
 
         parentFragmentManager.setFragmentResultListener(RESULT_MANUAL_ROUTE, viewLifecycleOwner) { _, bundle ->
@@ -289,7 +299,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         // Tap carte
         map?.addOnMapClickListener { latLng ->
             if (isManualRouteMode) {
-                handleManualMapTap() // wrapper sans argument
+                handleManualMapTap(latLng)
                 return@addOnMapClickListener true
             }
             val screenPt = map?.projection?.toScreenLocation(latLng) ?: return@addOnMapClickListener false
@@ -314,7 +324,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             true
         }
 
-        map?.addOnMapLongClickListener { latLng -> handleMapLongClick(latLng) }
+        map?.addOnMapLongClickListener { latLng ->
+            if (isManualRouteMode) {
+                handleManualMapLongClick(latLng)
+            } else {
+                handleMapLongClick(latLng)
+            }
+        }
     }
 
     internal fun showHint(text: String, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
@@ -493,6 +509,180 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         when (initialMode) {
             MapActivity.MODE_CENTER_ON_HERE -> recenterToUserOrAll()
             else -> Unit
+        }
+    }
+
+    private fun startManualRouteDrawing() {
+        if (isManualRouteMode) return
+        Log.d(MANUAL_ROUTE_LOG_TAG, "startManualRouteDrawing(anchor=${manualAnchorLabel ?: ""})")
+        isManualRouteMode = true
+        isSavingRoute = false
+        manualPoints.clear()
+        manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
+        updateManualRouteUi()
+    }
+
+    private fun finishManualRouteDrawing() {
+        if (!isManualRouteMode && manualPoints.isEmpty()) return
+        Log.d(MANUAL_ROUTE_LOG_TAG, "finishManualRouteDrawing()")
+        isManualRouteMode = false
+        isSavingRoute = false
+        manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
+        manualPoints.clear()
+        manualAnchorLabel = null
+        updateManualRouteUi()
+        refreshRouteButtonState()
+    }
+
+    private fun updateManualRouteUi() {
+        val binding = _b ?: return
+        val inManualMode = isManualRouteMode
+        val pointCount = manualPoints.size
+        val saving = isSavingRoute
+
+        if (inManualMode) {
+            val saveLabel = getString(R.string.map_manual_route_save, pointCount)
+            binding.btnRecordRoute.text = saveLabel
+            binding.btnRecordRoute.contentDescription = getString(R.string.map_manual_route_save_cd)
+            binding.btnRecordRoute.isEnabled = pointCount >= 2 && !saving
+            binding.btnCancelManualRoute.isVisible = true
+            binding.btnCancelManualRoute.isEnabled = !saving
+            binding.btnUndoManualRoute.isVisible = true
+            binding.btnUndoManualRoute.isEnabled = pointCount > 0 && !saving
+            binding.manualRouteHint.isVisible = true
+            val anchor = manualAnchorLabel
+            val hint = buildString {
+                append(getString(R.string.map_manual_route_hint))
+                if (!anchor.isNullOrBlank()) {
+                    append('\n')
+                    append(getString(R.string.map_manual_route_anchor_format, anchor))
+                }
+            }
+            binding.manualRouteHint.text = hint
+        } else {
+            binding.manualRouteHint.isVisible = false
+            binding.btnCancelManualRoute.isVisible = false
+            binding.btnUndoManualRoute.isVisible = false
+            binding.btnUndoManualRoute.isEnabled = false
+            binding.btnCancelManualRoute.isEnabled = false
+        }
+    }
+
+    private fun handleManualMapTap(latLng: LatLng) {
+        if (!isManualRouteMode || isSavingRoute) return
+        if (manualPoints.size >= MANUAL_ROUTE_MAX_POINTS) {
+            showHint(getString(R.string.map_manual_route_limit, MANUAL_ROUTE_MAX_POINTS))
+            return
+        }
+        addManualRoutePoint(latLng)
+    }
+
+    @Suppress("unused")
+    private fun handleManualMapTap() {
+        // Appels éventuels via réflexion : pas d'action spécifique.
+    }
+
+    private fun handleManualMapLongClick(latLng: LatLng): Boolean {
+        if (!isManualRouteMode) return false
+        if (isSavingRoute) return true
+        if (manualPoints.size >= MANUAL_ROUTE_MAX_POINTS) {
+            showHint(getString(R.string.map_manual_route_limit, MANUAL_ROUTE_MAX_POINTS))
+            return true
+        }
+        addManualRoutePoint(latLng)
+        Log.d(
+            MANUAL_ROUTE_LOG_TAG,
+            "onMapLongClick(lat=${latLng.latitude}, lon=${latLng.longitude}) count=${manualPoints.size}"
+        )
+        return true
+    }
+
+    private fun addManualRoutePoint(latLng: LatLng) {
+        manualPoints.add(latLng)
+        manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
+        updateManualRouteUi()
+    }
+
+    private fun onManualRouteUndoClicked() {
+        if (!isManualRouteMode || manualPoints.isEmpty() || isSavingRoute) return
+        manualPoints.removeLast()
+        manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
+        updateManualRouteUi()
+    }
+
+    private fun onManualRouteCancelClicked() {
+        if (!isManualRouteMode) return
+        Log.d(MANUAL_ROUTE_LOG_TAG, "cancelManualRoute()")
+        finishManualRouteDrawing()
+    }
+
+    private fun saveManualRoute() {
+        if (!isManualRouteMode || isSavingRoute) return
+        val payload = buildManualRoutePayload()
+        if (payload == null) {
+            showHint(getString(R.string.map_route_too_short))
+            return
+        }
+        val mirrorText = buildManualRouteMirrorText(payload)
+        isSavingRoute = true
+        updateManualRouteUi()
+        Log.d(MANUAL_ROUTE_LOG_TAG, "saveManualRoute(count=${payload.pointCount})")
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                MapData.persistRoute(noteRepo, blocksRepo, routeGson, targetNoteId, payload, mirrorText)
+            }
+
+            if (result == null) {
+                Log.w(MANUAL_ROUTE_LOG_TAG, "persistRoute returned null")
+                showHint(getString(R.string.map_route_save_failed))
+                isSavingRoute = false
+                updateManualRouteUi()
+                return@launch
+            }
+
+            targetNoteId = result.noteId
+            refreshNotesAsync()
+
+            val ctx = context
+            if (ctx != null) {
+                MapRenderers.fitToRoute(map, payload.points, ctx)
+            }
+            captureRoutePreview(result) {
+                if (viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    MapSnapshotSheet.show(parentFragmentManager, result.routeBlockId)
+                }
+            }
+
+            showHint(getString(R.string.map_route_saved))
+            finishManualRouteDrawing()
+        }
+    }
+
+    private fun buildManualRoutePayload(): RoutePayload? {
+        if (manualPoints.size < 2) return null
+        val startedAt = System.currentTimeMillis()
+        val points = manualPoints.mapIndexed { index, latLng ->
+            RoutePointPayload(
+                lat = latLng.latitude,
+                lon = latLng.longitude,
+                t = startedAt + index
+            )
+        }
+        return RoutePayload(
+            startedAt = startedAt,
+            endedAt = startedAt + manualPoints.lastIndex,
+            points = points
+        )
+    }
+
+    private fun buildManualRouteMirrorText(payload: RoutePayload): String {
+        val base = getString(R.string.map_manual_route_mirror_format, payload.pointCount)
+        val anchor = manualAnchorLabel
+        return if (!anchor.isNullOrBlank()) {
+            base + "\n" + getString(R.string.map_manual_route_anchor_format, anchor)
+        } else {
+            base
         }
     }
 }
