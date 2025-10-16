@@ -52,7 +52,7 @@
             android:id="@+id/sliderEpsilon"
             android:layout_width="200dp"
             android:layout_height="wrap_content"
-            android:value="8"
+            app:value="8"
             app:valueFrom="1"
             app:valueTo="50"
             app:stepSize="1" />
@@ -86,7 +86,7 @@
             android:id="@+id/sliderMinInterval"
             android:layout_width="200dp"
             android:layout_height="wrap_content"
-            android:value="1200"
+            app:value="1200"
             app:stepSize="100"
             app:valueFrom="200"
             app:valueTo="3000" />
@@ -120,7 +120,7 @@
             android:id="@+id/sliderMinDisplacement"
             android:layout_width="200dp"
             android:layout_height="wrap_content"
-            android:value="8"
+            app:value="8"
             app:stepSize="1"
             app:valueFrom="1"
             app:valueTo="30" />
@@ -154,7 +154,7 @@
             android:id="@+id/sliderMaxAccuracy"
             android:layout_width="200dp"
             android:layout_height="wrap_content"
-            android:value="25"
+            app:value="25"
             app:stepSize="1"
             app:valueFrom="5"
             app:valueTo="50" />
