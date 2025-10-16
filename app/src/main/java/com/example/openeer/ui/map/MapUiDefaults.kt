@@ -24,6 +24,11 @@ object MapUiDefaults {
 
     const val ROUTE_MAX_SPEED_MPS = 15f
 
+    const val ROUTE_JITTER_REJECT_M = 3f
+    const val ROUTE_EMA_FAST_ALPHA = 0.75f
+    const val ROUTE_EMA_MED_ALPHA = 0.60f
+    const val ROUTE_EMA_SLOW_ALPHA = 0.45f
+
     // Rendu de la route
     const val ROUTE_LINE_COLOR = "#FF2E7D32"
     const val ROUTE_LINE_WIDTH = 4f
