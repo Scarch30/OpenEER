@@ -37,4 +37,12 @@
         android:layout_height="wrap_content"
         android:text="@string/block_open_in_google_maps"
         android:layout_marginTop="8dp" />
+
+    <Button
+        android:id="@+id/btnOpenRouteInMaps"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/map_open_route_in_google_maps"
+        android:visibility="gone" />
 </LinearLayout>

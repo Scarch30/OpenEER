@@ -18,12 +18,16 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.map.buildMapsUrl
 import com.example.openeer.ui.library.MapPreviewStorage
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.gson.Gson
 import kotlinx.coroutines.launch
 import java.util.Locale
+import org.maplibre.android.geometry.LatLng
 
 class MapSnapshotSheet : BottomSheetDialogFragment() {
 
@@ -53,6 +57,8 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
         )
     }
 
+    private val routeGson by lazy { Gson() }
+
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = BottomSheetDialog(requireContext(), theme)
         dialog.setOnShowListener { di ->
@@ -75,6 +81,7 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
         val img = view.findViewById<ImageView>(R.id.mapSnapshotImage)
         val title = view.findViewById<TextView>(R.id.mapSnapshotTitle)
         val btn = view.findViewById<Button>(R.id.mapSnapshotOpenBtn)
+        val routeBtn = view.findViewById<Button>(R.id.btnOpenRouteInMaps)
 
         viewLifecycleOwner.lifecycleScope.launch {
             val block = blocksRepo.getBlock(blockId)
@@ -102,6 +109,8 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
             btn.setOnClickListener {
                 openInGoogleMaps(block)
             }
+
+            setupRouteButton(routeBtn, block)
         }
 
         return view
@@ -132,6 +141,47 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
         val intent = Intent(Intent.ACTION_VIEW, uri)
         runCatching { startActivity(intent) }.onFailure {
             Toast.makeText(requireContext(), "Aucune app de cartographie trouvée", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun setupRouteButton(routeBtn: Button, block: BlockEntity) {
+        if (block.type != BlockType.ROUTE) {
+            routeBtn.visibility = View.GONE
+            routeBtn.setOnClickListener(null)
+            return
+        }
+
+        val payload = block.routeJson?.let {
+            runCatching { routeGson.fromJson(it, RoutePayload::class.java) }.getOrNull()
+        }
+
+        val points = payload?.points?.map { LatLng(it.lat, it.lon) } ?: emptyList()
+        val url = buildMapsUrl(points)
+
+        if (url != null) {
+            routeBtn.visibility = View.VISIBLE
+            routeBtn.setOnClickListener {
+                openRouteInGoogleMaps(url)
+            }
+        } else {
+            routeBtn.visibility = View.GONE
+            Toast.makeText(requireContext(), R.string.map_route_url_error, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openRouteInGoogleMaps(url: String) {
+        val uri = Uri.parse(url)
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+
+        val mapsPackage = "com.google.android.apps.maps"
+        val packageManager = requireContext().packageManager
+        val mapsIntent = Intent(Intent.ACTION_VIEW, uri).apply { setPackage(mapsPackage) }
+        if (mapsIntent.resolveActivity(packageManager) != null) {
+            intent.`package` = mapsPackage
+        }
+
+        runCatching { startActivity(intent) }.onFailure {
+            Toast.makeText(requireContext(), R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
         }
     }
 }
