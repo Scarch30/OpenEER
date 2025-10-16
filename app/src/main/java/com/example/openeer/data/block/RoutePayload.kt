@@ -1,11 +1,14 @@
 package com.example.openeer.data.block
 
+import androidx.annotation.Keep
+
 /**
  * Modèle léger pour persister un itinéraire manuel.
  * - version : permet d'évoluer le schéma JSON sans casser les lectures.
  * - startedAt / endedAt : timestamps Unix en millisecondes.
  * - points : séquence bornée de points ordonnés dans le temps.
  */
+@Keep
 data class RoutePayload(
     val version: Int = 1,
     val startedAt: Long,
@@ -24,6 +27,7 @@ data class RoutePayload(
     }
 }
 
+@Keep
 data class RoutePointPayload(
     val lat: Double,
     val lon: Double,
