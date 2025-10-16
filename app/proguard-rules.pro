@@ -9,4 +9,5 @@
 
 # Route payloads (Gson via réflexion)
 -keep class com.example.openeer.data.block.RoutePayload { *; }
+-keep class com.example.openeer.ui.library.MapData { *; }
 -keep class com.example.openeer.data.block.RoutePointPayload { *; }

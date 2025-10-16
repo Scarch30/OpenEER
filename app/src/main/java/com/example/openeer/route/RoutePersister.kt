@@ -54,7 +54,7 @@ object RoutePersister {
                 NoteRepository::class.java,
                 BlocksRepository::class.java,
                 Gson::class.java,
-                java.lang.Long.TYPE, // primitive long
+                java.lang.Long::class.java,
                 RoutePayload::class.java,
                 String::class.java
             ).apply { isAccessible = true }
