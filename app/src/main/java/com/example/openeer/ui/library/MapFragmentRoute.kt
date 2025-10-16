@@ -169,7 +169,7 @@ fun MapFragment.setupRouteUiBindings() {
                         val simplified = RouteSimplifier.simplifyMeters(payload.points, adaptiveEpsilon)
                         val previewPoints = if (simplified.size >= 2) simplified else payload.points
 
-                        RouteDebugOverlay.update(this@setupRouteUiBindings, payload.points)
+                        this@setupRouteUiBindings.maybeUpdateRouteDebugOverlay(payload.points)
 
                         // Recadrer la carte sur la route puis capturer le snapshot
                         MapRenderers.fitToRoute(map, previewPoints, requireContext())

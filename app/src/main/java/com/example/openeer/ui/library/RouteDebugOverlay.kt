@@ -1,6 +1,5 @@
 package com.example.openeer.ui.library
 
-import android.content.Context
 import android.util.Log
 import android.widget.SeekBar
 import androidx.core.view.isVisible
@@ -19,15 +18,19 @@ import org.maplibre.android.plugins.annotation.LineOptions
 
 internal object RouteDebugOverlay {
     private const val TAG = "RouteDebug"
-    private const val PREFS_NAME = "route_debug_overlay"
-    private const val KEY_EPSILON = "epsilon"
-    private const val KEY_MIN_INTERVAL = "min_interval"
-    private const val KEY_MIN_DISPLACEMENT = "min_displacement"
-    private const val KEY_MAX_ACCURACY = "max_accuracy"
 
     private val states = WeakHashMap<MapFragment, DebugState>()
 
     fun update(fragment: MapFragment, rawPoints: List<RoutePointPayload>) {
+        val context = fragment.requireContext()
+        if (!RouteDebugPreferences.shouldExecuteOverlayCode(context)) {
+            MapUiDefaults.DEBUG_ROUTE = false
+            hide(fragment)
+            return
+        }
+
+        RouteDebugPreferences.refreshDebugFlag(context)
+
         if (!MapUiDefaults.DEBUG_ROUTE) {
             hide(fragment)
             return
@@ -186,24 +189,36 @@ internal object RouteDebugOverlay {
         }
 
         private fun loadPrefs(fragment: MapFragment) {
-            val prefs = fragment.requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val prefs = RouteDebugPreferences.prefs(fragment.requireContext())
             MapUiDefaults.ROUTE_SIMPLIFY_EPSILON_M =
-                prefs.getFloat(KEY_EPSILON, MapUiDefaults.ROUTE_SIMPLIFY_EPSILON_M_DEFAULT)
+                prefs.getFloat(
+                    RouteDebugPreferences.KEY_EPSILON,
+                    MapUiDefaults.ROUTE_SIMPLIFY_EPSILON_M_DEFAULT
+                )
             MapUiDefaults.ROUTE_MIN_INTERVAL_MS =
-                prefs.getLong(KEY_MIN_INTERVAL, MapUiDefaults.ROUTE_MIN_INTERVAL_MS_DEFAULT)
+                prefs.getLong(
+                    RouteDebugPreferences.KEY_MIN_INTERVAL,
+                    MapUiDefaults.ROUTE_MIN_INTERVAL_MS_DEFAULT
+                )
             MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M =
-                prefs.getFloat(KEY_MIN_DISPLACEMENT, MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M_DEFAULT)
+                prefs.getFloat(
+                    RouteDebugPreferences.KEY_MIN_DISPLACEMENT,
+                    MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M_DEFAULT
+                )
             MapUiDefaults.ROUTE_MAX_ACCURACY_M =
-                prefs.getFloat(KEY_MAX_ACCURACY, MapUiDefaults.ROUTE_MAX_ACCURACY_M_DEFAULT)
+                prefs.getFloat(
+                    RouteDebugPreferences.KEY_MAX_ACCURACY,
+                    MapUiDefaults.ROUTE_MAX_ACCURACY_M_DEFAULT
+                )
         }
 
         private fun savePrefs(fragment: MapFragment) {
-            val prefs = fragment.requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val prefs = RouteDebugPreferences.prefs(fragment.requireContext())
             prefs.edit()
-                .putFloat(KEY_EPSILON, MapUiDefaults.ROUTE_SIMPLIFY_EPSILON_M)
-                .putLong(KEY_MIN_INTERVAL, MapUiDefaults.ROUTE_MIN_INTERVAL_MS)
-                .putFloat(KEY_MIN_DISPLACEMENT, MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M)
-                .putFloat(KEY_MAX_ACCURACY, MapUiDefaults.ROUTE_MAX_ACCURACY_M)
+                .putFloat(RouteDebugPreferences.KEY_EPSILON, MapUiDefaults.ROUTE_SIMPLIFY_EPSILON_M)
+                .putLong(RouteDebugPreferences.KEY_MIN_INTERVAL, MapUiDefaults.ROUTE_MIN_INTERVAL_MS)
+                .putFloat(RouteDebugPreferences.KEY_MIN_DISPLACEMENT, MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M)
+                .putFloat(RouteDebugPreferences.KEY_MAX_ACCURACY, MapUiDefaults.ROUTE_MAX_ACCURACY_M)
                 .apply()
         }
 
@@ -233,6 +248,16 @@ internal object RouteDebugOverlay {
                 .withLineWidth(MapUiDefaults.ROUTE_LINE_WIDTH)
             return runCatching { manager.create(options) }.getOrNull()
         }
+    }
+}
+
+internal fun MapFragment.maybeUpdateRouteDebugOverlay(rawPoints: List<RoutePointPayload>) {
+    val ctx = context ?: return
+    if (RouteDebugPreferences.shouldExecuteOverlayCode(ctx)) {
+        RouteDebugOverlay.update(this, rawPoints)
+    } else {
+        MapUiDefaults.DEBUG_ROUTE = false
+        RouteDebugOverlay.hide(this)
     }
 }
 

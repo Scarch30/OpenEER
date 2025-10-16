@@ -3,9 +3,16 @@ package com.example.openeer.ui.library
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import com.example.openeer.BuildConfig
 import com.example.openeer.R
 import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.switchmaterial.SwitchMaterial
+import com.example.openeer.ui.map.MapUiDefaults
 
 class MapActivity : AppCompatActivity() {
 
@@ -39,6 +46,67 @@ class MapActivity : AppCompatActivity() {
     override fun onSupportNavigateUp(): Boolean {
         finish()
         return true
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        val superResult = super.onCreateOptionsMenu(menu)
+        if (!BuildConfig.DEBUG) return superResult
+        menuInflater.inflate(R.menu.menu_map_debug, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_route_debug_overlay -> {
+                showRouteDebugOverlayDialog()
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun showRouteDebugOverlayDialog() {
+        val context = this
+        val padding = resources.getDimensionPixelSize(R.dimen.route_debug_dialog_padding)
+        val container = FrameLayout(context).apply {
+            setPadding(padding, padding, padding, padding)
+        }
+        val switch = SwitchMaterial(context).apply {
+            text = getString(R.string.route_debug_toggle_switch)
+            isChecked = RouteDebugPreferences.isOverlayToggleEnabled(context)
+        }
+        container.addView(switch)
+
+        val dialog = MaterialAlertDialogBuilder(context)
+            .setTitle(R.string.route_debug_toggle_title)
+            .setMessage(R.string.route_debug_toggle_message)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok, null)
+            .create()
+
+        switch.setOnCheckedChangeListener { _, isChecked ->
+            RouteDebugPreferences.setOverlayToggleEnabled(context, isChecked)
+            onRouteDebugToggleChanged(isChecked)
+        }
+
+        dialog.show()
+    }
+
+    private fun onRouteDebugToggleChanged(enabled: Boolean) {
+        val fragment = supportFragmentManager.findFragmentByTag(MAP_FRAGMENT_TAG) as? MapFragment
+        if (fragment == null) {
+            if (!enabled) {
+                MapUiDefaults.DEBUG_ROUTE = false
+            }
+            return
+        }
+
+        if (!enabled) {
+            MapUiDefaults.DEBUG_ROUTE = false
+            RouteDebugOverlay.hide(fragment)
+        } else {
+            RouteDebugPreferences.refreshDebugFlag(this)
+        }
     }
 
     companion object {

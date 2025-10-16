@@ -30,7 +30,7 @@ object MapUiDefaults {
     const val ROUTE_BOUNDS_PADDING_DP = 48
 
     // Mode debug tracé
-    var DEBUG_ROUTE: Boolean = true // défaut false ; activé ici pour validation
+    var DEBUG_ROUTE: Boolean = false
     const val DEBUG_ROUTE_RAW_COLOR = "#AAE91E63"
     const val DEBUG_ROUTE_SIMPL_COLOR = "#AA2196F3"
 

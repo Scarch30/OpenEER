@@ -46,6 +46,7 @@ import com.example.openeer.ui.map.MapStyleIds
 import com.example.openeer.ui.map.RecentHere
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.ui.map.MapRenderers
+import com.example.openeer.ui.map.MapUiDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -227,6 +228,20 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
         // 🔗 Branche la logique Route (service + receivers + libellé bouton)
         setupRouteUiBindings()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val ctx = context ?: return
+        if (!RouteDebugPreferences.shouldExecuteOverlayCode(ctx)) {
+            MapUiDefaults.DEBUG_ROUTE = false
+            RouteDebugOverlay.hide(this)
+        } else {
+            RouteDebugPreferences.refreshDebugFlag(ctx)
+            if (!MapUiDefaults.DEBUG_ROUTE) {
+                RouteDebugOverlay.hide(this)
+            }
+        }
     }
 
     override fun onMapReady(mapboxMap: MapLibreMap) {

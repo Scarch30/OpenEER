@@ -143,6 +143,9 @@
     <string name="pile_label_locations">Lieux</string>
     <string name="map_route_start_cd">Démarrer un itinéraire</string>
     <string name="map_preview_ready">Aperçu ajouté à la note</string>
+    <string name="route_debug_toggle_title">Overlay debug itinéraire</string>
+    <string name="route_debug_toggle_message">Disponible uniquement en build DEBUG. Active l’overlay de diagnostic pour ajuster les seuils à la volée.</string>
+    <string name="route_debug_toggle_switch">Activer l’overlay debug</string>
 
     <string name="block_view_on_map">Voir sur carte</string>
     <string name="block_location_coordinates">%1$.5f, %2$.5f</string>
