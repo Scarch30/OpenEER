@@ -1,3 +1,4 @@
 <resources>
     <dimen name="media_strip_item_size">90dp</dimen>
+    <dimen name="route_debug_dialog_padding">24dp</dimen>
 </resources>
