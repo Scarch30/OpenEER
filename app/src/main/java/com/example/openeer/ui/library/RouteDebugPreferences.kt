@@ -2,8 +2,8 @@ package com.example.openeer.ui.library
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.example.openeer.BuildConfig
 import com.example.openeer.ui.map.MapUiDefaults
+import com.example.openeer.util.isDebugBuild
 
 internal object RouteDebugPreferences {
     private const val PREFS_NAME = "route_debug_overlay"
@@ -22,14 +22,14 @@ internal object RouteDebugPreferences {
 
     fun setOverlayToggleEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
-        MapUiDefaults.DEBUG_ROUTE = BuildConfig.DEBUG && enabled
+        MapUiDefaults.DEBUG_ROUTE = context.isDebugBuild() && enabled
     }
 
     fun refreshDebugFlag(context: Context) {
-        MapUiDefaults.DEBUG_ROUTE = BuildConfig.DEBUG && isOverlayToggleEnabled(context)
+        MapUiDefaults.DEBUG_ROUTE = context.isDebugBuild() && isOverlayToggleEnabled(context)
     }
 
     fun shouldExecuteOverlayCode(context: Context): Boolean {
-        return BuildConfig.DEBUG || isOverlayToggleEnabled(context)
+        return context.isDebugBuild() || isOverlayToggleEnabled(context)
     }
 }
