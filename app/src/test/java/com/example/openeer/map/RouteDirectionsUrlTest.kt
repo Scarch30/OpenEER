@@ -1,12 +1,10 @@
 package com.example.openeer.map
 
+import org.junit.Test
+import org.junit.Assert.*
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import org.junit.Test
 import org.maplibre.android.geometry.LatLng
 
 class RouteDirectionsUrlTest {
@@ -29,7 +27,7 @@ class RouteDirectionsUrlTest {
 
         val query = URI(url).query
         assertNotNull(query)
-        val params = parseParams(query)
+        val params = parseParams(query!!)
 
         assertEquals("48.856600,2.352200", params["origin"])
         assertEquals("48.858400,2.294500", params["destination"])
@@ -51,9 +49,12 @@ class RouteDirectionsUrlTest {
         val url = buildMapsUrl(points)
         assertNotNull(url)
 
-        val params = parseParams(URI(url).query)
-        val waypoints = params["waypoints"]?.split('|')
-        assertNotNull(waypoints)
+        val query = URI(url).query
+        assertNotNull(query)
+        val params = parseParams(query!!)
+        val wp = params["waypoints"]?.split('|')
+        assertNotNull(wp)
+        val waypoints = wp!!
         assertEquals(4, waypoints.size)
     }
 
@@ -66,14 +67,16 @@ class RouteDirectionsUrlTest {
         val url = buildMapsUrl(points)
         assertNotNull(url)
 
-        val params = parseParams(URI(url).query)
-        val waypoints = params["waypoints"]?.split('|')
-        assertNotNull(waypoints)
+        val query = URI(url).query
+        assertNotNull(query)
+        val params = parseParams(query!!)
+        val wp = params["waypoints"]?.split('|')
+        assertNotNull(wp)
+        val waypoints = wp!!
         assertEquals(9, waypoints.size)
     }
 
-    private fun parseParams(query: String?): Map<String, String?> {
-        if (query == null) return emptyMap()
+    private fun parseParams(query: String): Map<String, String?> {
         return query.split('&').associate { pair ->
             val (key, value) = pair.split('=')
             val decoded = URLDecoder.decode(value, StandardCharsets.UTF_8.name())
