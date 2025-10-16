@@ -37,6 +37,7 @@ class RouteRecordingService : Service(), LocationListener {
 
     companion object {
         private const val TAG = "RouteService"
+        private const val GPS_TAG = "RouteGPS"
 
         const val ACTION_START = "com.example.openeer.route.ACTION_START"
         const val ACTION_STOP  = "com.example.openeer.route.ACTION_STOP"
@@ -58,8 +59,6 @@ class RouteRecordingService : Service(), LocationListener {
 
         private const val CHANNEL_ID = "route_recording"
         private const val NOTIF_ID   = 42
-        private const val MIN_INTERVAL_MS: Long = 1500L
-
         /** Lance le service en mode foreground pour enregistrer un itinéraire GPS. */
         fun start(context: Context, noteId: Long) {
             val intent = Intent(context, RouteRecordingService::class.java)
@@ -107,8 +106,8 @@ class RouteRecordingService : Service(), LocationListener {
 
     private val points = mutableListOf<RoutePointPayload>()
     private val pointCount = AtomicInteger(0)
+    private var lastAccepted: Location? = null
     private var lastAcceptedAt: Long = 0L
-    private var lastLocation: Location? = null
     private var targetNoteId: Long = 0L
 
     private val providers: List<String> by lazy {
@@ -202,8 +201,8 @@ class RouteRecordingService : Service(), LocationListener {
     private fun startListening() {
         points.clear()
         pointCount.set(0)
+        lastAccepted = null
         lastAcceptedAt = 0L
-        lastLocation = null
 
         Log.d(TAG, "startListening(): providers=$providers, interval=${MapUiDefaults.REQUEST_INTERVAL_MS}ms")
         providers.forEach { provider ->
@@ -223,27 +222,89 @@ class RouteRecordingService : Service(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        val now = System.currentTimeMillis()
-        if (now - lastAcceptedAt < MIN_INTERVAL_MS) return
-        lastLocation?.let { prev -> if (location.distanceTo(prev) < MapUiDefaults.MIN_DISTANCE_METERS) return }
         if (points.size >= MapUiDefaults.MAX_ROUTE_POINTS) return
+        if (!shouldAccept(location)) return
 
-        val p = RoutePointPayload(location.latitude, location.longitude, now)
-        points.add(p)
-        lastAcceptedAt = now
-        lastLocation = Location(location)
+        val previous = lastAccepted
+        val dt = previous?.let { location.time - lastAcceptedAt }
+        val dd = previous?.distanceTo(location)
+        Log.d(
+            GPS_TAG,
+            "accept acc=${location.accuracy} dt=${dt ?: "-"} dd=${dd ?: "-"}"
+        )
 
-        val c = pointCount.incrementAndGet()
-        Log.d(TAG, "point #$c ${p.lat},${p.lon} @${p.t}")
-        updateNotif(c)
+        val alpha = when {
+            location.accuracy <= 8 -> 0.7
+            location.accuracy <= 15 -> 0.5
+            else -> 0.3
+        }
+        val lat = previous?.let { alpha * location.latitude + (1 - alpha) * it.latitude }
+            ?: location.latitude
+        val lon = previous?.let { alpha * location.longitude + (1 - alpha) * it.longitude }
+            ?: location.longitude
+
+        addPoint(lat, lon, location.time)
+
+        lastAccepted = Location(location).apply {
+            latitude = lat
+            longitude = lon
+        }
+        lastAcceptedAt = location.time
+    }
+
+    private fun shouldAccept(loc: Location): Boolean {
+        if (loc.isFromMockProvider) {
+            Log.d(GPS_TAG, "reject: mock provider")
+            return false
+        }
+        if (!loc.hasAccuracy()) {
+            Log.d(GPS_TAG, "reject: no accuracy")
+            return false
+        }
+        if (loc.accuracy > MapUiDefaults.ROUTE_MAX_ACCURACY_M) {
+            Log.d(GPS_TAG, "reject: accuracy=${loc.accuracy}")
+            return false
+        }
+
+        if (loc.hasSpeed()) {
+            val speed = loc.speed
+            if (speed < 0f || speed > MapUiDefaults.ROUTE_MAX_SPEED_MPS) {
+                Log.d(GPS_TAG, "reject: speed=$speed")
+                return false
+            }
+        }
+
+        lastAccepted?.let { prev ->
+            val dt = loc.time - lastAcceptedAt
+            if (dt < MapUiDefaults.ROUTE_MIN_INTERVAL_MS) {
+                Log.d(GPS_TAG, "reject: dt=$dt (<${MapUiDefaults.ROUTE_MIN_INTERVAL_MS})")
+                return false
+            }
+            val dd = loc.distanceTo(prev)
+            if (dd < MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M) {
+                Log.d(GPS_TAG, "reject: dd=$dd (<${MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M})")
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private fun addPoint(lat: Double, lon: Double, timestamp: Long) {
+        val payload = RoutePointPayload(lat, lon, timestamp)
+        points.add(payload)
+
+        val count = pointCount.incrementAndGet()
+        Log.d(TAG, "point #$count ${payload.lat},${payload.lon} @${payload.t}")
+        updateNotif(count)
 
         sendBroadcast(
             Intent(ACTION_POINTS)
                 .setPackage(packageName)
-                .putExtra(EXTRA_COUNT, c)
-                .putExtra(EXTRA_LAST_LAT, p.lat)
-                .putExtra(EXTRA_LAST_LON, p.lon)
-                .putExtra(EXTRA_LAST_TS,  p.t)
+                .putExtra(EXTRA_COUNT, count)
+                .putExtra(EXTRA_LAST_LAT, payload.lat)
+                .putExtra(EXTRA_LAST_LON, payload.lon)
+                .putExtra(EXTRA_LAST_TS, payload.t)
         )
     }
 

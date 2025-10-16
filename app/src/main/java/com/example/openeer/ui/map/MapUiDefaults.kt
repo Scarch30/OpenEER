@@ -9,6 +9,10 @@ object MapUiDefaults {
     const val MIN_TIME_BETWEEN_UPDATES_MS = 1_000L
     const val REQUEST_INTERVAL_MS = 1_500L
     const val MAX_ROUTE_POINTS = 500
+    const val ROUTE_MIN_INTERVAL_MS = 1_200L
+    const val ROUTE_MIN_DISPLACEMENT_M = 8f
+    const val ROUTE_MAX_ACCURACY_M = 25f
+    const val ROUTE_MAX_SPEED_MPS = 15f
 
     // Rendu de la route
     const val ROUTE_LINE_COLOR = "#FF2E7D32"
