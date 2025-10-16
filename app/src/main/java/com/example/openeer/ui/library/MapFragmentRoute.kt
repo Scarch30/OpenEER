@@ -272,6 +272,16 @@ internal fun MapFragment.onRouteButtonClicked() {
 private fun MapFragment.updateRouteUi() {
     val s = state()
     Log.d(RTAG, "updateRouteUi(): isRunning=${s.isRunning} count=${s.count}")
+
+    if (isManualRouteModeSafe()) {
+        runCatching {
+            val manualUi = this::class.java.getDeclaredMethod("updateManualRouteUi")
+            manualUi.isAccessible = true
+            manualUi.invoke(this)
+        }
+        return
+    }
+
     b.btnRecordRoute.isVisible = true
     b.btnRecordRoute.isEnabled = true
 
