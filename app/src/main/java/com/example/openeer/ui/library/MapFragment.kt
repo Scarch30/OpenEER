@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.core.Place
@@ -63,11 +64,6 @@ object MapSnapDiag {
 }
 
 class MapFragment : Fragment(), OnMapReadyCallback {
-
-    private companion object {
-        private const val MANUAL_ROUTE_MAX_POINTS = 120
-        private const val MANUAL_ROUTE_LOG_TAG = "ManualRoute"
-    }
 
     private var _b: FragmentMapBinding? = null
     private val b get() = _b!!
@@ -124,21 +120,21 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal val REQ_ROUTE = 1002
 
     companion object {
-        private const val ARG_NOTE_ID = "arg_note_id"
-        private const val ARG_BLOCK_ID = "arg_block_id"
-        private const val ARG_MODE = "arg_mode"
-        private const val STATE_NOTE_ID = "state_note_id"
-        private const val STATE_BLOCK_ID = "state_block_id"
-        private const val STATE_MODE = "state_mode"
-        internal const val TAG = "MapFragment"
+        private const val MANUAL_ROUTE_MAX_POINTS = 120
+        private const val MANUAL_ROUTE_LOG_TAG = "ManualRoute"
 
-        // 🔹 nouvel argument : activer l’overlay des pastilles (Library uniquement)
-        private const val ARG_SHOW_LIBRARY_PINS = "show_library_pins"
-
-        const val RESULT_MANUAL_ROUTE = "map_manual_route_seed"
-        const val RESULT_MANUAL_ROUTE_LAT = "manual_route_lat"
-        const val RESULT_MANUAL_ROUTE_LON = "manual_route_lon"
-        const val RESULT_MANUAL_ROUTE_LABEL = "manual_route_label"
+        const val TAG = "MapFragment"
+        const val ARG_NOTE_ID = "arg_note_id"
+        const val ARG_BLOCK_ID = "arg_block_id"
+        const val ARG_MODE = "arg_mode"
+        const val STATE_NOTE_ID = "state_note_id"
+        const val STATE_BLOCK_ID = "state_block_id"
+        const val STATE_MODE = "state_mode"
+        const val ARG_SHOW_LIBRARY_PINS = "arg_show_library_pins"
+        const val RESULT_MANUAL_ROUTE = "result_manual_route"
+        const val RESULT_MANUAL_ROUTE_LAT = "result_manual_route_lat"
+        const val RESULT_MANUAL_ROUTE_LON = "result_manual_route_lon"
+        const val RESULT_MANUAL_ROUTE_LABEL = "result_manual_route_label"
 
         internal const val MENU_ROUTE_GPS = 1
         internal const val MENU_ROUTE_MANUAL = 2

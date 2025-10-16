@@ -23,11 +23,8 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import kotlin.math.max
 
-// --- Nouveau : flag d’activation de l’overlay “notes de la librairie” ---
-// On lit un argument posé à la création du fragment. Par défaut = false (donc AUCUN point en Carte/Map).
-private const val ARG_SHOW_LIBRARY_PINS = "show_library_pins"
 private val MapFragment.showLibraryPins: Boolean
-    get() = arguments?.getBoolean(ARG_SHOW_LIBRARY_PINS, false) ?: false
+    get() = arguments?.getBoolean(MapFragment.ARG_SHOW_LIBRARY_PINS, false) ?: false
 
 internal fun MapFragment.loadNotesThenRender() {
     // En mode Carte/Map, on ne charge pas/affiche pas l’overlay des notes
