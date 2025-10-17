@@ -14,6 +14,8 @@ import com.example.openeer.data.block.BlockLinkEntity
 import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.db.Converters
 import com.example.openeer.data.location.NoteLocationEntity
+import com.example.openeer.data.reminders.ReminderDao
+import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.data.search.SearchDao
 import com.example.openeer.data.search.SearchIndexFts
 import com.example.openeer.data.tag.NoteTagCrossRef
@@ -35,9 +37,10 @@ import com.example.openeer.data.tag.TagEntity
         NoteMergeLogEntity::class,
         SearchIndexFts::class,
         // 🔗 Liens entre blocs (AUDIO ↔ TEXTE, etc.)
-        BlockLinkEntity::class
+        BlockLinkEntity::class,
+        ReminderEntity::class
     ],
-    version = 11, // 🔼 bump : ajout note_merge_map + flag isMerged + table note_merge_log
+    version = 12, // 🔼 bump : ajout rappels (ReminderEntity)
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -53,6 +56,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun searchDao(): SearchDao
     abstract fun audioDao(): AudioDao
     abstract fun blockReadDao(): BlockReadDao
+    abstract fun reminderDao(): ReminderDao
 
     // 🔗 Nouveau DAO pour les liens de blocs
     abstract fun blockLinkDao(): BlockLinkDao
@@ -330,6 +334,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // 11 -> 12 : reminders
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS reminders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        noteId INTEGER NOT NULL,
+                        blockId INTEGER,
+                        type TEXT NOT NULL,
+                        nextTriggerAt INTEGER NOT NULL,
+                        lastFiredAt INTEGER,
+                        lat REAL,
+                        lon REAL,
+                        radius INTEGER,
+                        status TEXT NOT NULL,
+                        cooldownMinutes INTEGER,
+                        FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE,
+                        FOREIGN KEY(blockId) REFERENCES blocks(id) ON DELETE SET NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_noteId ON reminders(noteId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_status_nextTriggerAt ON reminders(status, nextTriggerAt)")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -347,7 +376,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_7_8,
                         MIGRATION_8_9,
                         MIGRATION_9_10,
-                        MIGRATION_10_11
+                        MIGRATION_10_11,
+                        MIGRATION_11_12
                     )
                     .build()
                     .also { INSTANCE = it }
