@@ -126,12 +126,28 @@ class ReminderListSheet : BottomSheetDialogFragment() {
     private fun reloadReminders() {
         viewLifecycleOwner.lifecycleScope.launch {
             val appCtx = requireContext().applicationContext
-            val reminders = withContext(Dispatchers.IO) {
+            val items = withContext(Dispatchers.IO) {
                 val db = AppDatabase.getInstance(appCtx)
-                db.reminderDao().listForNoteOrdered(noteId)
+                val reminderDao = db.reminderDao()
+                val blockDao = db.blockDao()
+                val reminders = reminderDao.listForNoteOrdered(noteId)
+                val cache = mutableMapOf<Long, String?>()
+                reminders.map { reminder ->
+                    val label = reminder.blockId?.let { blockId ->
+                        cache.getOrPut(blockId) {
+                            blockDao.getById(blockId)?.text
+                                ?.lineSequence()
+                                ?.firstOrNull()
+                                ?.removePrefix("⏰")
+                                ?.trim()
+                                ?.takeIf { it.isNotEmpty() }
+                        }
+                    }
+                    ReminderItem(reminder, label)
+                }
             }
-            adapter.submitList(reminders)
-            val isEmpty = reminders.isEmpty()
+            adapter.submitList(items)
+            val isEmpty = items.isEmpty()
             emptyView.isVisible = isEmpty
             reminderList.isVisible = !isEmpty
         }
@@ -174,7 +190,7 @@ class ReminderListSheet : BottomSheetDialogFragment() {
     private class ReminderAdapter(
         private val onSnooze: (ReminderEntity, Int) -> Unit,
         private val onCancel: (ReminderEntity) -> Unit
-    ) : ListAdapter<ReminderEntity, ReminderAdapter.ReminderViewHolder>(DIFF) {
+    ) : ListAdapter<ReminderItem, ReminderAdapter.ReminderViewHolder>(DIFF) {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ReminderViewHolder {
             val ctx = parent.context
@@ -260,7 +276,7 @@ class ReminderListSheet : BottomSheetDialogFragment() {
         ) : RecyclerView.ViewHolder(itemView) {
 
             fun bind(
-                item: ReminderEntity,
+                item: ReminderItem,
                 onSnooze: (ReminderEntity, Int) -> Unit,
                 onCancel: (ReminderEntity) -> Unit
             ) {
@@ -270,49 +286,60 @@ class ReminderListSheet : BottomSheetDialogFragment() {
                 // Subtitle optional for future use
                 subtitleView.visibility = View.GONE
 
-                val isActive = item.status == "ACTIVE"
+                val isActive = item.entity.status == "ACTIVE"
                 buttonsRow.alpha = if (isActive) 1f else 0.6f
                 snooze5Button.isEnabled = isActive
                 snooze60Button.isEnabled = isActive
                 cancelButton.isEnabled = isActive
 
-                snooze5Button.setOnClickListener { onSnooze(item, 5) }
-                snooze60Button.setOnClickListener { onSnooze(item, 60) }
-                cancelButton.setOnClickListener { onCancel(item) }
+                snooze5Button.setOnClickListener { onSnooze(item.entity, 5) }
+                snooze60Button.setOnClickListener { onSnooze(item.entity, 60) }
+                cancelButton.setOnClickListener { onCancel(item.entity) }
             }
 
-            private fun buildTitle(ctx: Context, item: ReminderEntity): String {
+            private fun buildTitle(ctx: Context, item: ReminderItem): String {
                 val builder = StringBuilder()
-                val lat = item.lat
-                val lon = item.lon
-                if (lat != null && lon != null) {
-                    builder.append(String.format(Locale.US, "📍 %.5f, %.5f", lat, lon))
-                    item.radius?.takeIf { it > 0 }?.let { radius ->
-                        builder.append(" · ~").append(radius).append("m")
-                    }
+                val blockLabel = item.blockLabel
+                if (!blockLabel.isNullOrBlank()) {
+                    builder.append(blockLabel)
                 } else {
-                    builder.append("⏰ ")
-                    val triggerDate = Date(item.nextTriggerAt)
-                    builder.append(DateFormat.getTimeFormat(ctx).format(triggerDate))
-                    if (!DateUtils.isToday(item.nextTriggerAt)) {
-                        builder.append(" · ")
-                        builder.append(DateFormat.getMediumDateFormat(ctx).format(triggerDate))
+                    val entity = item.entity
+                    val lat = entity.lat
+                    val lon = entity.lon
+                    if (lat != null && lon != null) {
+                        builder.append(String.format(Locale.US, "📍 %.5f, %.5f", lat, lon))
+                        entity.radius?.takeIf { it > 0 }?.let { radius ->
+                            builder.append(" · ~").append(radius).append("m")
+                        }
+                    } else {
+                        builder.append("⏰ ")
+                        val triggerDate = Date(entity.nextTriggerAt)
+                        builder.append(DateFormat.getTimeFormat(ctx).format(triggerDate))
+                        if (!DateUtils.isToday(entity.nextTriggerAt)) {
+                            builder.append(" · ")
+                            builder.append(DateFormat.getMediumDateFormat(ctx).format(triggerDate))
+                        }
                     }
                 }
                 builder.append("  • ")
-                builder.append(item.status)
+                builder.append(item.entity.status)
                 return builder.toString()
             }
         }
 
         companion object {
-            private val DIFF = object : DiffUtil.ItemCallback<ReminderEntity>() {
-                override fun areItemsTheSame(oldItem: ReminderEntity, newItem: ReminderEntity): Boolean =
-                    oldItem.id == newItem.id
+            private val DIFF = object : DiffUtil.ItemCallback<ReminderItem>() {
+                override fun areItemsTheSame(oldItem: ReminderItem, newItem: ReminderItem): Boolean =
+                    oldItem.entity.id == newItem.entity.id
 
-                override fun areContentsTheSame(oldItem: ReminderEntity, newItem: ReminderEntity): Boolean =
+                override fun areContentsTheSame(oldItem: ReminderItem, newItem: ReminderItem): Boolean =
                     oldItem == newItem
             }
         }
     }
+
+    private data class ReminderItem(
+        val entity: ReminderEntity,
+        val blockLabel: String?,
+    )
 }

@@ -1,5 +1,6 @@
 package com.example.openeer.ui.library
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.view.LayoutInflater
@@ -103,8 +104,12 @@ internal fun MapFragment.showSelectionSheet(initialLabel: String, latLng: LatLng
     binding.coordinates.text = coordinates
     binding.loadingGroup.isVisible = showLoading
     binding.btnSave.isEnabled = true
-    binding.btnRoute.isEnabled = true
+    binding.btnRoute.isEnabled = !isPickMode
     binding.btnOpenMaps.isEnabled = true
+    binding.btnRoute.isVisible = !isPickMode
+    if (isPickMode) {
+        binding.btnSave.text = getString(R.string.reminder_plan)
+    }
     binding.btnSave.setOnClickListener { onSaveSelectedLocationClicked() }
     binding.btnRoute.setOnClickListener { onStartRouteFromSelectionClicked() }
     binding.btnOpenMaps.setOnClickListener { onOpenInGoogleMapsClicked() }
@@ -152,6 +157,11 @@ internal fun MapFragment.onSaveSelectedLocationClicked() {
     binding.btnRoute.isEnabled = false
     binding.btnOpenMaps.isEnabled = false
 
+    if (isPickMode) {
+        deliverPickedLocation(place)
+        return
+    }
+
     viewLifecycleOwner.lifecycleScope.launch {
         val result = appendLocation(place)
         if (result == null) {
@@ -171,6 +181,25 @@ internal fun MapFragment.onSaveSelectedLocationClicked() {
         captureLocationPreview(result.noteId, result.locationBlockId, place.lat, place.lon)
         dismissSelectionSheet()
     }
+}
+
+internal fun MapFragment.deliverPickedLocation(place: Place) {
+    val latLng = selectionLatLng ?: return
+    val label = MapText.displayLabelFor(place)
+    val bundle = bundleOf(
+        MapFragment.RESULT_PICK_LOCATION_LAT to latLng.latitude,
+        MapFragment.RESULT_PICK_LOCATION_LON to latLng.longitude,
+        MapFragment.RESULT_PICK_LOCATION_LABEL to label
+    )
+    parentFragmentManager.setFragmentResult(MapFragment.RESULT_PICK_LOCATION, bundle)
+    val intent = Intent().apply {
+        putExtra(MapFragment.RESULT_PICK_LOCATION_LAT, latLng.latitude)
+        putExtra(MapFragment.RESULT_PICK_LOCATION_LON, latLng.longitude)
+        putExtra(MapFragment.RESULT_PICK_LOCATION_LABEL, label)
+    }
+    activity?.setResult(Activity.RESULT_OK, intent)
+    dismissSelectionSheet()
+    activity?.finish()
 }
 
 internal fun MapFragment.onStartRouteFromSelectionClicked() {

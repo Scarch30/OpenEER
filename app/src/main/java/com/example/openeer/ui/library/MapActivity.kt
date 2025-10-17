@@ -119,6 +119,7 @@ class MapActivity : AppCompatActivity() {
         const val MODE_BROWSE = "BROWSE"
         const val MODE_CENTER_ON_HERE = "CENTER_ON_HERE"
         const val MODE_FOCUS_NOTE = "FOCUS_NOTE"
+        const val MODE_PICK_LOCATION = "PICK_LOCATION"
 
         private const val MAP_FRAGMENT_TAG = "map_fragment"
 
@@ -158,6 +159,16 @@ class MapActivity : AppCompatActivity() {
             putExtra(EXTRA_MODE, MODE_FOCUS_NOTE)
             putExtra(EXTRA_NOTE_ID, noteId)
             blockId?.takeIf { it > 0 }?.let { putExtra(EXTRA_BLOCK_ID, it) }
+            putExtra(EXTRA_SHOW_LIBRARY_PINS, false)
+        }
+
+        @JvmStatic
+        fun newPickLocationIntent(
+            context: Context,
+            noteId: Long? = null,
+        ): Intent = Intent(context, MapActivity::class.java).apply {
+            putExtra(EXTRA_MODE, MODE_PICK_LOCATION)
+            noteId?.takeIf { it > 0 }?.let { putExtra(EXTRA_NOTE_ID, it) }
             putExtra(EXTRA_SHOW_LIBRARY_PINS, false)
         }
     }
