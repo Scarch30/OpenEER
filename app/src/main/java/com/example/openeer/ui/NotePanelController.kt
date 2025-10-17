@@ -36,6 +36,7 @@ import com.example.openeer.ui.panel.media.MediaStripItem
 import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.library.LibraryFragment
 import com.example.openeer.ui.library.MapPreviewStorage
+import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.util.toast
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.card.MaterialCardView
@@ -218,11 +219,20 @@ class NotePanelController(
 
     private fun showNoteMenu(anchor: View) {
         val popup = PopupMenu(activity, anchor)
-        popup.menu.add(0, MENU_MERGE_WITH, 0, activity.getString(R.string.note_menu_merge_with)).apply {
+        popup.menu.add(0, MENU_CREATE_REMINDER, 0, activity.getString(R.string.note_menu_create_reminder)).apply {
+            isEnabled = openNoteId != null
+        }
+        popup.menu.add(0, MENU_MERGE_WITH, 1, activity.getString(R.string.note_menu_merge_with)).apply {
             isEnabled = openNoteId != null
         }
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
+                MENU_CREATE_REMINDER -> {
+                    val noteId = openNoteId ?: return@setOnMenuItemClickListener false
+                    BottomSheetReminderPicker.newInstance(noteId)
+                        .show(activity.supportFragmentManager, "reminder_picker")
+                    true
+                }
                 MENU_MERGE_WITH -> {
                     promptMergeSelection()
                     true
@@ -366,7 +376,8 @@ class NotePanelController(
     }
 
     companion object {
-        private const val MENU_MERGE_WITH = 1
+        private const val MENU_CREATE_REMINDER = 1
+        private const val MENU_MERGE_WITH = 2
         private const val TAG = "MergeDiag"
     }
 

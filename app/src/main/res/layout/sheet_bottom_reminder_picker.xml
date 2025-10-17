@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp"
+    android:paddingTop="24dp"
+    android:paddingBottom="32dp">
+
+    <TextView
+        android:id="@+id/title"
+        style="@style/TextAppearance.Material3.TitleMedium"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/reminder_picker_title" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnIn10"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:contentDescription="@string/reminder_in_10m"
+        android:text="@string/reminder_in_10m" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnIn1h"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:contentDescription="@string/reminder_in_1h"
+        android:text="@string/reminder_in_1h" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnTomorrow9"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:contentDescription="@string/reminder_tomorrow_9"
+        android:text="@string/reminder_tomorrow_9" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnCustom"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:contentDescription="@string/reminder_custom_time"
+        android:text="@string/reminder_custom_time" />
+
+</LinearLayout>
