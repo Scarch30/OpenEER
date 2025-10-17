@@ -14,6 +14,7 @@ import androidx.core.os.bundleOf
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
+import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.domain.ReminderUseCases
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.snackbar.Snackbar
@@ -125,8 +126,29 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private fun scheduleReminder(timeMillis: Long) {
         viewLifecycleOwner.lifecycleScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) {
+                val reminderId = withContext(Dispatchers.IO) {
                     reminderUseCases.scheduleAtEpoch(noteId, timeMillis, blockId)
+                }
+
+                val appContext = requireContext().applicationContext
+                val db = AppDatabase.getInstance(appContext)
+                val blocksRepo = BlocksRepository(db.blockDao(), db.noteDao(), db.blockLinkDao())
+
+                val timeFmt = DateFormat.getTimeFormat(appContext)
+                val dateFmt = DateFormat.getDateFormat(appContext)
+                val sameDay = isSameDay(timeMillis)
+                val whenText = if (sameDay) {
+                    timeFmt.format(Date(timeMillis))
+                } else {
+                    "${dateFmt.format(Date(timeMillis))} ${timeFmt.format(Date(timeMillis))}"
+                }
+
+                val body = "⏰ Rappel : $whenText"
+                val newBlockId = withContext(Dispatchers.IO) {
+                    blocksRepo.appendText(noteId, body)
+                }
+                withContext(Dispatchers.IO) {
+                    db.reminderDao().attachBlock(reminderId, newBlockId)
                 }
             }.onSuccess {
                 notifySuccess(timeMillis)
@@ -135,6 +157,13 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 handleFailure(error)
             }
         }
+    }
+
+    private fun isSameDay(t: Long): Boolean {
+        val now = Calendar.getInstance()
+        val tgt = Calendar.getInstance().apply { timeInMillis = t }
+        return now.get(Calendar.YEAR) == tgt.get(Calendar.YEAR) &&
+            now.get(Calendar.DAY_OF_YEAR) == tgt.get(Calendar.DAY_OF_YEAR)
     }
 
     private fun notifySuccess(timeMillis: Long) {
