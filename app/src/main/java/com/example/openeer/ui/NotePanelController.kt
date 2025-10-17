@@ -1,7 +1,10 @@
 // app/src/main/java/com/example/openeer/ui/NotePanelController.kt
 package com.example.openeer.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Typeface
 import android.text.Spanned
 import android.text.style.StyleSpan
@@ -13,9 +16,13 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
+import androidx.core.content.ContextCompat
+import androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
+import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -37,6 +44,7 @@ import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.library.LibraryFragment
 import com.example.openeer.ui.library.MapPreviewStorage
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
+import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.util.toast
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.card.MaterialCardView
@@ -122,6 +130,18 @@ class NotePanelController(
     var onPileCountsChanged: ((PileCounts) -> Unit)? = null
     var onOpenNoteChanged: ((Long?) -> Unit)? = null
 
+    private val reminderChangedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val targetNoteId = intent?.getLongExtra(ReminderListSheet.EXTRA_NOTE_ID, -1L) ?: return
+            val openId = openNoteId ?: return
+            if (targetNoteId == openId) {
+                refreshReminderChip(openId)
+            }
+        }
+    }
+
+    private var reminderReceiverRegistered = false
+
     init {
         binding.mediaStrip.layoutManager =
             LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
@@ -129,6 +149,25 @@ class NotePanelController(
         binding.btnNoteMenu.setOnClickListener { view ->
             showNoteMenu(view)
         }
+        binding.btnReminders.apply {
+            isVisible = false
+            setOnClickListener {
+                val noteId = openNoteId ?: return@setOnClickListener
+                ReminderListSheet
+                    .newInstance(noteId)
+                    .show(activity.supportFragmentManager, "reminder_list")
+            }
+        }
+
+        activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                registerReminderReceiver()
+            }
+
+            override fun onStop(owner: LifecycleOwner) {
+                unregisterReminderReceiver()
+            }
+        })
     }
 
     fun attachTopBubble(controller: TopBubbleController) {
@@ -144,6 +183,7 @@ class NotePanelController(
         onOpenNoteChanged?.invoke(noteId)
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
+        binding.btnReminders.isVisible = false
 
         onPileCountsChanged?.invoke(PileCounts())
         pileUiState.value = emptyList()
@@ -186,6 +226,8 @@ class NotePanelController(
         // Interactions locales
         binding.btnBack.setOnClickListener { close() }
         binding.txtTitleDetail.setOnClickListener { promptEditTitle() }
+
+        refreshReminderChip(noteId)
     }
 
     fun close() {
@@ -197,6 +239,7 @@ class NotePanelController(
 
         binding.txtBodyDetail.text = ""
         binding.noteMetaFooter.isGone = true
+        binding.btnReminders.isVisible = false
 
         // 🔚 Coupe proprement les collecteurs
         noteJob?.cancel()
@@ -638,6 +681,44 @@ class NotePanelController(
         view.animate().cancel()
         view.alpha = 0.5f
         view.animate().alpha(1f).setDuration(350L).start()
+    }
+
+    private fun registerReminderReceiver() {
+        if (reminderReceiverRegistered) return
+        ContextCompat.registerReceiver(
+            activity,
+            reminderChangedReceiver,
+            IntentFilter(ReminderListSheet.ACTION_REMINDERS_CHANGED),
+            RECEIVER_NOT_EXPORTED
+        )
+        reminderReceiverRegistered = true
+    }
+
+    private fun unregisterReminderReceiver() {
+        if (!reminderReceiverRegistered) return
+        runCatching { activity.unregisterReceiver(reminderChangedReceiver) }
+        reminderReceiverRegistered = false
+    }
+
+    private fun refreshReminderChip(noteId: Long) {
+        activity.lifecycleScope.launch {
+            val appCtx = activity.applicationContext
+            val (totalCount, activeCount) = withContext(Dispatchers.IO) {
+                val dao = AppDatabase.get(appCtx).reminderDao()
+                val reminders = dao.listForNoteOrdered(noteId)
+                val active = dao.countActiveForNote(noteId)
+                reminders.size to active
+            }
+            if (openNoteId != noteId) return@launch
+            binding.btnReminders.isVisible = totalCount > 0
+            if (totalCount > 0) {
+                binding.btnReminders.alpha = if (activeCount > 0) 1f else 0.6f
+                binding.btnReminders.text = activity.getString(
+                    R.string.reminders_chip_label,
+                    activeCount
+                )
+            }
+        }
     }
 
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)

@@ -97,4 +97,12 @@
         android:singleLine="true"
         android:ellipsize="end"
         android:visibility="gone" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnReminders"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textAllCaps="false"
+        android:visibility="gone" />
 </LinearLayout>

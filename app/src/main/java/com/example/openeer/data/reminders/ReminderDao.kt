@@ -22,6 +22,12 @@ interface ReminderDao {
     @Query("SELECT * FROM reminders WHERE noteId = :noteId")
     suspend fun getByNoteId(noteId: Long): List<ReminderEntity>
 
+    @Query("SELECT * FROM reminders WHERE noteId = :noteId ORDER BY status DESC, nextTriggerAt ASC")
+    suspend fun listForNoteOrdered(noteId: Long): List<ReminderEntity>
+
+    @Query("SELECT COUNT(*) FROM reminders WHERE noteId = :noteId AND status = 'ACTIVE'")
+    suspend fun countActiveForNote(noteId: Long): Int
+
     @Query("SELECT * FROM reminders WHERE status = 'ACTIVE' AND nextTriggerAt <= :now")
     suspend fun getDue(now: Long): List<ReminderEntity>
 
