@@ -25,6 +25,9 @@ interface ReminderDao {
     @Query("SELECT * FROM reminders WHERE status = 'ACTIVE' AND nextTriggerAt <= :now")
     suspend fun getDue(now: Long): List<ReminderEntity>
 
+    @Query("UPDATE reminders SET status='DONE', lastFiredAt = :firedAt WHERE id = :id")
+    suspend fun markDone(id: Long, firedAt: Long)
+
     @Query(
         "SELECT * FROM reminders WHERE status = 'ACTIVE' AND type = 'TIME_ONE_SHOT' AND nextTriggerAt >= :now"
     )

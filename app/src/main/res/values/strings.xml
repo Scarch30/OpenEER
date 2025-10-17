@@ -3,6 +3,14 @@
     <string name="notif_channel_reminders">Rappels OpenEER</string>
     <string name="notif_channel_reminders_desc">Notifications de rappel</string>
 
+    <string name="notif_title_reminder">Rappel OpenEER</string>
+    <string name="notif_text_note_title">Note : %1$s</string>
+    <string name="notif_text_no_title">Ouvrir la note</string>
+    <string name="notif_action_snooze_5">Snooze 5 min</string>
+    <string name="notif_action_snooze_60">Snooze 1 h</string>
+    <string name="notif_action_mark_done">Marquer fait</string>
+    <string name="notif_error_missing_ids">Rappel introuvable</string>
+
     <string name="action_validate">Valider</string>
     <string name="action_cancel">Annuler</string>
     <string name="action_edit">Modifier</string>
