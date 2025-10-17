@@ -61,7 +61,7 @@ import android.os.Build
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        const val EXTRA_OPEN_NOTE_ID = "com.example.openeer.extra.OPEN_NOTE_ID"
+        const val EXTRA_OPEN_NOTE_ID = "extra_open_note_id"
         const val ACTION_OPEN_NOTE = "com.example.openeer.ACTION_OPEN_NOTE"
         const val EXTRA_NOTE_ID = "extra_note_id"
     }
@@ -653,6 +653,8 @@ class MainActivity : AppCompatActivity() {
     private fun handleOpenNoteIntent(intent: Intent?) {
         val targetId = intent?.getLongExtra(EXTRA_OPEN_NOTE_ID, -1L) ?: -1L
         if (targetId > 0) {
+            Log.d("MainActivity", "Received reminder open note request for id=$targetId")
+            // TODO: Naviguer vers la note targetId via le routeur d'écran habituel.
             notePanel.open(targetId)
             intent?.removeExtra(EXTRA_OPEN_NOTE_ID)
         }
