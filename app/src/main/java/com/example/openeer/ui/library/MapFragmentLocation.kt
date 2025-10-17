@@ -121,6 +121,8 @@ internal fun MapFragment.onAddHereClicked() {
             }
 
             targetNoteId = result.noteId
+            onTargetNoteIdChanged(result.noteId)
+            setTargetNoteLocation(place.lat, place.lon)
             val displayLabel = MapText.displayLabelFor(place)
             tryUi { addCustomPin(result.locationBlockId, place.lat, place.lon) }
             tryUi { showHint(getString(R.string.map_location_added)) }
@@ -331,6 +333,7 @@ internal suspend fun MapFragment.undoLocationAdd(result: LocationAddResult) {
             Snackbar.make(binding.root, getString(R.string.map_location_undo_success), Snackbar.LENGTH_SHORT).show()
         }
         lastHereLocation = null
+        setTargetNoteLocation(result.previousLat, result.previousLon)
     } else {
         runCatching {
             Snackbar.make(binding.root, getString(R.string.map_location_unavailable), Snackbar.LENGTH_SHORT).show()

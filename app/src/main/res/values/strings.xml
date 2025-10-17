@@ -20,6 +20,9 @@
     <string name="reminder_error_schedule">Impossible de créer le rappel</string>
     <string name="note_menu_create_reminder">Créer un rappel</string>
     <string name="map_menu_create_reminder_time">Créer un rappel (temps)</string>
+    <string name="map_menu_create_reminder_geo_once">Quand je repasse ici</string>
+    <string name="map_menu_create_reminder_geo_every">À chaque fois que je repasse ici</string>
+    <string name="reminder_geo_location_missing">Position introuvable pour cette note</string>
 
     <string name="action_validate">Valider</string>
     <string name="action_cancel">Annuler</string>

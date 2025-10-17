@@ -8,10 +8,14 @@ import android.util.Log
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.reminders.ReminderDao
 import com.example.openeer.data.reminders.ReminderEntity
+import com.example.openeer.receiver.ReminderReceiver
 import com.example.openeer.receiver.ReminderReceiver.Companion.ACTION_FIRE_ALARM
+import com.example.openeer.receiver.ReminderReceiver.Companion.ACTION_FIRE_GEOFENCE
 import com.example.openeer.receiver.ReminderReceiver.Companion.EXTRA_NOTE_ID
 import com.example.openeer.receiver.ReminderReceiver.Companion.EXTRA_REMINDER_ID
-import com.example.openeer.receiver.ReminderReceiver
+import com.google.android.gms.location.Geofence
+import com.google.android.gms.location.GeofencingRequest
+import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -48,6 +52,54 @@ class ReminderUseCases(
 
         Log.d(TAG, "Scheduled reminderId=$reminderId noteId=$noteId at $timeMillis")
         reminderId
+    }
+
+    suspend fun scheduleGeofence(
+        noteId: Long,
+        lat: Double,
+        lon: Double,
+        radiusMeters: Int = DEFAULT_GEOFENCE_RADIUS_METERS,
+        every: Boolean = false,
+        blockId: Long? = null,
+        cooldownMinutes: Int? = DEFAULT_GEO_COOLDOWN_MINUTES
+    ): Long = withContext(Dispatchers.IO) {
+        val reminder = ReminderEntity(
+            noteId = noteId,
+            blockId = blockId,
+            type = if (every) TYPE_LOC_EVERY else TYPE_LOC_ONCE,
+            nextTriggerAt = System.currentTimeMillis(),
+            lat = lat,
+            lon = lon,
+            radius = radiusMeters,
+            status = STATUS_ACTIVE,
+            cooldownMinutes = cooldownMinutes
+        )
+
+        val reminderId = reminderDao.insert(reminder)
+        addGeofenceForExisting(reminder.copy(id = reminderId))
+        Log.d(
+            TAG,
+            "Scheduled geo reminderId=$reminderId noteId=$noteId lat=$lat lon=$lon radius=$radiusMeters every=$every"
+        )
+        reminderId
+    }
+
+    suspend fun removeGeofence(reminderId: Long) = withContext(Dispatchers.IO) {
+        try {
+            val client = LocationServices.getGeofencingClient(context)
+            client.removeGeofences(listOf(reminderId.toString()))
+                .addOnSuccessListener {
+                    Log.d(TAG, "Removed geofence reminderId=$reminderId")
+                }
+                .addOnFailureListener { error ->
+                    Log.e(TAG, "Failed to remove geofence reminderId=$reminderId", error)
+                }
+        } catch (se: SecurityException) {
+            Log.w(TAG, "Missing location permission when removing geofence reminderId=$reminderId", se)
+        }
+
+        reminderDao.cancelById(reminderId)
+        Log.d(TAG, "Cancelled geo reminderId=$reminderId")
     }
 
     suspend fun cancel(reminderId: Long) = withContext(Dispatchers.IO) {
@@ -115,6 +167,15 @@ class ReminderUseCases(
                     "Restored reminderId=${reminder.id} noteId=${reminder.noteId} at ${reminder.nextTriggerAt}"
                 )
             }
+
+            val geoReminders = reminderDao.getActiveGeo()
+            geoReminders.forEach { reminder ->
+                addGeofenceForExisting(reminder)
+                Log.d(
+                    TAG,
+                    "Restored geo reminderId=${reminder.id} noteId=${reminder.noteId} type=${reminder.type}"
+                )
+            }
         }
 
     private fun scheduleAlarm(reminderId: Long, noteId: Long, triggerAt: Long) {
@@ -145,6 +206,60 @@ class ReminderUseCases(
         )
     }
 
+    private fun addGeofenceForExisting(reminder: ReminderEntity) {
+        val lat = reminder.lat
+        val lon = reminder.lon
+        if (lat == null || lon == null) {
+            Log.w(TAG, "Cannot add geofence, missing coordinates for reminderId=${reminder.id}")
+            return
+        }
+        val radius = reminder.radius ?: DEFAULT_GEOFENCE_RADIUS_METERS
+
+        val geofence = Geofence.Builder()
+            .setRequestId(reminder.id.toString())
+            .setCircularRegion(lat, lon, radius.toFloat())
+            .setTransitionTypes(
+                Geofence.GEOFENCE_TRANSITION_ENTER /* | Geofence.GEOFENCE_TRANSITION_DWELL */
+            )
+            .setLoiteringDelay(120_000)
+            .setExpirationDuration(Geofence.NEVER_EXPIRE)
+            .build()
+
+        val request = GeofencingRequest.Builder()
+            .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+            .addGeofence(geofence)
+            .build()
+
+        val pendingIntent = buildGeofencePendingIntent(reminder.id, reminder.noteId)
+
+        try {
+            val client = LocationServices.getGeofencingClient(context)
+            client.addGeofences(request, pendingIntent)
+                .addOnSuccessListener {
+                    Log.d(TAG, "Registered geofence reminderId=${reminder.id}")
+                }
+                .addOnFailureListener { error ->
+                    Log.e(TAG, "Failed to register geofence reminderId=${reminder.id}", error)
+                }
+        } catch (se: SecurityException) {
+            Log.w(TAG, "Missing location permission when adding geofence reminderId=${reminder.id}", se)
+        }
+    }
+
+    private fun buildGeofencePendingIntent(reminderId: Long, noteId: Long): PendingIntent {
+        val intent = Intent(context, ReminderReceiver::class.java).apply {
+            action = ACTION_FIRE_GEOFENCE
+            putExtra(EXTRA_REMINDER_ID, reminderId)
+            putExtra(EXTRA_NOTE_ID, noteId)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            requestCodeFor(reminderId),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
     private fun requestCodeFor(reminderId: Long): Int {
         return (reminderId % Int.MAX_VALUE).toInt()
     }
@@ -152,8 +267,12 @@ class ReminderUseCases(
     private companion object {
         private const val TAG = "ReminderUseCases"
         private const val TYPE_TIME_ONE_SHOT = "TIME_ONE_SHOT"
+        private const val TYPE_LOC_ONCE = "LOC_ONCE"
+        private const val TYPE_LOC_EVERY = "LOC_EVERY"
         private const val STATUS_ACTIVE = "ACTIVE"
         private const val STATUS_CANCELLED = "CANCELLED"
         private const val ONE_MINUTE_IN_MILLIS = 60_000L
+        private const val DEFAULT_GEOFENCE_RADIUS_METERS = 100
+        private const val DEFAULT_GEO_COOLDOWN_MINUTES = 30
     }
 }
