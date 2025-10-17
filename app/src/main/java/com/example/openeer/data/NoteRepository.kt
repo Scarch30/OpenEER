@@ -1,20 +1,27 @@
 // app/src/main/java/com/example/openeer/data/NoteRepository.kt
 package com.example.openeer.data
 
+import android.app.AlarmManager
+import android.content.Context
 import android.util.Log
 import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.merge.MergeSnapshot
 import com.example.openeer.data.merge.computeBlockHash
 import com.example.openeer.data.merge.toSnapshot
+import com.example.openeer.domain.ReminderUseCases
 import com.google.gson.Gson
 import kotlin.collections.buildList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class NoteRepository(
+    private val appContext: Context,
     private val noteDao: NoteDao,
     private val attachmentDao: AttachmentDao,
     private val blockReadDao: BlockReadDao,
-    private val blocksRepository: BlocksRepository
+    private val blocksRepository: BlocksRepository,
+    private val database: AppDatabase = AppDatabase.getInstance(appContext)
 ) {
     val allNotes = noteDao.getAllFlow()
 
@@ -27,6 +34,18 @@ class NoteRepository(
     }
     suspend fun removeAttachment(id: Long) {
         attachmentDao.delete(id)
+    }
+
+    suspend fun deleteNoteWithReminders(id: Long) {
+        withContext(Dispatchers.IO) {
+            val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val reminderUseCases = ReminderUseCases(appContext, database, alarmManager)
+            runCatching { reminderUseCases.cancelAllForNote(id) }
+                .onFailure { error ->
+                    Log.w(TAG, "Failed to cancel reminders before deleting noteId=$id", error)
+                }
+            noteDao.deleteById(id)
+        }
     }
 
     suspend fun createNoteAtStart(
@@ -319,3 +338,5 @@ class NoteRepository(
         return UndoResult(reassigned, recreated)
     }
 }
+
+private const val TAG = "NoteRepository"

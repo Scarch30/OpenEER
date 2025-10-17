@@ -50,7 +50,14 @@ class RecorderService : Service() {
             noteDao  = null,
             linkDao  = db.blockLinkDao()
         )
-        repo = NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocks)
+        repo = NoteRepository(
+            applicationContext,
+            db.noteDao(),
+            db.attachmentDao(),
+            db.blockReadDao(),
+            blocks,
+            database = db
+        )
         blocksRepo = blocks
     }
 

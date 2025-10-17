@@ -1,5 +1,6 @@
 package com.example.openeer.ui.library
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.openeer.data.AppDatabase
@@ -55,7 +56,7 @@ class LibraryViewModel(
     }
 
     companion object {
-        fun create(db: AppDatabase): LibraryViewModel {
+        fun create(context: Context, db: AppDatabase): LibraryViewModel {
             val repo = SearchRepository(
                 searchDao = db.searchDao(),
                 tagDao = db.tagDao()
@@ -65,7 +66,14 @@ class LibraryViewModel(
                 noteDao = db.noteDao(),
                 linkDao = db.blockLinkDao()
             )
-            val noteRepo = NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
+            val noteRepo = NoteRepository(
+                context.applicationContext,
+                db.noteDao(),
+                db.attachmentDao(),
+                db.blockReadDao(),
+                blocksRepo,
+                database = db
+            )
             return LibraryViewModel(repo, noteRepo)
         }
     }

@@ -80,7 +80,7 @@ class LibraryFragment : Fragment() {
 
         val ctx = requireContext().applicationContext
         val db = AppDatabase.get(ctx)
-        vm = LibraryViewModel.create(db)
+        vm = LibraryViewModel.create(ctx, db)
 
         adapter = NotesAdapter(
             onClick = { note -> onItemClicked(note) },
