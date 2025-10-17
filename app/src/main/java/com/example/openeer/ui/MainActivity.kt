@@ -15,6 +15,7 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ActionMode
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.ContextCompat
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
@@ -40,6 +41,7 @@ import com.example.openeer.ui.editor.EditorBodyController
 import com.example.openeer.ui.library.LibraryActivity
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.panel.media.MediaCategory
+import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
@@ -64,6 +66,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_OPEN_NOTE_ID = "extra_open_note_id"
         const val ACTION_OPEN_NOTE = "com.example.openeer.ACTION_OPEN_NOTE"
         const val EXTRA_NOTE_ID = "extra_note_id"
+        private const val MENU_CREATE_GLOBAL_REMINDER = 7001
     }
     // === Retour depuis la carte : ouvrir une note spécifique ===
 
@@ -414,6 +417,41 @@ class MainActivity : AppCompatActivity() {
                     "application/pdf"
                 )
             )
+        }
+
+        b.btnMenu.setOnClickListener { view ->
+            val popup = PopupMenu(this, view)
+            popup.menu.add(0, MENU_CREATE_GLOBAL_REMINDER, 0, getString(R.string.menu_create_global_reminder))
+            popup.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    MENU_CREATE_GLOBAL_REMINDER -> {
+                        val openId = notePanel.openNoteId
+                        if (openId != null && openId > 0L) {
+                            BottomSheetReminderPicker.newInstance(openId)
+                                .show(supportFragmentManager, "reminder_picker")
+                        } else {
+                            lifecycleScope.launch {
+                                val newNoteId = withContext(Dispatchers.IO) {
+                                    val db = AppDatabase.getInstance(this@MainActivity)
+                                    val repo = NoteRepository(
+                                        db.noteDao(),
+                                        db.attachmentDao(),
+                                        db.blockReadDao(),
+                                        BlocksRepository(db.blockDao(), db.noteDao(), db.blockLinkDao())
+                                    )
+                                    repo.createTextNote("")
+                                }
+                                notePanel.open(newNoteId)
+                                BottomSheetReminderPicker.newInstance(newNoteId)
+                                    .show(supportFragmentManager, "reminder_picker")
+                            }
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+            popup.show()
         }
 
         // Clic sur le corps = édition inline

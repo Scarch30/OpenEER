@@ -19,6 +19,9 @@
     <string name="reminder_created">Rappel créé pour %1$s</string>
     <string name="reminder_error_schedule">Impossible de créer le rappel</string>
     <string name="note_menu_create_reminder">Créer un rappel</string>
+    <string name="menu_create_global_reminder">Créer un rappel</string>
+    <string name="reminder_cancel_action">Annuler le rappel</string>
+    <string name="reminder_cancelled">Rappel annulé</string>
     <string name="map_menu_create_reminder_time">Créer un rappel (temps)</string>
     <string name="map_menu_create_reminder_geo_once">Quand je repasse ici</string>
     <string name="map_menu_create_reminder_geo_every">À chaque fois que je repasse ici</string>

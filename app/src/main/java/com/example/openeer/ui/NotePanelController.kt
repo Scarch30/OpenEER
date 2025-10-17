@@ -433,7 +433,9 @@ class NotePanelController(
 
         blocks.forEach { block ->
             val view = when (block.type) {
-                BlockType.TEXT -> null
+                BlockType.TEXT -> if (block.groupId == null) {
+                    BlockRenderers.createTextBlockView(container.context, block, margin, activity)
+                } else null
                 BlockType.SKETCH,
                 BlockType.PHOTO,
                 BlockType.VIDEO,

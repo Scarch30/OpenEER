@@ -31,6 +31,12 @@ interface ReminderDao {
     @Query("UPDATE reminders SET status='DONE', lastFiredAt = :firedAt WHERE id = :id")
     suspend fun markDone(id: Long, firedAt: Long)
 
+    @Query("UPDATE reminders SET blockId = :blockId WHERE id = :id")
+    suspend fun attachBlock(id: Long, blockId: Long)
+
+    @Query("SELECT * FROM reminders WHERE blockId = :blockId LIMIT 1")
+    suspend fun byBlockId(blockId: Long): ReminderEntity?
+
     @Query(
         "SELECT * FROM reminders WHERE status = 'ACTIVE' AND type = 'TIME_ONE_SHOT' AND nextTriggerAt >= :now"
     )
