@@ -128,7 +128,6 @@ internal fun MapFragment.onAddHereClicked() {
             tryUi { showUndoSnackbar(result, displayLabel) }
 
             MapSnapDiag.trace { "HERE: captureLocationPreview()…" }
-            // Best-effort : si la vue n'existe plus, on ignore silencieusement
             runCatching {
                 captureLocationPreview(result.noteId, result.locationBlockId, place.lat, place.lon)
             }
@@ -136,12 +135,12 @@ internal fun MapFragment.onAddHereClicked() {
 
             lastHereLocation = RecentHere(place.lat, place.lon, now)
 
-            // Si fallback label → enrichir async (note + bloc LOCATION + bloc miroir)
+            // Si fallback label → enrichir async (note + bloc LOCATION)
             if (place.label == null || place.label == "Position actuelle" || place.label.startsWith("geo:")) {
                 enrichNoteLabelAsync(
                     noteId = result.noteId,
-                    locationBlockId = result.locationBlockId,   // on passe l’ID du bloc LOCATION
-                    mirrorBlockId = result.mirrorBlockId,
+                    locationBlockId = result.locationBlockId,
+                    mirrorBlockId = result.mirrorBlockId, // sera ≤0, on ignore dedans
                     lat = place.lat,
                     lon = place.lon
                 )
@@ -178,15 +177,14 @@ private suspend fun MapFragment.lastKnownQuick(): Location? = withContext(Dispat
     null
 }
 
-/** Enrichit la note, le bloc LOCATION et le bloc miroir quand une adresse lisible est trouvée. */
+/** Enrichit la note et le bloc LOCATION quand une adresse lisible est trouvée. */
 private fun MapFragment.enrichNoteLabelAsync(
     noteId: Long,
     locationBlockId: Long,
-    mirrorBlockId: Long,
+    mirrorBlockId: Long, // peut être ≤ 0 : on ignore
     lat: Double,
     lon: Double
 ) {
-    // Lance sur un scope app : continue même si le fragment est détruit
     AppScopes.io.launch {
         MapSnapDiag.trace { "HERE: enrichNoteLabelAsync(start) note=$noteId @ $lat,$lon" }
 
@@ -207,22 +205,22 @@ private fun MapFragment.enrichNoteLabelAsync(
             )
         }
 
-        // 2) Met à jour le bloc LOCATION (placeName) — clé pour le chip & la sheet
+        // 2) Met à jour le bloc LOCATION (placeName)
         runCatching {
-            // ⚠️ nécessite BlocksRepository.updateLocationLabel(blockId, newPlaceName)
             blocksRepo.updateLocationLabel(locationBlockId, label)
         }
 
-        // 3) Met à jour le bloc miroir texte (esthétique)
-        runCatching {
-            val mirrorText = MapText.buildMirrorText(
-                Place(lat = lat, lon = lon, label = label, accuracyM = null)
-            )
-            blocksRepo.updateText(mirrorBlockId, mirrorText)
+        // 3) (SUPPRIMÉ) Mise à jour de texte miroir — conservé en no-op si absent
+        if (mirrorBlockId > 0) {
+            runCatching {
+                val mirrorText = MapText.buildMirrorText(
+                    Place(lat = lat, lon = lon, label = label, accuracyM = null)
+                )
+                blocksRepo.updateText(mirrorBlockId, mirrorText)
+            }
         }
 
         MapSnapDiag.trace { "HERE: enrichNoteLabelAsync(done) label=\"$label\"" }
-        // Essayez un refresh si la vue est encore là
         runCatching { withContext(Dispatchers.Main) { tryUi { refreshNotesAsync() } } }
     }
 }
@@ -281,12 +279,18 @@ internal suspend fun MapFragment.appendLocation(place: Place): LocationAddResult
                 prevPlace = existing?.placeLabel
                 prevAcc = existing?.accuracyM
             } else {
+                // ⚠️ crée une note VIERGE avec meta de localisation, pas de “post-it”
                 noteId = noteRepo.createTextNote("", place.lat, place.lon, place.label, place.accuracyM)
             }
 
+            // Met à jour la note pour l’affichage en pied
             noteRepo.updateLocation(noteId!!, place.lat, place.lon, place.label, place.accuracyM)
+
+            // ➜ Ajoute uniquement le bloc LOCATION (plus de bloc texte miroir)
             val locBlockId = blocksRepo.appendLocation(noteId, place.lat, place.lon, place.label)
-            val mirrorBlockId = blocksRepo.appendText(noteId, MapText.buildMirrorText(place))
+
+            // mirrorBlockId absent → on encode -1L pour compat
+            val mirrorBlockId = -1L
 
             LocationAddResult(noteId, locBlockId, mirrorBlockId, prevLat, prevLon, prevPlace, prevAcc)
         }.onFailure { e -> Log.e(MapFragment.TAG, "Failed to append location", e) }.getOrNull()
@@ -305,7 +309,10 @@ internal suspend fun MapFragment.undoLocationAdd(result: LocationAddResult) {
     val success = withContext(Dispatchers.IO) {
         runCatching {
             blocksRepo.deleteBlock(result.locationBlockId)
-            blocksRepo.deleteBlock(result.mirrorBlockId)
+            if (result.mirrorBlockId > 0) {
+                // Compat si un ancien miroir existait
+                blocksRepo.deleteBlock(result.mirrorBlockId)
+            }
             noteRepo.updateLocation(
                 id = result.noteId,
                 lat = result.previousLat,

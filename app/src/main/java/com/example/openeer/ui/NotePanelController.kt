@@ -29,8 +29,6 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.imports.MediaKind
-import com.example.openeer.ui.SimplePlayer
-import com.example.openeer.ui.formatMeta
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.panel.media.MediaStripAdapter
@@ -425,11 +423,22 @@ class NotePanelController(
         blocks.forEach { block ->
             val view = when (block.type) {
                 BlockType.TEXT -> null
-                BlockType.SKETCH, BlockType.PHOTO, BlockType.VIDEO, BlockType.AUDIO -> null
-                BlockType.ROUTE, BlockType.FILE ->
-                    BlockRenderers.createUnsupportedBlockView(container.context, block, margin)
+                BlockType.SKETCH,
+                BlockType.PHOTO,
+                BlockType.VIDEO,
+                BlockType.AUDIO -> null
+
+                // ⛔️ NE PLUS RENDRE DE CARTE “ROUTE” (on a déjà l’aperçu image dans la pellicule)
+                BlockType.ROUTE -> null
+
+                // idem : pas de carte “LOCATION” (l’aperçu image suffit)
                 BlockType.LOCATION -> null
+
+                // On garde un fallback uniquement pour FILE
+                BlockType.FILE ->
+                    BlockRenderers.createUnsupportedBlockView(container.context, block, margin)
             }
+
             if (view != null) {
                 hasRenderable = true
                 container.addView(view)
@@ -442,6 +451,7 @@ class NotePanelController(
             pendingHighlightBlockId?.let { tryHighlightBlock(it) }
         }
     }
+
 
     /**
      * Piles médias :
@@ -467,8 +477,8 @@ class NotePanelController(
         val photoItems = mutableListOf<MediaStripItem.Image>()   // photos + vidéos
         val sketchItems = mutableListOf<MediaStripItem.Image>()
         val audioItems  = mutableListOf<MediaStripItem.Audio>()
-        val textItems   = mutableListOf<MediaStripItem.Text>()   // textes indépendants
-        val transcriptTextItems = mutableListOf<MediaStripItem.Text>() // textes liés (A/V)
+        val textItems   = mutableListOf<MediaStripItem.Text>()   // ✅ textes SAISIS AU CLAVIER UNIQUEMENT
+        val transcriptTextItems = mutableListOf<MediaStripItem.Text>() // textes liés (A/V) — exclus de la pile
 
         // 🗺️ Pile "Carte" : on agrège LOCATION + ROUTE
         val mapBlocks = blocks.filter { it.type == BlockType.LOCATION || it.type == BlockType.ROUTE }
@@ -501,26 +511,16 @@ class NotePanelController(
                     when {
                         linkedToAudio -> {
                             transcriptsLinkedToAudio += 1
-                            transcriptTextItems += MediaStripItem.Text(
-                                blockId = block.id,
-                                noteId = block.noteId,
-                                content = block.text.orEmpty()
-                            )
+                            // On les collecte pour compter côté AUDIO/VIDEO, mais on ne les montrera pas dans la pile TEXT
+                            transcriptTextItems += MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
                         }
                         linkedToVideo -> {
                             transcriptsLinkedToVideo += 1
-                            transcriptTextItems += MediaStripItem.Text(
-                                blockId = block.id,
-                                noteId = block.noteId,
-                                content = block.text.orEmpty()
-                            )
+                            transcriptTextItems += MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
                         }
                         else -> {
-                            textItems += MediaStripItem.Text(
-                                blockId = block.id,
-                                noteId = block.noteId,
-                                content = block.text.orEmpty(),
-                            )
+                            // ✅ TEXT sans groupId → considéré comme "post-it" saisi au clavier
+                            textItems += MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
                         }
                     }
                 }
@@ -530,7 +530,6 @@ class NotePanelController(
 
         val piles = buildList {
             if (photoItems.isNotEmpty()) {
-                // 👉 Le compteur inclut les TEXT liés aux VIDÉOS
                 val sorted = photoItems.sortedByDescending { it.blockId }
                 val countWithVideoTranscripts = sorted.size + transcriptsLinkedToVideo
                 add(MediaStripItem.Pile(MediaCategory.PHOTO, countWithVideoTranscripts, sorted.first()))
@@ -544,18 +543,16 @@ class NotePanelController(
                 val countWithTranscripts = sorted.size + transcriptsLinkedToAudio
                 add(MediaStripItem.Pile(MediaCategory.AUDIO, countWithTranscripts, sorted.first()))
             }
-            // 🆕 Pile TEXT : cover/ordre sur (text indépendants + transcripts liés),
-            // mais compteur = textes indépendants uniquement.
-            if (textItems.isNotEmpty() || transcriptTextItems.isNotEmpty()) {
-                val allTextForCover = (textItems + transcriptTextItems)
-                val sortedAll = allTextForCover.sortedByDescending { it.blockId }
-                val countStandaloneOnly = textItems.size
-                add(MediaStripItem.Pile(MediaCategory.TEXT, countStandaloneOnly, sortedAll.first()))
+
+            // ✅ PILE TEXT : uniquement si *vrais* post-its (textItems) existent.
+            //    Aucun recours aux transcripts pour la cover ni l’ordre.
+            if (textItems.isNotEmpty()) {
+                val sortedStandalone = textItems.sortedByDescending { it.blockId }
+                add(MediaStripItem.Pile(MediaCategory.TEXT, sortedStandalone.size, sortedStandalone.first()))
             }
 
             // 🗺️ Pile "Carte" (LOCATION + ROUTE) — cover = snapshot si dispo
             if (mapBlocks.isNotEmpty()) {
-                // Cover = bloc le plus récent ayant un snapshot; sinon fallback texte
                 val sorted = mapBlocks.sortedByDescending { it.id }
                 val coverImage: MediaStripItem.Image? = sorted.firstNotNullOfOrNull { b ->
                     val file = MapPreviewStorage.fileFor(ctx, b.id, b.type)
@@ -569,7 +566,7 @@ class NotePanelController(
                     } else null
                 }
                 val cover: MediaStripItem = coverImage ?: MediaStripItem.Text(
-                    blockId = -999L, // id virtuel cover fallback
+                    blockId = -999L,
                     noteId = openNoteId ?: 0L,
                     content = "Carte"
                 )
@@ -578,18 +575,14 @@ class NotePanelController(
         }.sortedByDescending { it.cover.blockId }
 
         val pileUi = piles.map { pile ->
-            PileUi(
-                category = pile.category,
-                count = pile.count,
-                coverBlockId = pile.cover.blockId,
-            )
+            PileUi(category = pile.category, count = pile.count, coverBlockId = pile.cover.blockId)
         }
 
         pileUiState.value = pileUi
-
         mediaAdapter.submitList(piles)
         binding.mediaStrip.isGone = piles.isEmpty()
     }
+
 
     private fun createTextBlockView(block: BlockEntity, margin: Int): View {
         val ctx = binding.root.context

@@ -52,11 +52,30 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.util.Log
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.os.Build
+
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_OPEN_NOTE_ID = "com.example.openeer.extra.OPEN_NOTE_ID"
+        const val ACTION_OPEN_NOTE = "com.example.openeer.ACTION_OPEN_NOTE"
+        const val EXTRA_NOTE_ID = "extra_note_id"
+    }
+    // === Retour depuis la carte : ouvrir une note spécifique ===
+
+    private val openNoteReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != ACTION_OPEN_NOTE) return
+            val noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
+            if (noteId > 0) {
+                // Revenir visuellement dans la note demandée
+                notePanel.open(noteId)
+            }
+        }
     }
 
     private lateinit var b: ActivityMainBinding
@@ -454,7 +473,28 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         editorBody.commitInlineEdit(notePanel.openNoteId)
     }
+    override fun onStart() {
+        super.onStart()
+        val filter = IntentFilter(ACTION_OPEN_NOTE)
+        // ✅ Compatible toutes versions Android
+        try {
+            registerReceiver(
+                openNoteReceiver,
+                filter,
+                Context.RECEIVER_NOT_EXPORTED
+            )
+        } catch (_: NoSuchFieldError) {
+            // ✅ Compat < Android 13 (RECEIVER_NOT_EXPORTED n’existe pas)
+            @Suppress("DEPRECATION")
+            registerReceiver(openNoteReceiver, filter)
+        }
+    }
 
+
+    override fun onStop() {
+        super.onStop()
+        runCatching { unregisterReceiver(openNoteReceiver) }
+    }
     // ---------- Ouvrir une note ----------
     private fun onNoteClicked(note: Note) {
         // Sécurise l’overlay avant de changer de note

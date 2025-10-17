@@ -1,5 +1,6 @@
 package com.example.openeer.ui.library
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.util.Log
 import android.widget.Toast
@@ -7,6 +8,7 @@ import androidx.lifecycle.lifecycleScope
 import com.example.openeer.data.Attachment
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.map.RouteSimplifier
+import com.example.openeer.ui.MainActivity
 import com.example.openeer.ui.map.MapSnapshots
 import com.example.openeer.ui.map.MapUiDefaults
 import com.example.openeer.ui.map.RoutePersistResult
@@ -17,7 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.geometry.LatLngBounds
+import com.example.openeer.ui.map.MapRenderers
 import org.maplibre.android.plugins.annotation.Line
 import org.maplibre.android.plugins.annotation.LineOptions
 import org.maplibre.android.style.layers.TransitionOptions
@@ -69,6 +71,8 @@ internal fun MapFragment.captureLocationPreview(noteId: Long, blockId: Long, lat
                                 persistBlockPreview(noteId, blockId, BlockType.LOCATION, bitmap)
                                 MapSnapDiag.trace { "SNAP: persist scheduled (IO off main) took ~${tPersist.ms()} ms to schedule" }
                                 showPreviewSavedToast()
+                                // ✅ Retourne dans la note concernée (et ferme l’écran carte)
+                                navigateBackToNote(noteId)
                             }
                         } finally {
                             MapSnapDiag.trace { "SNAP: end total=${tick.ms()} ms" }
@@ -104,21 +108,15 @@ internal fun MapFragment.captureRoutePreview(
 
     maybeUpdateRouteDebugOverlay(points)
 
+    // Simplification douce pour le rendu snapshot (pas l’URL)
     val adaptiveEpsilon = RouteSimplifier.adaptiveEpsilonMeters(points)
     val simplified = RouteSimplifier.simplifyMeters(points, adaptiveEpsilon)
     val previewPoints = if (simplified.size >= 2) simplified else points
 
     val latLngs = previewPoints.map { LatLng(it.lat, it.lon) }
-    val bounds = if (latLngs.size >= 2) {
-        val builder = LatLngBounds.Builder()
-        latLngs.forEach { builder.include(it) }
-        runCatching { builder.build() }.getOrNull()
-    } else null
 
-    val center = latLngs.firstOrNull()
     val manager = polylineManager
     var tempLine: Line? = null
-
     if (manager != null && latLngs.size >= 2) {
         val options = LineOptions()
             .withLatLngs(latLngs)
@@ -133,20 +131,44 @@ internal fun MapFragment.captureRoutePreview(
         try {
             withTimeout(SNAPSHOT_TIMEOUT_MS) {
                 suspendCancellableCoroutine<Unit> { cont ->
-                    MapSnapshots.captureMapSnapshot(
+
+                    // 🔹 Cadrage manuel avant capture (utilise tes constantes snapshot)
+                    MapRenderers.fitToLatLngs(
                         map = map,
-                        center = if (bounds == null) center else null,
-                        bounds = bounds
-                    ) { bitmap ->
-                        try {
-                            tempLine?.let { line -> runCatching { manager?.delete(line) } }
-                            if (bitmap != null) {
-                                persistBlockPreview(noteId, result.routeBlockId, BlockType.ROUTE, bitmap)
-                                showPreviewSavedToast()
+                        latLngs = latLngs,
+                        context = requireContext(),
+                        paddingDp = MapUiDefaults.ROUTE_SNAPSHOT_PADDING_DP,
+                        minSpanMeters = MapUiDefaults.ROUTE_SNAPSHOT_MIN_SPAN_M,
+                        padFactor = MapUiDefaults.ROUTE_SNAPSHOT_PAD_FACTOR
+                    )
+
+                    // 🔹 Capture après stabilisation
+                    val m = map
+                    if (m != null) {
+                        MapSnapshots.captureMapSnapshotAfterIdle(
+                            map = m,
+                            timeoutMs = 1500L,
+                            onResult = { bitmap ->
+                                try {
+                                    tempLine?.let { line -> runCatching { manager?.delete(line) } }
+                                    if (bitmap != null) {
+                                        persistBlockPreview(
+                                            noteId,
+                                            result.routeBlockId,
+                                            BlockType.ROUTE,
+                                            bitmap
+                                        )
+                                        showPreviewSavedToast()
+                                        // ✅ Retourne dans la note concernée (et ferme l’écran carte)
+                                        navigateBackToNote(noteId)
+                                    }
+                                } finally {
+                                    cont.resume(Unit)
+                                }
                             }
-                        } finally {
-                            cont.resume(Unit)
-                        }
+                        )
+                    } else {
+                        cont.resume(Unit)
                     }
                 }
             }
@@ -212,20 +234,13 @@ internal fun MapFragment.persistBlockPreview(noteId: Long, blockId: Long, type: 
    Manquants ajoutés : état UI snapshot + feedback utilisateur
 -------------------------------------------------------------------------------------------------- */
 
-/**
- * Active/désactive un indicateur de progression pendant la capture de snapshot.
- * Si ton MapFragment expose un binding/indicator (ex. b.snapshotProgress), on essaie de le piloter.
- * Sinon, no-op discret pour ne pas casser l’UI.
- */
 internal fun MapFragment.setSnapshotInProgress(inProgress: Boolean) {
-    // Essai 1 : chercher une méthode dédiée dans MapFragment
     runCatching {
         val m = this::class.java.getDeclaredMethod("setSnapshotInProgress", Boolean::class.java)
         m.isAccessible = true
         m.invoke(this, inProgress)
         return
     }
-    // Essai 2 : si tu as un binding avec une vue dédiée (ex. b.progressSnapshot)
     runCatching {
         val f = this::class.java.getDeclaredField("b")
         f.isAccessible = true
@@ -238,17 +253,27 @@ internal fun MapFragment.setSnapshotInProgress(inProgress: Boolean) {
     // Sinon : no-op
 }
 
-/**
- * Petit toast confirmant que l’aperçu a été sauvegardé.
- * Remplace par ta snackbar/toast maison si tu as déjà un helper.
- */
 internal fun MapFragment.showPreviewSavedToast() {
     runCatching {
-        // S'il existe une méthode dédiée dans MapFragment, on la réutilise
         val m = this::class.java.getDeclaredMethod("showPreviewSavedToast")
         m.isAccessible = true
         m.invoke(this)
         return
     }
     Toast.makeText(requireContext(), "Aperçu de la carte sauvegardé", Toast.LENGTH_SHORT).show()
+}
+
+/* -------------------------------------------------------------------------------------------------
+   🔁 Navigation utilitaire : revenir dans la note ouverte
+-------------------------------------------------------------------------------------------------- */
+private fun MapFragment.navigateBackToNote(noteId: Long) {
+    // Démarre/ramène MainActivity en haut, lui passe la note à ouvrir
+    val ctx = requireContext()
+    val intent = Intent(ctx, MainActivity::class.java).apply {
+        putExtra(MainActivity.EXTRA_OPEN_NOTE_ID, noteId)
+        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    }
+    startActivity(intent)
+    // Ferme l’activité carte (MapActivity) pour revenir à MainActivity
+    requireActivity().finish()
 }

@@ -60,6 +60,7 @@ class RouteRecordingService : Service(), LocationListener {
 
         private const val CHANNEL_ID = "route_recording"
         private const val NOTIF_ID   = 42
+
         /** Lance le service en mode foreground pour enregistrer un itinéraire GPS. */
         fun start(context: Context, noteId: Long) {
             val intent = Intent(context, RouteRecordingService::class.java)
@@ -98,6 +99,112 @@ class RouteRecordingService : Service(), LocationListener {
         }
     }
 
+    // --- Profils par vitesse + hystérésis ------------------------------------
+
+    private data class RouteProfile(
+        val name: String,
+        val minDispM: Float,          // distance mini entre points acceptés
+        val minIntervalMs: Long,      // intervalle mini entre points acceptés
+        val emaAlpha: Float,          // lissage EMA (poids du point courant)
+        val simplifyEpsM: Float,      // epsilon pour simplification (post)
+        val maxAccuracyM: Float       // précision max acceptée
+    )
+
+    // Seuils m/s : <0.6 marche lente, 0.6–1.4 marche rapide, 1.4–4 vélo,
+    // 4–12 voiture ville, 12–20 voie rapide, >=20 autoroute
+    private val SPEED_BINS = floatArrayOf(0.6f, 1.4f, 4f, 12f, 20f)
+
+    private val PROFILES = listOf(
+        // Marche lente ~0–1.2 m/s
+        RouteProfile(
+            name         = "walk_slow",
+            minDispM     = 4.0f,     // ← 5 → 4  (on accepte des petits déplacements)
+            minIntervalMs= 850,      // ← 900 → 850
+            emaAlpha     = 0.75f,    // ← 0.85 → 0.75 (un peu plus de lissage)
+            simplifyEpsM = 4.0f,     // ← 5 → 4 (préserve les courbes de trottoir)
+            maxAccuracyM = 18f       // ← 25 → 18 (rejette les fixes trop flous)
+        ),
+
+        // Marche rapide ~1.2–2.2 m/s
+        RouteProfile(
+            name         = "walk_fast",
+            minDispM     = 5f,     // ← 6.5 → 5
+            minIntervalMs= 900,      // ← 950 → 900
+            emaAlpha     = 0.65f,    // ← 0.78 → 0.65
+            simplifyEpsM = 5f,     // ← 6 → 5
+            maxAccuracyM = 20f       // ← 25 → 20
+        ),
+
+        // Vélo urbain ~2.2–6 m/s
+        RouteProfile(
+            name         = "bike_urban",
+            minDispM     = 7f,       // ← 9 → 7
+            minIntervalMs= 1000,     // ← 1100 → 1000
+            emaAlpha     = 0.55f,    // ← 0.70 → 0.55
+            simplifyEpsM = 6f,       // ok
+            maxAccuracyM = 22f       // ← 30 → 22
+        ),
+
+        // Voiture ville ~6–16 m/s
+        RouteProfile(
+            name         = "car_city",
+            minDispM     = 12f,      // ← 15 → 12
+            minIntervalMs= 1200,     // ← 1300 → 1200
+            emaAlpha     = 0.50f,    // ← 0.58 → 0.50
+            simplifyEpsM = 10f,      // ← 12 → 10
+            maxAccuracyM = 30f       // ok
+        ),
+
+        // Périph/Express ~16–27 m/s
+        RouteProfile(
+            name         = "car_express",
+            minDispM     = 18f,      // ← 22 → 18
+            minIntervalMs= 1400,     // ← 1500 → 1400
+            emaAlpha     = 0.45f,    // ← 0.55 → 0.45
+            simplifyEpsM = 14f,      // ← 16 → 14
+            maxAccuracyM = 35f       // ok
+        ),
+
+        // Autoroute >27 m/s
+        RouteProfile(
+            name         = "highway",
+            minDispM     = 25f,      // ← 28 → 25
+            minIntervalMs= 1600,     // ← 1700 → 1600
+            emaAlpha     = 0.42f,    // ← 0.52 → 0.42
+            simplifyEpsM = 18f,      // ← 20 → 18
+            maxAccuracyM = 40f       // ok
+        ),
+    )
+
+
+    private val SPEED_HYST = 0.4f // m/s d’hystérésis
+    private var lastProfileIdx = 0
+    private var speedEma: Float = 0f
+
+    private fun pickProfile(speedMpsRaw: Float): RouteProfile {
+        val a = 0.25f
+        speedEma = if (speedEma == 0f) speedMpsRaw else (a * speedMpsRaw + (1 - a) * speedEma)
+
+        // Maintien par hystérésis autour de la dernière bande
+        val i = lastProfileIdx
+        val v = speedEma
+        if (i in SPEED_BINS.indices) {
+            val low = if (i == 0) Float.NEGATIVE_INFINITY else SPEED_BINS[i - 1]
+            val high = SPEED_BINS[i]
+            val stayLow  = v < high - SPEED_HYST
+            val stayHigh = v > low + SPEED_HYST
+            if (stayLow && stayHigh) return PROFILES[i]
+        }
+
+        // Sinon, recalcule l’index
+        var idx = SPEED_BINS.indexOfFirst { v < it }
+        if (idx == -1) idx = SPEED_BINS.size
+        lastProfileIdx = idx
+        return PROFILES[idx]
+    }
+
+    // -------------------------------------------------------------------------
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private lateinit var noteRepo: NoteRepository
@@ -123,7 +230,6 @@ class RouteRecordingService : Service(), LocationListener {
         super.onCreate()
         Log.d(TAG, "onCreate()")
         lm = getSystemService(LOCATION_SERVICE) as LocationManager
-        // ⬇️ utilise la version statique du companion
         RouteRecordingService.ensureChannel(this)
 
         val db = AppDatabase.get(applicationContext)
@@ -204,6 +310,8 @@ class RouteRecordingService : Service(), LocationListener {
         pointCount.set(0)
         lastAccepted = null
         lastAcceptedAt = 0L
+        speedEma = 0f
+        lastProfileIdx = 0
 
         Log.d(TAG, "startListening(): providers=$providers, interval=${MapUiDefaults.REQUEST_INTERVAL_MS}ms")
         providers.forEach { provider ->
@@ -228,21 +336,23 @@ class RouteRecordingService : Service(), LocationListener {
 
         val previous = lastAccepted
         val speed = computeSpeed(location)
-        val minDisp = minDisplacementFor(speed)
+        val profile = pickProfile(if (speed < 0f) 0f else speed)
+
+        // Propager les valeurs runtime (utilisées par la simplification & snapshots)
+        MapUiDefaults.ROUTE_MIN_INTERVAL_MS     = profile.minIntervalMs
+        MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M  = profile.minDispM
+        MapUiDefaults.ROUTE_MAX_ACCURACY_M      = profile.maxAccuracyM
+        MapUiDefaults.ROUTE_SIMPLIFY_EPSILON_M  = profile.simplifyEpsM
+
         val dt = previous?.let { location.time - lastAcceptedAt }
         val dd = previous?.distanceTo(location)
         Log.d(
             GPS_TAG,
-            "accept acc=${location.accuracy} dt=${dt ?: "-"} dd=${dd ?: "-"} v=$speed minDisp=$minDisp"
+            "accept acc=${location.accuracy} dt=${dt ?: "-"} dd=${dd ?: "-"} v=$speed " +
+                    "minDisp=${profile.minDispM} prof=${profile.name}"
         )
 
-        val alpha = when {
-            speed > 10f -> MapUiDefaults.ROUTE_EMA_FAST_ALPHA
-            speed > 3f -> MapUiDefaults.ROUTE_EMA_MED_ALPHA
-            speed >= 0f -> MapUiDefaults.ROUTE_EMA_SLOW_ALPHA
-            else -> MapUiDefaults.ROUTE_EMA_MED_ALPHA
-        }.toDouble()
-
+        val alpha = profile.emaAlpha.toDouble()
         val lat = previous?.let { alpha * location.latitude + (1 - alpha) * it.latitude }
             ?: location.latitude
         val lon = previous?.let { alpha * location.longitude + (1 - alpha) * it.longitude }
@@ -270,19 +380,13 @@ class RouteRecordingService : Service(), LocationListener {
         }
     }
 
-    private fun minDisplacementFor(speed: Float): Float {
-        val base = MapUiDefaults.ROUTE_MIN_DISPLACEMENT_M
-        return when {
-            speed < 0f -> max(base, 10f)
-            speed <= 1f -> max(base, 6f)
-            speed <= 3f -> max(base, 10f)
-            else -> base
-        }
-    }
-
     private fun shouldAccept(loc: Location): Boolean {
         val speed = computeSpeed(loc)
-        val minDisp = minDisplacementFor(speed)
+        val prof = pickProfile(if (speed < 0f) 0f else speed)
+        val minDisp = prof.minDispM
+        val minInterval = prof.minIntervalMs
+        val maxAcc = prof.maxAccuracyM
+
         if (loc.isFromMockProvider) {
             Log.d(GPS_TAG, "reject: mock provider v=$speed minDisp=$minDisp")
             return false
@@ -291,7 +395,7 @@ class RouteRecordingService : Service(), LocationListener {
             Log.d(GPS_TAG, "reject: no accuracy v=$speed minDisp=$minDisp")
             return false
         }
-        if (loc.accuracy > MapUiDefaults.ROUTE_MAX_ACCURACY_M) {
+        if (loc.accuracy > maxAcc) {
             Log.d(GPS_TAG, "reject: accuracy=${loc.accuracy} v=$speed minDisp=$minDisp")
             return false
         }
@@ -307,22 +411,22 @@ class RouteRecordingService : Service(), LocationListener {
         lastAccepted?.let { prev ->
             val dd = loc.distanceTo(prev)
             if (dd < MapUiDefaults.ROUTE_JITTER_REJECT_M) {
-                Log.d(
-                    GPS_TAG,
-                    "reject: jitter dd=$dd (<${MapUiDefaults.ROUTE_JITTER_REJECT_M}) v=$speed minDisp=$minDisp"
-                )
+                Log.d(GPS_TAG, "reject: jitter dd=$dd (<${MapUiDefaults.ROUTE_JITTER_REJECT_M}) v=$speed minDisp=$minDisp")
                 return false
             }
 
+            // Coin franc : si gros virage + petit déplacement, on peut quand même accepter
+            val bearingDeltaOk = runCatching {
+                val bd = kotlin.math.abs((loc.bearing - prev.bearing + 540) % 360 - 180) // delta cap [-180,180]
+                bd >= 28f && dd >= 3f
+            }.getOrDefault(false)
+
             val dt = loc.time - lastAcceptedAt
-            if (dt < MapUiDefaults.ROUTE_MIN_INTERVAL_MS) {
-                Log.d(
-                    GPS_TAG,
-                    "reject: dt=$dt (<${MapUiDefaults.ROUTE_MIN_INTERVAL_MS}) v=$speed minDisp=$minDisp"
-                )
+            if (!bearingDeltaOk && dt < minInterval) {
+                Log.d(GPS_TAG, "reject: dt=$dt (<$minInterval) v=$speed minDisp=$minDisp")
                 return false
             }
-            if (dd < minDisp) {
+            if (!bearingDeltaOk && dd < minDisp) {
                 Log.d(GPS_TAG, "reject: dd=$dd (<$minDisp) v=$speed minDisp=$minDisp")
                 return false
             }
