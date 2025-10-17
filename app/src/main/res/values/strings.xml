@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">OpenEER</string>
+    <string name="notif_channel_reminders">Rappels OpenEER</string>
+    <string name="notif_channel_reminders_desc">Notifications de rappel</string>
 
     <string name="action_validate">Valider</string>
     <string name="action_cancel">Annuler</string>
