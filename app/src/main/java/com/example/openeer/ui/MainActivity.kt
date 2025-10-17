@@ -437,7 +437,11 @@ class MainActivity : AppCompatActivity() {
                                         db.noteDao(),
                                         db.attachmentDao(),
                                         db.blockReadDao(),
-                                        BlocksRepository(db.blockDao(), db.noteDao(), db.blockLinkDao())
+                                        BlocksRepository(
+                                            blockDao = db.blockDao(),
+                                            noteDao = db.noteDao(),
+                                            linkDao = db.blockLinkDao()
+                                        )
                                     )
                                     repo.createTextNote("")
                                 }
