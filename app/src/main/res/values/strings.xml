@@ -22,6 +22,12 @@
     <string name="menu_create_global_reminder">Créer un rappel</string>
     <string name="reminder_cancel_action">Annuler le rappel</string>
     <string name="reminder_cancelled">Rappel annulé</string>
+    <string name="reminders_chip_label">📅 Rappels (%1$d)</string>
+    <string name="reminders_title">Rappels de la note</string>
+    <string name="reminders_empty_note">Aucun rappel pour cette note.</string>
+    <string name="reminder_action_snooze_5">Snooze 5 min</string>
+    <string name="reminder_action_snooze_60">Snooze 1 h</string>
+    <string name="reminder_action_cancel">Annuler</string>
     <string name="map_menu_create_reminder_time">Créer un rappel (temps)</string>
     <string name="map_menu_create_reminder_geo_once">Quand je repasse ici</string>
     <string name="map_menu_create_reminder_geo_every">À chaque fois que je repasse ici</string>

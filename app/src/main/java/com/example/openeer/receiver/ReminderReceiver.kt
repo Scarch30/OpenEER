@@ -12,6 +12,7 @@ import com.example.openeer.core.ReminderChannels
 import com.example.openeer.core.ReminderNotifier
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.domain.ReminderUseCases
+import com.example.openeer.ui.sheets.ReminderListSheet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -110,9 +111,16 @@ class ReminderReceiver : BroadcastReceiver() {
             try {
                 val appContext = context.applicationContext
                 val db = AppDatabase.getInstance(appContext)
+                val reminderDao = db.reminderDao()
+                val reminder = reminderDao.getById(reminderId)
+                if (reminder == null) {
+                    Log.w(TAG, "handleSnooze($minutes): reminderId=$reminderId not found")
+                    return@launch
+                }
                 val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                 val useCases = ReminderUseCases(appContext, db, alarmManager)
                 useCases.snooze(reminderId, minutes)
+                ReminderListSheet.notifyChangedBroadcast(appContext, reminder.noteId)
             } catch (t: Throwable) {
                 Log.e(TAG, "Error snoozing reminderId=$reminderId", t)
             } finally {
@@ -142,12 +150,14 @@ class ReminderReceiver : BroadcastReceiver() {
                     return@launch
                 }
 
+                val noteId = reminder.noteId
                 val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                 val useCases = ReminderUseCases(appContext, db, alarmManager)
                 useCases.cancel(reminderId)
                 reminderDao.markDone(reminderId, System.currentTimeMillis())
 
                 NotificationManagerCompat.from(appContext).cancel(reminderId.toInt())
+                ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             } catch (t: Throwable) {
                 Log.e(TAG, "Error marking reminderId=$reminderId as done", t)
             } finally {
