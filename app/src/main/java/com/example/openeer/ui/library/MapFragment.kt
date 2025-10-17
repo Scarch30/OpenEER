@@ -5,8 +5,12 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuInflater
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
@@ -22,6 +26,7 @@ import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.data.block.RoutePointPayload
 import com.example.openeer.databinding.FragmentMapBinding
 import com.example.openeer.databinding.SheetMapSelectedLocationBinding
+import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.MapSnapshotSheet
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Job
@@ -123,6 +128,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     companion object {
         private const val MANUAL_ROUTE_MAX_POINTS = 120
         private const val MANUAL_ROUTE_LOG_TAG = "ManualRoute"
+        private const val MENU_CREATE_REMINDER = 1001
 
         const val TAG = "MapFragment"
         const val ARG_NOTE_ID = "arg_note_id"
@@ -174,6 +180,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setHasOptionsMenu(true)
         targetNoteId = savedInstanceState?.getLong(STATE_NOTE_ID, -1L)?.takeIf { it > 0 }
             ?: arguments?.getLong(ARG_NOTE_ID, -1L)?.takeIf { it > 0 }
         targetBlockId = savedInstanceState?.getLong(STATE_BLOCK_ID, -1L)?.takeIf { it > 0 }
@@ -185,6 +192,37 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         Log.d(TAG, "Starting map with mode=$startMode note=$targetNoteId block=$targetBlockId")
         pendingBlockFocus = targetBlockId
         isStyleReady = false
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
+        super.onCreateOptionsMenu(menu, inflater)
+        menu.add(0, MENU_CREATE_REMINDER, 0, getString(R.string.map_menu_create_reminder_time)).apply {
+            setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+            isEnabled = targetNoteId != null
+        }
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu) {
+        super.onPrepareOptionsMenu(menu)
+        menu.findItem(MENU_CREATE_REMINDER)?.isEnabled = targetNoteId != null
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            MENU_CREATE_REMINDER -> {
+                val noteId = targetNoteId
+                if (noteId != null) {
+                    BottomSheetReminderPicker.newInstance(noteId)
+                        .show(parentFragmentManager, "reminder_picker")
+                } else {
+                    context?.let { ctx ->
+                        Toast.makeText(ctx, getString(R.string.invalid_note_id), Toast.LENGTH_SHORT).show()
+                    }
+                }
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
