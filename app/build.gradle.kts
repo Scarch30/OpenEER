@@ -122,6 +122,8 @@ dependencies {
 
     implementation("com.github.chrisbanes:PhotoView:2.3.0")
 
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+
     // Tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.12.1")

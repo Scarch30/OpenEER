@@ -88,6 +88,12 @@ internal fun MapFragment.applyPendingBlockFocus() {
         if (block != null) {
             targetBlockId = blockId
             targetNoteId = block.noteId
+            onTargetNoteIdChanged(block.noteId)
+            val blockLat = block.lat
+            val blockLon = block.lon
+            if (blockLat != null && blockLon != null) {
+                setTargetNoteLocation(blockLat, blockLon)
+            }
             focusOnBlock(block)
         }
         pendingBlockFocus = null

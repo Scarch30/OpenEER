@@ -190,10 +190,16 @@ fun MapFragment.setupRouteUiBindings() {
                         }
 
                         targetNoteId = noteId
+                        onTargetNoteIdChanged(noteId)
+                        val firstPoint = payload.points.firstOrNull()
+                        if (firstPoint != null) {
+                            setTargetNoteLocation(firstPoint.lat, firstPoint.lon)
+                        }
                         showHint(getString(R.string.map_route_saved))
                     } else {
                         // Pas de payload récupéré : on notifie quand même, et la liste est rafraîchie
                         targetNoteId = noteId
+                        onTargetNoteIdChanged(noteId)
                         showHint(getString(R.string.map_route_saved))
                         RouteDebugOverlay.hide(this@setupRouteUiBindings)
                     }

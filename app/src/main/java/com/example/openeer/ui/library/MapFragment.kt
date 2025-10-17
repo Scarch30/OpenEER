@@ -1,5 +1,6 @@
 package com.example.openeer.ui.library
 
+import android.app.AlarmManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -26,6 +27,7 @@ import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.data.block.RoutePointPayload
 import com.example.openeer.databinding.FragmentMapBinding
 import com.example.openeer.databinding.SheetMapSelectedLocationBinding
+import com.example.openeer.domain.ReminderUseCases
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.MapSnapshotSheet
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -55,6 +57,7 @@ import com.example.openeer.ui.map.MapUiDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.LazyThreadSafetyMode
 import kotlin.math.max
 
 // ----------------------------------------------------------------------
@@ -121,6 +124,17 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var allNotes: List<Note> = emptyList()
     internal var lastFeatures: List<Feature>? = null
 
+    private var targetNoteLocation: LatLng? = null
+    private var targetNoteLocationResolved = false
+    private var targetNoteLocationLoading = false
+    private var targetNoteLocationNoteId: Long? = null
+
+    private val reminderUseCases by lazy(LazyThreadSafetyMode.NONE) {
+        val appContext = requireContext().applicationContext
+        val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        ReminderUseCases(appContext, database, alarmManager)
+    }
+
     // Permission localisation
     internal val REQ_LOC = 1001
     internal val REQ_ROUTE = 1002
@@ -129,6 +143,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         private const val MANUAL_ROUTE_MAX_POINTS = 120
         private const val MANUAL_ROUTE_LOG_TAG = "ManualRoute"
         private const val MENU_CREATE_REMINDER = 1001
+        private const val MENU_CREATE_REMINDER_GEO_ONCE = 1002
+        private const val MENU_CREATE_REMINDER_GEO_EVERY = 1003
 
         const val TAG = "MapFragment"
         const val ARG_NOTE_ID = "arg_note_id"
@@ -192,6 +208,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         Log.d(TAG, "Starting map with mode=$startMode note=$targetNoteId block=$targetBlockId")
         pendingBlockFocus = targetBlockId
         isStyleReady = false
+
+        onTargetNoteIdChanged(targetNoteId)
     }
 
     override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
@@ -200,11 +218,25 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
             isEnabled = targetNoteId != null
         }
+        menu.add(0, MENU_CREATE_REMINDER_GEO_ONCE, 1, getString(R.string.map_menu_create_reminder_geo_once)).apply {
+            setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+            isEnabled = targetNoteId != null && targetNoteLocation != null
+        }
+        menu.add(0, MENU_CREATE_REMINDER_GEO_EVERY, 2, getString(R.string.map_menu_create_reminder_geo_every)).apply {
+            setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+            isEnabled = targetNoteId != null && targetNoteLocation != null
+        }
     }
 
     override fun onPrepareOptionsMenu(menu: Menu) {
         super.onPrepareOptionsMenu(menu)
         menu.findItem(MENU_CREATE_REMINDER)?.isEnabled = targetNoteId != null
+        val hasGeoLocation = targetNoteId != null && targetNoteLocation != null
+        menu.findItem(MENU_CREATE_REMINDER_GEO_ONCE)?.isEnabled = hasGeoLocation
+        menu.findItem(MENU_CREATE_REMINDER_GEO_EVERY)?.isEnabled = hasGeoLocation
+        if (targetNoteId != null) {
+            ensureTargetNoteLocation()
+        }
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -221,6 +253,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 }
                 true
             }
+            MENU_CREATE_REMINDER_GEO_ONCE -> handleGeoReminder(every = false)
+            MENU_CREATE_REMINDER_GEO_EVERY -> handleGeoReminder(every = true)
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -451,6 +485,102 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         hintDismissRunnable = null
         super.onDestroyView()
         _b = null
+    }
+
+    internal fun onTargetNoteIdChanged(newId: Long?) {
+        if (targetNoteLocationNoteId != newId) {
+            targetNoteLocation = null
+            targetNoteLocationResolved = false
+            targetNoteLocationLoading = false
+            targetNoteLocationNoteId = newId
+        }
+        activity?.invalidateOptionsMenu()
+        if (newId != null) {
+            ensureTargetNoteLocation()
+        }
+    }
+
+    internal fun setTargetNoteLocation(lat: Double?, lon: Double?) {
+        targetNoteLocation = if (lat != null && lon != null) LatLng(lat, lon) else null
+        targetNoteLocationResolved = true
+        targetNoteLocationLoading = false
+        targetNoteLocationNoteId = targetNoteId
+        activity?.invalidateOptionsMenu()
+    }
+
+    private fun ensureTargetNoteLocation(force: Boolean = false) {
+        val noteId = targetNoteId
+        if (noteId == null) {
+            if (targetNoteLocation != null || targetNoteLocationResolved) {
+                targetNoteLocation = null
+                targetNoteLocationResolved = false
+                targetNoteLocationLoading = false
+                targetNoteLocationNoteId = null
+                activity?.invalidateOptionsMenu()
+            }
+            return
+        }
+
+        if (!force && targetNoteLocationResolved && targetNoteLocationNoteId == noteId) return
+        if (targetNoteLocationLoading && targetNoteLocationNoteId == noteId) return
+
+        targetNoteLocationLoading = true
+        targetNoteLocationNoteId = noteId
+        lifecycleScope.launch {
+            val location = withContext(Dispatchers.IO) {
+                val note = noteRepo.noteOnce(noteId)
+                val lat = note?.lat
+                val lon = note?.lon
+                if (lat != null && lon != null) LatLng(lat, lon) else null
+            }
+            targetNoteLocation = location
+            targetNoteLocationResolved = true
+            targetNoteLocationLoading = false
+            activity?.invalidateOptionsMenu()
+        }
+    }
+
+    private fun handleGeoReminder(every: Boolean): Boolean {
+        val ctx = context ?: return true
+        val noteId = targetNoteId
+        if (noteId == null) {
+            Toast.makeText(ctx, getString(R.string.invalid_note_id), Toast.LENGTH_SHORT).show()
+            return true
+        }
+
+        val location = targetNoteLocation ?: map?.cameraPosition?.target
+        if (location == null) {
+            Toast.makeText(ctx, getString(R.string.reminder_geo_location_missing), Toast.LENGTH_SHORT).show()
+            return true
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    reminderUseCases.scheduleGeofence(
+                        noteId = noteId,
+                        lat = location.latitude,
+                        lon = location.longitude,
+                        radiusMeters = 100,
+                        every = every,
+                        blockId = targetBlockId,
+                        cooldownMinutes = 30
+                    )
+                }
+            }.onSuccess {
+                val feedback = if (every) {
+                    getString(R.string.map_menu_create_reminder_geo_every)
+                } else {
+                    getString(R.string.map_menu_create_reminder_geo_once)
+                }
+                showHint(feedback)
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to schedule geofence", error)
+                Toast.makeText(ctx, getString(R.string.reminder_error_schedule), Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        return true
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -691,6 +821,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             }
 
             targetNoteId = result.noteId
+            onTargetNoteIdChanged(result.noteId)
+            val firstPoint = payload.points.firstOrNull()
+            if (firstPoint != null) {
+                setTargetNoteLocation(firstPoint.lat, firstPoint.lon)
+            }
             refreshNotesAsync()
 
             val ctx = context

@@ -31,6 +31,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_OPEN_NOTE_ID: String = "extra_open_note_id"
 
         private const val TAG = "ReminderReceiver"
+        private const val TYPE_LOC_ONCE = "LOC_ONCE"
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
@@ -53,7 +54,7 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_SNOOZE_5 -> handleSnooze(context, reminderId, 5)
             ACTION_SNOOZE_60 -> handleSnooze(context, reminderId, 60)
             ACTION_MARK_DONE -> handleMarkDone(context, reminderId)
-            ACTION_FIRE_GEOFENCE -> Log.d(TAG, "Geofence trigger not implemented yet")
+            ACTION_FIRE_GEOFENCE -> handleGeofence(context, reminderId, noteId)
             else -> Log.w(TAG, "Unhandled action=$action")
         }
     }
@@ -149,6 +150,66 @@ class ReminderReceiver : BroadcastReceiver() {
                 NotificationManagerCompat.from(appContext).cancel(reminderId.toInt())
             } catch (t: Throwable) {
                 Log.e(TAG, "Error marking reminderId=$reminderId as done", t)
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
+
+    private fun handleGeofence(context: Context, reminderId: Long?, noteId: Long?) {
+        if (reminderId == null || noteId == null) {
+            Log.w(TAG, "handleGeofence: missing ids reminderId=$reminderId noteId=$noteId")
+            return
+        }
+
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val appContext = context.applicationContext
+                val db = AppDatabase.getInstance(appContext)
+                val reminderDao = db.reminderDao()
+                val reminder = reminderDao.getById(reminderId)
+                if (reminder == null) {
+                    Log.w(TAG, "handleGeofence: reminderId=$reminderId not found")
+                    return@launch
+                }
+
+                val now = System.currentTimeMillis()
+                val cooldownMinutes = reminder.cooldownMinutes ?: 0
+                if (cooldownMinutes > 0) {
+                    val last = reminder.lastFiredAt
+                    val cooldownMs = cooldownMinutes * 60_000L
+                    if (last != null && now - last < cooldownMs) {
+                        Log.d(TAG, "Geofence cooldown active, skipping reminderId=$reminderId")
+                        return@launch
+                    }
+                }
+
+                val noteDao = db.noteDao()
+                val note = noteDao.getByIdOnce(noteId)
+                val preview = note?.body
+                    ?.lineSequence()
+                    ?.firstOrNull { it.isNotBlank() }
+                    ?.trim()
+                    ?.take(160)
+
+                ReminderNotifier.showReminder(
+                    appContext,
+                    noteId,
+                    reminderId,
+                    note?.title,
+                    preview
+                )
+
+                reminderDao.update(reminder.copy(lastFiredAt = now, nextTriggerAt = now))
+
+                if (reminder.type == TYPE_LOC_ONCE) {
+                    val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                    val useCases = ReminderUseCases(appContext, db, alarmManager)
+                    useCases.removeGeofence(reminderId)
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error handling geofence reminderId=$reminderId", t)
             } finally {
                 pendingResult.finish()
             }

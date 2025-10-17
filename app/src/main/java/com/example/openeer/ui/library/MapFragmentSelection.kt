@@ -162,6 +162,8 @@ internal fun MapFragment.onSaveSelectedLocationClicked() {
             return@launch
         }
         targetNoteId = result.noteId
+        onTargetNoteIdChanged(result.noteId)
+        setTargetNoteLocation(place.lat, place.lon)
         addCustomPin(result.locationBlockId, place.lat, place.lon)
         showHint(getString(R.string.map_location_added))
         refreshNotesAsync()
