@@ -153,7 +153,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             launchMapPicker()
         }
 
-        view.findViewById<View>(R.id.btnPlanGeo).setOnClickListener {
+        view.findViewById<View>(R.id.btnPlan).setOnClickListener {
             scheduleGeoReminder()
         }
 
