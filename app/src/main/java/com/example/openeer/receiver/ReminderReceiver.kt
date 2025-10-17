@@ -37,6 +37,11 @@ class ReminderReceiver : BroadcastReceiver() {
             "Received action=$action noteId=$noteId reminderId=$reminderId " +
                 "openNoteId=$openNoteId geofenceEvent=$geofenceEvent"
         )
+
+        if (intent?.action == ACTION_FIRE_ALARM) {
+            Log.d(TAG, "ALARM fired for reminderId=$reminderId noteId=$noteId")
+            // TODO: afficher notification + replanification (sera fait au prompt suivant)
+        }
         // TODO: Afficher la notification de rappel et dispatcher les use cases associés.
     }
 }
