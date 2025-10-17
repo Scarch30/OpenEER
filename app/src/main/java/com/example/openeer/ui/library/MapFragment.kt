@@ -191,7 +191,14 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             linkDao = database.blockLinkDao()
         )
         attachmentDao = database.attachmentDao()
-        noteRepo = NoteRepository(database.noteDao(), attachmentDao, database.blockReadDao(), blocksRepo)
+        noteRepo = NoteRepository(
+            appCtx,
+            database.noteDao(),
+            attachmentDao,
+            database.blockReadDao(),
+            blocksRepo,
+            database = database
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

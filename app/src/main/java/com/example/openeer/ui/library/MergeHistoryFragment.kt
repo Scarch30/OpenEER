@@ -68,7 +68,14 @@ class MergeHistoryFragment : Fragment() {
             noteDao = noteDao,
             linkDao = db.blockLinkDao()
         )
-        noteRepository = NoteRepository(noteDao, db.attachmentDao(), db.blockReadDao(), blocksRepository)
+        noteRepository = NoteRepository(
+            ctx,
+            noteDao,
+            db.attachmentDao(),
+            db.blockReadDao(),
+            blocksRepository,
+            database = db
+        )
 
         binding.recycler.layoutManager = LinearLayoutManager(requireContext())
         binding.recycler.adapter = adapter

@@ -33,6 +33,7 @@ class OpenEERApp : Application() {
                 getSystemService(Context.ALARM_SERVICE) as AlarmManager
             )
             reminderUseCases.restoreAllOnAppStart()
+            reminderUseCases.restoreGeofences()
         }
     }
 }

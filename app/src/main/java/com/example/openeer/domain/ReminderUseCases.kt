@@ -85,27 +85,18 @@ class ReminderUseCases(
     }
 
     suspend fun removeGeofence(reminderId: Long) = withContext(Dispatchers.IO) {
-        try {
-            val client = LocationServices.getGeofencingClient(context)
-            client.removeGeofences(listOf(reminderId.toString()))
-                .addOnSuccessListener {
-                    Log.d(TAG, "Removed geofence reminderId=$reminderId")
-                }
-                .addOnFailureListener { error ->
-                    Log.e(TAG, "Failed to remove geofence reminderId=$reminderId", error)
-                }
-        } catch (se: SecurityException) {
-            Log.w(TAG, "Missing location permission when removing geofence reminderId=$reminderId", se)
-        }
-
-        reminderDao.cancelById(reminderId)
-        Log.d(TAG, "Cancelled geo reminderId=$reminderId")
+        removeGeofenceInternal(reminderId)
     }
 
     suspend fun cancel(reminderId: Long) = withContext(Dispatchers.IO) {
         val reminder = reminderDao.getById(reminderId)
         if (reminder == null) {
             Log.w(TAG, "cancel: reminderId=$reminderId not found")
+            return@withContext
+        }
+
+        if (reminder.type == TYPE_LOC_ONCE || reminder.type == TYPE_LOC_EVERY) {
+            removeGeofenceInternal(reminderId)
             return@withContext
         }
 
@@ -126,9 +117,14 @@ class ReminderUseCases(
         }
 
         reminders.forEach { reminder ->
-            cancelAlarm(reminder.id, noteId)
-            if (reminder.status != STATUS_CANCELLED) {
-                reminderDao.update(reminder.copy(status = STATUS_CANCELLED))
+            when (reminder.type) {
+                TYPE_LOC_ONCE, TYPE_LOC_EVERY -> removeGeofenceInternal(reminder.id)
+                else -> {
+                    cancelAlarm(reminder.id, noteId)
+                    if (reminder.status != STATUS_CANCELLED) {
+                        reminderDao.update(reminder.copy(status = STATUS_CANCELLED))
+                    }
+                }
             }
         }
 
@@ -167,16 +163,18 @@ class ReminderUseCases(
                     "Restored reminderId=${reminder.id} noteId=${reminder.noteId} at ${reminder.nextTriggerAt}"
                 )
             }
-
-            val geoReminders = reminderDao.getActiveGeo()
-            geoReminders.forEach { reminder ->
-                addGeofenceForExisting(reminder)
-                Log.d(
-                    TAG,
-                    "Restored geo reminderId=${reminder.id} noteId=${reminder.noteId} type=${reminder.type}"
-                )
-            }
         }
+
+    suspend fun restoreGeofences() = withContext(Dispatchers.IO) {
+        val geoReminders = reminderDao.getActiveGeo()
+        geoReminders.forEach { reminder ->
+            addGeofenceForExisting(reminder)
+            Log.d(
+                TAG,
+                "Restored geo reminderId=${reminder.id} noteId=${reminder.noteId} type=${reminder.type}"
+            )
+        }
+    }
 
     private fun scheduleAlarm(reminderId: Long, noteId: Long, triggerAt: Long) {
         val pendingIntent = buildAlarmPendingIntent(context, reminderId, noteId)
@@ -262,6 +260,24 @@ class ReminderUseCases(
 
     private fun requestCodeFor(reminderId: Long): Int {
         return (reminderId % Int.MAX_VALUE).toInt()
+    }
+
+    private suspend fun removeGeofenceInternal(reminderId: Long) {
+        try {
+            val client = LocationServices.getGeofencingClient(context)
+            client.removeGeofences(listOf(reminderId.toString()))
+                .addOnSuccessListener {
+                    Log.d(TAG, "Removed geofence reminderId=$reminderId")
+                }
+                .addOnFailureListener { error ->
+                    Log.e(TAG, "Failed to remove geofence reminderId=$reminderId", error)
+                }
+        } catch (se: SecurityException) {
+            Log.w(TAG, "Missing location permission when removing geofence reminderId=$reminderId", se)
+        }
+
+        reminderDao.cancelById(reminderId)
+        Log.d(TAG, "Cancelled geo reminderId=$reminderId")
     }
 
     private companion object {

@@ -30,6 +30,9 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     suspend fun getByIdOnce(id: Long): Note?
 
+    @Query("DELETE FROM notes WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     // 👇👇 AJOUT : charger un lot de notes par IDs (validation merge)
     @Query("SELECT * FROM notes WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<Long>): List<Note>

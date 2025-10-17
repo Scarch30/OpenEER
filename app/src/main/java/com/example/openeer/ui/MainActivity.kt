@@ -95,7 +95,14 @@ class MainActivity : AppCompatActivity() {
                     linkDao = db.blockLinkDao()
                 )
                 return NotesVm(
-                    NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
+                    NoteRepository(
+                        applicationContext,
+                        db.noteDao(),
+                        db.attachmentDao(),
+                        db.blockReadDao(),
+                        blocksRepo,
+                        database = db
+                    )
                 ) as T
             }
         }
@@ -124,7 +131,14 @@ class MainActivity : AppCompatActivity() {
     // Repos
     private val repo: NoteRepository by lazy {
         val db = AppDatabase.get(this)
-        NoteRepository(db.noteDao(), db.attachmentDao(), db.blockReadDao(), blocksRepo)
+        NoteRepository(
+            applicationContext,
+            db.noteDao(),
+            db.attachmentDao(),
+            db.blockReadDao(),
+            blocksRepo,
+            database = db
+        )
     }
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(this)
@@ -434,6 +448,7 @@ class MainActivity : AppCompatActivity() {
                                 val newNoteId = withContext(Dispatchers.IO) {
                                     val db = AppDatabase.getInstance(this@MainActivity)
                                     val repo = NoteRepository(
+                                        this@MainActivity.applicationContext,
                                         db.noteDao(),
                                         db.attachmentDao(),
                                         db.blockReadDao(),
@@ -441,7 +456,8 @@ class MainActivity : AppCompatActivity() {
                                             blockDao = db.blockDao(),
                                             noteDao = db.noteDao(),
                                             linkDao = db.blockLinkDao()
-                                        )
+                                        ),
+                                        database = db
                                     )
                                     repo.createTextNote("")
                                 }

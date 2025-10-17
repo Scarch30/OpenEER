@@ -243,7 +243,14 @@ class RouteRecordingService : Service(), LocationListener {
             noteDao  = noteDao,
             linkDao  = db.blockLinkDao()
         )
-        noteRepo   = NoteRepository(noteDao, attachmentDao, blockReadDao, blocksRepo)
+        noteRepo   = NoteRepository(
+            applicationContext,
+            noteDao,
+            attachmentDao,
+            blockReadDao,
+            blocksRepo,
+            database = db
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
