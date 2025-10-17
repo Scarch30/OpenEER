@@ -132,7 +132,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
 
                 val appContext = requireContext().applicationContext
                 val db = AppDatabase.getInstance(appContext)
-                val blocksRepo = BlocksRepository(db.blockDao(), db.noteDao(), db.blockLinkDao())
+                val blocksRepo = BlocksRepository(
+                    blockDao = db.blockDao(),
+                    noteDao = db.noteDao(),
+                    linkDao = db.blockLinkDao()
+                )
 
                 val timeFmt = DateFormat.getTimeFormat(appContext)
                 val dateFmt = DateFormat.getDateFormat(appContext)
