@@ -1,5 +1,6 @@
 package com.example.openeer.ui.sheets
 
+import android.app.Activity
 import android.app.AlarmManager
 import android.app.TimePickerDialog
 import android.content.Context
@@ -9,17 +10,25 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import android.widget.Toast
-import androidx.core.os.bundleOf
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.domain.ReminderUseCases
+import com.example.openeer.ui.library.MapActivity
+import com.example.openeer.ui.library.MapFragment
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.textfield.TextInputLayout
 import java.util.Calendar
 import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,10 +40,12 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val ARG_BLOCK_ID = "arg_block_id"
         private const val TAG = "ReminderPicker"
+        private const val DEFAULT_RADIUS_METERS = 100
 
         fun newInstance(noteId: Long, blockId: Long? = null): BottomSheetReminderPicker {
             val fragment = BottomSheetReminderPicker()
-            fragment.arguments = bundleOf(ARG_NOTE_ID to noteId).apply {
+            fragment.arguments = Bundle().apply {
+                putLong(ARG_NOTE_ID, noteId)
                 if (blockId != null) {
                     putLong(ARG_BLOCK_ID, blockId)
                 }
@@ -59,6 +70,32 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         ReminderUseCases(appContext, AppDatabase.getInstance(appContext), alarmManager)
     }
 
+    private lateinit var toggleGroup: MaterialButtonToggleGroup
+    private lateinit var timeSection: View
+    private lateinit var geoSection: View
+    private lateinit var labelInput: TextInputLayout
+    private lateinit var radiusInput: TextInputLayout
+    private lateinit var locationPreview: TextView
+    private lateinit var everySwitch: MaterialSwitch
+
+    private var selectedLat: Double? = null
+    private var selectedLon: Double? = null
+    private var selectedLabel: String? = null
+
+    private val mapPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+        val data = result.data ?: return@registerForActivityResult
+        val lat = data.getDoubleExtra(MapFragment.RESULT_PICK_LOCATION_LAT, Double.NaN)
+        val lon = data.getDoubleExtra(MapFragment.RESULT_PICK_LOCATION_LON, Double.NaN)
+        if (lat.isNaN() || lon.isNaN()) return@registerForActivityResult
+        selectedLat = lat
+        selectedLon = lon
+        selectedLabel = data.getStringExtra(MapFragment.RESULT_PICK_LOCATION_LABEL)
+        updateLocationPreview()
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -68,16 +105,32 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        toggleGroup = view.findViewById(R.id.toggleMode)
+        timeSection = view.findViewById(R.id.sectionTime)
+        geoSection = view.findViewById(R.id.sectionGeo)
+        labelInput = view.findViewById(R.id.inputLabel)
+        radiusInput = view.findViewById(R.id.inputRadius)
+        locationPreview = view.findViewById(R.id.textLocationPreview)
+        everySwitch = view.findViewById(R.id.switchEvery)
+
+        radiusInput.editText?.setText(DEFAULT_RADIUS_METERS.toString())
+
+        toggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            updateSections(checkedId)
+        }
+        toggleGroup.check(R.id.btnModeTime)
+
         view.findViewById<View>(R.id.btnIn10).setOnClickListener {
             val timeMillis = System.currentTimeMillis() + 10 * 60_000L
             Log.d(TAG, "Preset +10 min for noteId=$noteId blockId=$blockId")
-            scheduleReminder(timeMillis)
+            scheduleTimeReminder(timeMillis)
         }
 
         view.findViewById<View>(R.id.btnIn1h).setOnClickListener {
             val timeMillis = System.currentTimeMillis() + 60 * 60_000L
             Log.d(TAG, "Preset +1h for noteId=$noteId blockId=$blockId")
-            scheduleReminder(timeMillis)
+            scheduleTimeReminder(timeMillis)
         }
 
         view.findViewById<View>(R.id.btnTomorrow9).setOnClickListener {
@@ -89,11 +142,68 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 set(Calendar.MILLISECOND, 0)
             }
             Log.d(TAG, "Preset tomorrow 9AM for noteId=$noteId blockId=$blockId")
-            scheduleReminder(calendar.timeInMillis)
+            scheduleTimeReminder(calendar.timeInMillis)
         }
 
         view.findViewById<View>(R.id.btnCustom).setOnClickListener {
             showTimePicker()
+        }
+
+        view.findViewById<View>(R.id.btnPickLocation).setOnClickListener {
+            launchMapPicker()
+        }
+
+        view.findViewById<View>(R.id.btnPlanGeo).setOnClickListener {
+            scheduleGeoReminder()
+        }
+
+        preloadExistingData()
+    }
+
+    private fun updateSections(checkedId: Int) {
+        val isTime = checkedId == R.id.btnModeTime
+        timeSection.isVisible = isTime
+        geoSection.isVisible = !isTime
+    }
+
+    private fun launchMapPicker() {
+        val ctx = requireContext()
+        val intent = MapActivity.newPickLocationIntent(ctx, noteId)
+        mapPickerLauncher.launch(intent)
+    }
+
+    private fun preloadExistingData() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val appContext = requireContext().applicationContext
+            val db = AppDatabase.getInstance(appContext)
+            val noteDao = db.noteDao()
+            val blockDao = db.blockDao()
+            val note = withContext(Dispatchers.IO) { noteDao.getByIdOnce(noteId) }
+            if (note != null) {
+                val lat = note.lat
+                val lon = note.lon
+                if (lat != null && lon != null) {
+                    selectedLat = lat
+                    selectedLon = lon
+                    selectedLabel = note.placeLabel
+                    updateLocationPreview()
+                }
+            }
+            val existingBlockId = blockId
+            if (existingBlockId != null) {
+                val blockText = withContext(Dispatchers.IO) { blockDao.getById(existingBlockId)?.text }
+                val firstLine = blockText
+                    ?.lineSequence()
+                    ?.firstOrNull()
+                    ?.removePrefix("⏰")
+                    ?.trim()
+                if (!firstLine.isNullOrBlank()) {
+                    val maybeLabel = firstLine.substringBefore("—").trim()
+                    if (maybeLabel.isNotEmpty()) {
+                        labelInput.editText?.setText(maybeLabel)
+                    }
+                }
+            }
         }
     }
 
@@ -115,7 +225,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                     selected.add(Calendar.DAY_OF_YEAR, 1)
                 }
                 Log.d(TAG, "Preset custom time=${selected.time} for noteId=$noteId blockId=$blockId")
-                scheduleReminder(selected.timeInMillis)
+                scheduleTimeReminder(selected.timeInMillis)
             },
             now.get(Calendar.HOUR_OF_DAY),
             now.get(Calendar.MINUTE),
@@ -123,43 +233,135 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         ).show()
     }
 
-    private fun scheduleReminder(timeMillis: Long) {
+    private fun scheduleTimeReminder(timeMillis: Long) {
         viewLifecycleOwner.lifecycleScope.launch {
+            val appContext = requireContext().applicationContext
+            val db = AppDatabase.getInstance(appContext)
+            val blocksRepo = BlocksRepository(
+                blockDao = db.blockDao(),
+                noteDao = db.noteDao(),
+                linkDao = db.blockLinkDao()
+            )
+            val label = currentLabel()
+            val timeFmt = DateFormat.getTimeFormat(appContext)
+            val dateFmt = DateFormat.getDateFormat(appContext)
+            val sameDay = isSameDay(timeMillis)
+            val whenText = if (sameDay) {
+                timeFmt.format(Date(timeMillis))
+            } else {
+                "${dateFmt.format(Date(timeMillis))} ${timeFmt.format(Date(timeMillis))}"
+            }
+            val body = buildReminderBody(label, whenText)
+            var createdBlockId: Long? = null
             runCatching {
+                val blockId = withContext(Dispatchers.IO) { blocksRepo.appendText(noteId, body) }
+                createdBlockId = blockId
                 val reminderId = withContext(Dispatchers.IO) {
                     reminderUseCases.scheduleAtEpoch(noteId, timeMillis, blockId)
                 }
-
-                val appContext = requireContext().applicationContext
-                val db = AppDatabase.getInstance(appContext)
-                val blocksRepo = BlocksRepository(
-                    blockDao = db.blockDao(),
-                    noteDao = db.noteDao(),
-                    linkDao = db.blockLinkDao()
-                )
-
-                val timeFmt = DateFormat.getTimeFormat(appContext)
-                val dateFmt = DateFormat.getDateFormat(appContext)
-                val sameDay = isSameDay(timeMillis)
-                val whenText = if (sameDay) {
-                    timeFmt.format(Date(timeMillis))
-                } else {
-                    "${dateFmt.format(Date(timeMillis))} ${timeFmt.format(Date(timeMillis))}"
-                }
-
-                val body = "⏰ Rappel : $whenText"
-                val newBlockId = withContext(Dispatchers.IO) {
-                    blocksRepo.appendText(noteId, body)
-                }
                 withContext(Dispatchers.IO) {
-                    db.reminderDao().attachBlock(reminderId, newBlockId)
+                    db.reminderDao().attachBlock(reminderId, blockId)
                 }
+                ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             }.onSuccess {
-                notifySuccess(timeMillis)
+                notifySuccess(whenText)
                 dismiss()
             }.onFailure { error ->
+                cleanupCreatedBlock(createdBlockId)
                 handleFailure(error)
             }
+        }
+    }
+
+    private fun scheduleGeoReminder() {
+        val lat = selectedLat
+        val lon = selectedLon
+        if (lat == null || lon == null) {
+            Toast.makeText(requireContext(), getString(R.string.reminder_geo_location_missing), Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val appContext = requireContext().applicationContext
+            val db = AppDatabase.getInstance(appContext)
+            val blocksRepo = BlocksRepository(
+                blockDao = db.blockDao(),
+                noteDao = db.noteDao(),
+                linkDao = db.blockLinkDao()
+            )
+            val label = currentLabel()
+            val radius = currentRadius()
+            val locationDescription = buildLocationDescription(lat, lon, radius)
+            val body = buildReminderBody(label, locationDescription)
+            val every = everySwitch.isChecked
+            var createdBlockId: Long? = null
+            runCatching {
+                val blockId = withContext(Dispatchers.IO) { blocksRepo.appendText(noteId, body) }
+                createdBlockId = blockId
+                val reminderId = withContext(Dispatchers.IO) {
+                    reminderUseCases.scheduleGeofence(
+                        noteId = noteId,
+                        lat = lat,
+                        lon = lon,
+                        radiusMeters = radius,
+                        every = every,
+                        blockId = blockId
+                    )
+                }
+                withContext(Dispatchers.IO) {
+                    db.reminderDao().attachBlock(reminderId, blockId)
+                }
+                ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
+            }.onSuccess {
+                notifySuccess(locationDescription)
+                dismiss()
+            }.onFailure { error ->
+                cleanupCreatedBlock(createdBlockId)
+                handleFailure(error)
+            }
+        }
+    }
+
+    private fun cleanupCreatedBlock(blockId: Long?) {
+        if (blockId == null) return
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            val appContext = context?.applicationContext ?: return@launch
+            val db = AppDatabase.getInstance(appContext)
+            val entity = db.blockDao().getById(blockId)
+            if (entity != null) {
+                db.blockDao().delete(entity)
+            }
+        }
+    }
+
+    private fun currentLabel(): String? {
+        return labelInput.editText?.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun currentRadius(): Int {
+        val text = radiusInput.editText?.text?.toString()?.trim()
+        val parsed = text?.toIntOrNull()
+        return parsed?.takeIf { it > 0 } ?: DEFAULT_RADIUS_METERS
+    }
+
+    private fun buildLocationDescription(lat: Double, lon: Double, radius: Int): String {
+        val label = selectedLabel?.takeIf { it.isNotBlank() }
+        return if (label != null) {
+            getString(R.string.reminder_geo_desc_fmt, label, radius)
+        } else {
+            val coords = String.format(Locale.US, "%.5f, %.5f", lat, lon)
+            "📍 $coords · ~${radius}m"
+        }
+    }
+
+    private fun buildReminderBody(label: String?, whenPart: String): String {
+        return buildString {
+            append("⏰ ")
+            if (!label.isNullOrBlank()) {
+                append(label.trim())
+                append(" — ")
+            }
+            append(whenPart)
         }
     }
 
@@ -170,25 +372,28 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             now.get(Calendar.DAY_OF_YEAR) == tgt.get(Calendar.DAY_OF_YEAR)
     }
 
-    private fun notifySuccess(timeMillis: Long) {
+    private fun notifySuccess(summary: String) {
         val ctx = context ?: return
-        val timeFormat = DateFormat.getTimeFormat(ctx)
-        val dateFormat = DateFormat.getDateFormat(ctx)
-        val now = Calendar.getInstance()
-        val target = Calendar.getInstance().apply { timeInMillis = timeMillis }
-        val includeDate = now.get(Calendar.YEAR) != target.get(Calendar.YEAR) ||
-            now.get(Calendar.DAY_OF_YEAR) != target.get(Calendar.DAY_OF_YEAR)
-        val timeText = timeFormat.format(Date(timeMillis))
-        val formatted = if (includeDate) {
-            ctx.getString(R.string.reminder_created, "${dateFormat.format(Date(timeMillis))} $timeText")
-        } else {
-            ctx.getString(R.string.reminder_created, timeText)
-        }
+        val formatted = getString(R.string.reminder_created, summary)
         view?.let {
             Snackbar.make(it, formatted, Snackbar.LENGTH_SHORT).show()
         } ?: run {
             Toast.makeText(ctx, formatted, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun updateLocationPreview() {
+        val lat = selectedLat
+        val lon = selectedLon
+        if (lat == null || lon == null) {
+            locationPreview.isVisible = false
+            locationPreview.text = null
+            return
+        }
+        val coords = String.format(Locale.US, "%.5f, %.5f", lat, lon)
+        val label = selectedLabel?.takeIf { it.isNotBlank() }
+        locationPreview.text = if (label != null) "$label\n$coords" else coords
+        locationPreview.isVisible = true
     }
 
     private fun handleFailure(error: Throwable) {

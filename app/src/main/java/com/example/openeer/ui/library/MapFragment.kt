@@ -93,6 +93,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var startMode: String? = null
     internal var isStyleReady = false
 
+    internal val isPickMode: Boolean
+        get() = startMode == MapActivity.MODE_PICK_LOCATION
+
     internal var awaitingHerePermission = false
     internal var lastHereLocation: RecentHere? = null
     internal var hintDismissRunnable: Runnable? = null
@@ -158,6 +161,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         const val RESULT_MANUAL_ROUTE_LAT = "result_manual_route_lat"
         const val RESULT_MANUAL_ROUTE_LON = "result_manual_route_lon"
         const val RESULT_MANUAL_ROUTE_LABEL = "result_manual_route_label"
+        const val RESULT_PICK_LOCATION = "result_pick_location"
+        const val RESULT_PICK_LOCATION_LAT = "result_pick_location_lat"
+        const val RESULT_PICK_LOCATION_LON = "result_pick_location_lon"
+        const val RESULT_PICK_LOCATION_LABEL = "result_pick_location_label"
 
         internal const val MENU_ROUTE_GPS = 1
         internal const val MENU_ROUTE_MANUAL = 2
@@ -203,15 +210,18 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setHasOptionsMenu(true)
         targetNoteId = savedInstanceState?.getLong(STATE_NOTE_ID, -1L)?.takeIf { it > 0 }
             ?: arguments?.getLong(ARG_NOTE_ID, -1L)?.takeIf { it > 0 }
         targetBlockId = savedInstanceState?.getLong(STATE_BLOCK_ID, -1L)?.takeIf { it > 0 }
             ?: arguments?.getLong(ARG_BLOCK_ID, -1L)?.takeIf { it > 0 }
         startMode = when (val mode = savedInstanceState?.getString(STATE_MODE) ?: arguments?.getString(ARG_MODE)) {
-            MapActivity.MODE_BROWSE, MapActivity.MODE_CENTER_ON_HERE, MapActivity.MODE_FOCUS_NOTE -> mode
+            MapActivity.MODE_BROWSE,
+            MapActivity.MODE_CENTER_ON_HERE,
+            MapActivity.MODE_FOCUS_NOTE,
+            MapActivity.MODE_PICK_LOCATION -> mode
             else -> MapActivity.MODE_BROWSE
         }
+        setHasOptionsMenu(!isPickMode)
         Log.d(TAG, "Starting map with mode=$startMode note=$targetNoteId block=$targetBlockId")
         pendingBlockFocus = targetBlockId
         isStyleReady = false
@@ -220,6 +230,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     }
 
     override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
+        if (isPickMode) {
+            super.onCreateOptionsMenu(menu, inflater)
+            return
+        }
         super.onCreateOptionsMenu(menu, inflater)
         menu.add(0, MENU_CREATE_REMINDER, 0, getString(R.string.map_menu_create_reminder_time)).apply {
             setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
@@ -236,6 +250,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu) {
+        if (isPickMode) {
+            super.onPrepareOptionsMenu(menu)
+            return
+        }
         super.onPrepareOptionsMenu(menu)
         menu.findItem(MENU_CREATE_REMINDER)?.isEnabled = targetNoteId != null
         val hasGeoLocation = targetNoteId != null && targetNoteLocation != null
@@ -694,6 +712,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private fun applyStartMode(initialMode: String) {
         when (initialMode) {
             MapActivity.MODE_CENTER_ON_HERE -> recenterToUserOrAll()
+            MapActivity.MODE_PICK_LOCATION -> Unit
             else -> Unit
         }
     }

@@ -12,12 +12,20 @@
     <string name="notif_error_missing_ids">Rappel introuvable</string>
 
     <string name="reminder_picker_title">Planifier un rappel</string>
+    <string name="reminder_label_hint">Que doit-on vous rappeler ?</string>
+    <string name="reminder_mode_time">Temps</string>
+    <string name="reminder_mode_place">Lieu</string>
     <string name="reminder_in_10m">Dans 10 minutes</string>
     <string name="reminder_in_1h">Dans 1 heure</string>
     <string name="reminder_tomorrow_9">Demain à 09:00</string>
     <string name="reminder_custom_time">Heure personnalisée…</string>
     <string name="reminder_created">Rappel créé pour %1$s</string>
     <string name="reminder_error_schedule">Impossible de créer le rappel</string>
+    <string name="reminder_geo_every">À chaque fois</string>
+    <string name="reminder_geo_pick">Choisir sur la carte</string>
+    <string name="reminder_geo_radius">Rayon (m)</string>
+    <string name="reminder_plan">Planifier</string>
+    <string name="reminder_geo_desc_fmt">📍 %1$s · ~%2$dm</string>
     <string name="note_menu_create_reminder">Créer un rappel</string>
     <string name="menu_create_global_reminder">Créer un rappel</string>
     <string name="reminder_cancel_action">Annuler le rappel</string>

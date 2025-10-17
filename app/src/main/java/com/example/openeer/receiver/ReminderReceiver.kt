@@ -75,19 +75,30 @@ class ReminderReceiver : BroadcastReceiver() {
                 val appContext = context.applicationContext
                 val db = AppDatabase.getInstance(appContext)
                 val noteDao = db.noteDao()
+                val reminderDao = db.reminderDao()
                 val note = noteDao.getByIdOnce(noteId)
                 val preview = note?.body
                     ?.lineSequence()
                     ?.firstOrNull { it.isNotBlank() }
                     ?.trim()
                     ?.take(160)
+                val reminder = reminderDao.getById(reminderId)
+                val overrideText = reminder?.blockId?.let { blockId ->
+                    db.blockDao().getById(blockId)?.text
+                        ?.lineSequence()
+                        ?.firstOrNull()
+                        ?.removePrefix("⏰")
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                }
 
                 ReminderNotifier.showReminder(
                     appContext,
                     noteId,
                     reminderId,
                     note?.title,
-                    preview
+                    preview,
+                    overrideText
                 )
             } catch (t: Throwable) {
                 Log.e(TAG, "Error displaying reminderId=$reminderId", t)
@@ -202,13 +213,22 @@ class ReminderReceiver : BroadcastReceiver() {
                     ?.firstOrNull { it.isNotBlank() }
                     ?.trim()
                     ?.take(160)
+                val overrideText = reminder.blockId?.let { blockId ->
+                    db.blockDao().getById(blockId)?.text
+                        ?.lineSequence()
+                        ?.firstOrNull()
+                        ?.removePrefix("⏰")
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                }
 
                 ReminderNotifier.showReminder(
                     appContext,
                     noteId,
                     reminderId,
                     note?.title,
-                    preview
+                    preview,
+                    overrideText
                 )
 
                 reminderDao.update(reminder.copy(lastFiredAt = now, nextTriggerAt = now))
