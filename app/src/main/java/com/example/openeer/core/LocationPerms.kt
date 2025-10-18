@@ -29,16 +29,14 @@ object LocationPerms {
 
     fun hasBackground(ctx: Context): Boolean =
         if (Build.VERSION.SDK_INT >= 29) {
-            ContextCompat.checkSelfPermission(
-                ctx,
-                Manifest.permission.ACCESS_BACKGROUND_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
         } else {
             true
         }
 
     fun requiresBackground(@Suppress("UNUSED_PARAMETER") ctx: Context): Boolean = Build.VERSION.SDK_INT >= 29
 
+    // Android 11+ (API 30) ne permet plus la requête BG directe → passage par les réglages
     fun mustOpenSettingsForBackground(): Boolean = Build.VERSION.SDK_INT >= 30
 
     fun dump(ctx: Context) {
@@ -50,35 +48,92 @@ object LocationPerms {
 
     fun requestFine(fragment: Fragment, cb: Callback) {
         Log.d(TAG, "perms: request FINE")
+        registerCb(REQ_FINE, cb)
         ActivityCompat.requestPermissions(
             fragment.requireActivity(),
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
             REQ_FINE
         )
-        registerCb(REQ_FINE, cb)
     }
 
+    // Uniquement pour API 29 (Android 10), au-delà il faut passer par Settings
     fun requestBackground(fragment: Fragment, cb: Callback) {
         if (Build.VERSION.SDK_INT >= 30) {
-            Log.w(TAG, "requestBackground() called on API>=30 → should use launchSettingsForBackground()")
+            Log.w(TAG, "requestBackground() called on API>=30 → must use launchSettingsForBackground()")
             cb.onResult(false)
             return
         }
-        Log.d(TAG, "perms: request BG (API29)")
+        Log.d(TAG, "perms: request BG (API29 only)")
+        registerCb(REQ_BG, cb)
         ActivityCompat.requestPermissions(
             fragment.requireActivity(),
             arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
             REQ_BG
         )
-        registerCb(REQ_BG, cb)
     }
 
+    /**
+     * Ouvre au mieux la sous-page "Position" de l’app pour autoriser "Toujours autoriser".
+     * Stratégie par paliers (OEM/Android varient) :
+     *  1) MANAGE_APP_PERMISSION + data=package: + EXTRA_PERMISSION_NAME=ACCESS_BACKGROUND_LOCATION
+     *  2) MANAGE_APP_PERMISSIONS (liste des permissions de l’app)
+     *  3) APP_LOCATION_SETTINGS (générique)
+     *  4) APPLICATION_DETAILS_SETTINGS (fiche appli)
+     */
     fun launchSettingsForBackground(fragment: Fragment) {
         val ctx = fragment.requireContext()
-        val uri = Uri.parse("package:" + ctx.packageName)
-        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, uri)
-        Log.d(TAG, "perms: launch Settings for BG → $uri")
-        fragment.startActivity(intent)
+        val pkg = ctx.packageName
+
+        // Intents semi-publics (pour la tentative 1)
+        val ACTION_MANAGE_APP_PERMISSION = "android.settings.MANAGE_APP_PERMISSION"
+        val EXTRA_APP_PACKAGE = "android.provider.extra.APP_PACKAGE"
+        val EXTRA_PERMISSION_NAME = "android.provider.extra.PERMISSION_NAME"
+
+        // 1) Tentative directe vers la sous-page "Toujours autoriser"
+        val deepIntent = Intent(ACTION_MANAGE_APP_PERMISSION).apply {
+            putExtra(EXTRA_APP_PACKAGE, pkg)
+            putExtra(EXTRA_PERMISSION_NAME, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        var ok = runCatching {
+            Log.d(TAG, "perms: trying MANAGE_APP_PERMISSION for $pkg (BG)")
+            fragment.startActivity(deepIntent)
+            true
+        }.getOrElse { err ->
+            Log.w(TAG, "perms: deep intent failed, fallback to app details", err)
+            false
+        }
+
+        if (!ok) {
+            // 2) Fallback à la liste des permissions de l'application
+            val permissionsIntent = Intent("android.settings.APPLICATION_PERMISSIONS_SETTINGS").apply {
+                data = Uri.fromParts("package", pkg, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ok = tryStart(fragment, permissionsIntent) // Utilisation de votre fonction tryStart existante
+
+            if (!ok) {
+                // 3) Fallback garanti → fiche de l’application (Infos sur l'appli)
+                val fallbackDetails = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", pkg, null)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                runCatching { fragment.startActivity(fallbackDetails) }
+                    .onFailure { e -> Log.e(TAG, "perms: unable to open app details", e) }
+            }
+        }
+    }
+
+
+    private fun tryStart(fragment: Fragment, intent: Intent): Boolean {
+        return runCatching {
+            fragment.startActivity(intent)
+            true
+        }.getOrElse {
+            Log.w(TAG, "startActivity failed for ${intent.action}", it)
+            false
+        }
     }
 
     fun onRequestPermissionsResult(

@@ -405,19 +405,30 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private fun showBackgroundPermissionDialog(onAccept: () -> Unit, onCancel: () -> Unit) {
         if (!isAdded) return
         backgroundPermissionDialog?.dismiss()
+
         val positiveRes = if (Build.VERSION.SDK_INT >= 30) {
             R.string.map_background_location_positive_settings
         } else {
             R.string.map_background_location_positive_request
         }
+
+        // Message plus clair et informel
+        val message = buildString {
+            appendLine("Pour que le rappel s’affiche même quand l’application est fermée, il faut autoriser la localisation en arrière-plan.")
+            appendLine()
+            appendLine("Cliquez sur « Autorisations » → « Position » → « Toujours autoriser ».")
+            appendLine()
+            append("Cela permet au rappel de se déclencher automatiquement quand vous arriverez à l’endroit choisi.")
+        }
+
         backgroundPermissionDialog = MaterialAlertDialogBuilder(requireContext())
-            .setTitle(R.string.map_background_location_title)
-            .setMessage(R.string.map_background_location_message)
+            .setTitle("Autoriser la position en arrière-plan")
+            .setMessage(message)
             .setPositiveButton(positiveRes) { _, _ ->
                 Log.d(TAG, "GeoFlow: background permission dialog positive")
                 onAccept()
             }
-            .setNegativeButton(R.string.map_background_location_negative) { _, _ ->
+            .setNegativeButton("Annuler") { _, _ ->
                 Log.d(TAG, "GeoFlow: background permission dialog negative")
                 onCancel()
             }
@@ -428,6 +439,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             .setOnDismissListener { backgroundPermissionDialog = null }
             .show()
     }
+
 
     override fun onResume() {
         super.onResume()
