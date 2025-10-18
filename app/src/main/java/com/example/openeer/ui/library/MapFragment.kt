@@ -1,7 +1,6 @@
 package com.example.openeer.ui.library
 
 import android.app.AlarmManager
-import androidx.appcompat.app.AlertDialog
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -14,12 +13,12 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
-import com.example.openeer.core.GeofenceDiag
 import com.example.openeer.core.LocationPerms
 import com.example.openeer.core.Place
 import com.example.openeer.data.AppDatabase
@@ -62,7 +61,6 @@ import com.example.openeer.ui.map.MapUiDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.LazyThreadSafetyMode
 import kotlin.math.max
 
 // ----------------------------------------------------------------------
@@ -131,6 +129,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private var backgroundPermissionDialog: AlertDialog? = null
 
     private var pendingGeo: (() -> Unit)? = null
+    private var waitingBgSettingsReturn = false
 
     // Mémoire
     internal var allNotes: List<Note> = emptyList()
@@ -140,12 +139,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private var targetNoteLocationResolved = false
     private var targetNoteLocationLoading = false
     private var targetNoteLocationNoteId: Long? = null
-
-    private val reminderUseCases by lazy(LazyThreadSafetyMode.NONE) {
-        val appContext = requireContext().applicationContext
-        val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        ReminderUseCases(appContext, database, alarmManager)
-    }
 
     // Permission localisation
     internal val REQ_LOC = 1001
@@ -287,8 +280,62 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 }
                 true
             }
-            MENU_CREATE_REMINDER_GEO_ONCE -> handleGeoReminder(every = false)
-            MENU_CREATE_REMINDER_GEO_EVERY -> handleGeoReminder(every = true)
+            MENU_CREATE_REMINDER_GEO_ONCE -> {
+                val noteId = targetNoteId
+                if (noteId == null) {
+                    Log.e(TAG, "GeoReminder: invalid noteId (null)")
+                    return true
+                }
+
+                val location = targetNoteLocation ?: map?.cameraPosition?.target
+                if (location == null) {
+                    Log.e(TAG, "GeoReminder: missing target location for note=$noteId")
+                    return true
+                }
+
+                Log.d(
+                    TAG,
+                    "GeoReminder request every=false for note=$noteId at ${location.latitude},${location.longitude} r=100m"
+                )
+
+                createGeoReminderStaged(
+                    noteId = noteId,
+                    lat = location.latitude,
+                    lon = location.longitude,
+                    radius = 100,
+                    every = false
+                )
+
+                true
+            }
+            MENU_CREATE_REMINDER_GEO_EVERY -> {
+                val noteId = targetNoteId
+                if (noteId == null) {
+                    Log.e(TAG, "GeoReminder: invalid noteId (null)")
+                    return true
+                }
+
+                val location = targetNoteLocation ?: map?.cameraPosition?.target
+                if (location == null) {
+                    Log.e(TAG, "GeoReminder: missing target location for note=$noteId")
+                    return true
+                }
+
+                Log.d(
+                    TAG,
+                    "GeoReminder request every=true for note=$noteId at ${location.latitude},${location.longitude} r=100m"
+                )
+
+                createGeoReminderStaged(
+                    noteId = noteId,
+                    lat = location.latitude,
+                    lon = location.longitude,
+                    radius = 100,
+                    every = true
+                )
+
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -489,18 +536,17 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     // MapView lifecycle
     override fun onResume() {
         super.onResume()
-        LocationPerms.onFragmentResume(this)
-        val ctx = context
-        if (pendingGeo != null && ctx != null) {
-            val fineOk = LocationPerms.hasFine(ctx)
-            val bgOk = Build.VERSION.SDK_INT < 29 || LocationPerms.hasBackground(ctx)
-            if (fineOk && bgOk) {
-                Log.d(TAG, "onResume(): retry pendingGeo after permissions grant")
-                val callback = pendingGeo
+        if (waitingBgSettingsReturn) {
+            waitingBgSettingsReturn = false
+            val ctx = requireContext().applicationContext
+            val nowHasBg = !LocationPerms.requiresBackground(ctx) || LocationPerms.hasBackground(ctx)
+            Log.d(TAG, "GeoFlow onResume ← from Settings, hasBG=$nowHasBg")
+            if (nowHasBg) {
+                pendingGeo?.invoke()
                 pendingGeo = null
-                callback?.invoke()
             } else {
-                Log.d(TAG, "onResume(): pendingGeo but permissions missing fine=$fineOk bg=$bgOk")
+                Log.w(TAG, "GeoFlow onResume: BG still missing, not scheduling geofence")
+                pendingGeo = null
             }
         }
         mapView?.onResume()
@@ -593,35 +639,6 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
     }
 
-    private fun handleGeoReminder(every: Boolean): Boolean {
-        val noteId = targetNoteId
-        if (noteId == null) {
-            Log.e(TAG, "GeoReminder: invalid noteId (null)")
-            return true
-        }
-
-        val location = targetNoteLocation ?: map?.cameraPosition?.target
-        if (location == null) {
-            Log.e(TAG, "GeoReminder: missing target location for note=$noteId")
-            return true
-        }
-
-        Log.d(
-            TAG,
-            "GeoReminder request every=$every for note=$noteId at ${location.latitude},${location.longitude} r=100m"
-        )
-
-        createGeoReminderStaged(
-            noteId = noteId,
-            lat = location.latitude,
-            lon = location.longitude,
-            radius = 100,
-            every = every
-        )
-
-        return true
-    }
-
     private fun createGeoReminderStaged(
         noteId: Long,
         lat: Double,
@@ -629,78 +646,70 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         radius: Int,
         every: Boolean
     ) {
-        val ctx = context ?: run {
-            Log.w(TAG, "createGeoReminderStaged(): fragment not attached, skipping")
-            return
-        }
+        val ctx = requireContext().applicationContext
+        Log.d(TAG, "GeoFlow start → note=$noteId lat=$lat lon=$lon radius=$radius every=$every")
 
-        LocationPerms.logAll(ctx)
+        LocationPerms.dump(ctx)
         if (!LocationPerms.hasFine(ctx)) {
-            pendingGeo = { createGeoReminderStaged(noteId, lat, lon, radius, every) }
-            LocationPerms.ensureForeground(this, object : LocationPerms.Callback {
+            Log.d(TAG, "GeoFlow ensureForeground → requesting FINE")
+            LocationPerms.requestFine(this, object : LocationPerms.Callback {
                 override fun onResult(granted: Boolean) {
                     Log.d(TAG, "GeoFlow ensureForeground → $granted")
-                    val next = pendingGeo
-                    pendingGeo = null
                     if (granted) {
-                        next?.invoke()
+                        createGeoReminderStaged(noteId, lat, lon, radius, every)
+                    } else {
+                        Log.w(TAG, "GeoFlow aborted: FINE denied")
                     }
                 }
             })
             return
         }
 
-        if (Build.VERSION.SDK_INT >= 29 && !LocationPerms.hasBackground(ctx)) {
-            pendingGeo = { createGeoReminderStaged(noteId, lat, lon, radius, every) }
-            showBackgroundPermissionDialog {
-                LocationPerms.ensureBackground(this, object : LocationPerms.Callback {
-                    override fun onResult(granted: Boolean) {
-                        Log.d(TAG, "GeoFlow ensureBackground → $granted")
-                        val next = pendingGeo
-                        pendingGeo = null
-                        if (granted) {
-                            next?.invoke()
-                        }
+        LocationPerms.dump(ctx)
+        if (LocationPerms.requiresBackground(ctx) && !LocationPerms.hasBackground(ctx)) {
+            Log.d(TAG, "GeoFlow ensureBackground → missing BG, preparing staged flow")
+            showBackgroundPermissionDialog(
+                onAccept = {
+                    if (LocationPerms.mustOpenSettingsForBackground()) {
+                        Log.d(TAG, "GeoFlow ensureBackground → launching Settings")
+                        waitingBgSettingsReturn = true
+                        pendingGeo = { createGeoReminderStaged(noteId, lat, lon, radius, every) }
+                        LocationPerms.launchSettingsForBackground(this)
+                    } else {
+                        Log.d(TAG, "GeoFlow ensureBackground → direct requestPermissions(BG) API29")
+                        LocationPerms.requestBackground(this, object : LocationPerms.Callback {
+                            override fun onResult(granted: Boolean) {
+                                Log.d(TAG, "GeoFlow ensureBackground (API29) → $granted")
+                                if (granted) {
+                                    createGeoReminderStaged(noteId, lat, lon, radius, every)
+                                } else {
+                                    Log.w(TAG, "GeoFlow aborted: BG denied")
+                                }
+                            }
+                        })
                     }
-                })
-            }
+                },
+                onCancel = {
+                    Log.w(TAG, "GeoFlow cancelled by user at BG rationale")
+                    pendingGeo = null
+                }
+            )
             return
         }
 
-        pendingGeo = null
-
-        GeofenceDiag.logProviders(ctx)
-        GeofenceDiag.logPerms(ctx)
-
+        Log.d(TAG, "GeoFlow → permissions OK, scheduling geofence…")
         viewLifecycleOwner.lifecycleScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    reminderUseCases.scheduleGeofence(
-                        noteId = noteId,
-                        lat = lat,
-                        lon = lon,
-                        radiusMeters = radius,
-                        every = every,
-                        blockId = targetBlockId,
-                        cooldownMinutes = 30
-                    )
-                }
-            }.onSuccess { reminderId ->
-                Log.d(
-                    TAG,
-                    "Geofence scheduled successfully for noteId=$noteId every=$every at $lat,$lon id=$reminderId"
-                )
-            }.onFailure { error ->
-                Log.e(
-                    TAG,
-                    "Failed to schedule geofence for noteId=$noteId every=$every at $lat,$lon",
-                    error
-                )
+            val db = AppDatabase.getInstance(requireContext())
+            val alarm = requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val use = ReminderUseCases(requireContext().applicationContext, db, alarm)
+            val id = withContext(Dispatchers.IO) {
+                use.scheduleGeofence(noteId, lat, lon, radius, every, blockId = null)
             }
+            Log.d(TAG, "GeoFlow → scheduleGeofence done id=$id")
         }
     }
 
-    private fun showBackgroundPermissionDialog(onContinue: () -> Unit) {
+    private fun showBackgroundPermissionDialog(onAccept: () -> Unit, onCancel: () -> Unit) {
         if (!isAdded) return
         backgroundPermissionDialog?.dismiss()
         val positiveRes = if (Build.VERSION.SDK_INT >= 30) {
@@ -713,15 +722,15 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             .setMessage(R.string.map_background_location_message)
             .setPositiveButton(positiveRes) { _, _ ->
                 Log.d(TAG, "GeoFlow: background permission dialog positive")
-                onContinue()
+                onAccept()
             }
             .setNegativeButton(R.string.map_background_location_negative) { _, _ ->
                 Log.d(TAG, "GeoFlow: background permission dialog negative")
-                pendingGeo = null
+                onCancel()
             }
             .setOnCancelListener {
                 Log.d(TAG, "GeoFlow: background permission dialog canceled")
-                pendingGeo = null
+                onCancel()
             }
             .setOnDismissListener { backgroundPermissionDialog = null }
             .show()
@@ -729,10 +738,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (LocationPerms.onRequestPermissionsResult(this, requestCode, grantResults)) {
-            Log.d(TAG, "onRequestPermissionsResult($requestCode): handled by LocationPerms pendingGeo=${pendingGeo != null}")
-            return
-        }
+        LocationPerms.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_ROUTE) {
             val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
             awaitingRoutePermission = false
