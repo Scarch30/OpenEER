@@ -17,6 +17,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
+import com.example.openeer.core.GeofenceDiag
 import com.example.openeer.core.Place
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.AttachmentDao
@@ -579,6 +580,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             return true
         }
 
+        Log.d(
+            TAG,
+            "GeoReminder request every=$every for note=$noteId at ${location.latitude},${location.longitude} r=100m"
+        )
+        GeofenceDiag.logProviders(ctx)
+        GeofenceDiag.logPerms(ctx)
+
         viewLifecycleOwner.lifecycleScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -593,15 +601,16 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                     )
                 }
             }.onSuccess {
-                val feedback = if (every) {
-                    getString(R.string.map_menu_create_reminder_geo_every)
-                } else {
-                    getString(R.string.map_menu_create_reminder_geo_once)
-                }
-                showHint(feedback)
+                Log.d(
+                    TAG,
+                    "Geofence scheduled successfully for noteId=$noteId every=$every at ${location.latitude},${location.longitude}"
+                )
             }.onFailure { error ->
-                Log.e(TAG, "Failed to schedule geofence", error)
-                Toast.makeText(ctx, getString(R.string.reminder_error_schedule), Toast.LENGTH_SHORT).show()
+                Log.e(
+                    TAG,
+                    "Failed to schedule geofence for noteId=$noteId every=$every at ${location.latitude},${location.longitude}",
+                    error
+                )
             }
         }
 
