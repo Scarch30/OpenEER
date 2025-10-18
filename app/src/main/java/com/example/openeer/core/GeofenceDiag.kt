@@ -43,6 +43,12 @@ object GeofenceDiag {
         Log.d(TAG, "Perms fine=$fine coarse=$coarse bg=$bg (SDK=${Build.VERSION.SDK_INT})")
     }
 
+    /** Convenience: log providers + permissions in one shot */
+    fun logAll(ctx: Context) {
+        logProviders(ctx)
+        logPerms(ctx)
+    }
+
     fun logAddFailure(e: Exception) {
         if (e is ApiException) {
             val code = e.statusCode
