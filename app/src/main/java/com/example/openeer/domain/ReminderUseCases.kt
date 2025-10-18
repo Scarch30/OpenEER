@@ -4,7 +4,9 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
+import com.example.openeer.core.GeofenceDiag
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.reminders.ReminderDao
 import com.example.openeer.data.reminders.ReminderEntity
@@ -63,6 +65,10 @@ class ReminderUseCases(
         blockId: Long? = null,
         cooldownMinutes: Int? = DEFAULT_GEO_COOLDOWN_MINUTES
     ): Long = withContext(Dispatchers.IO) {
+        Log.d(
+            TAG,
+            "scheduleGeofence(): note=$noteId every=$every lat=$lat lon=$lon radius=$radiusMeters cooldown=$cooldownMinutes block=$blockId"
+        )
         val reminder = ReminderEntity(
             noteId = noteId,
             blockId = blockId,
@@ -76,6 +82,7 @@ class ReminderUseCases(
         )
 
         val reminderId = reminderDao.insert(reminder)
+        Log.d(TAG, "scheduleGeofence(): inserted id=$reminderId")
         addGeofenceForExisting(reminder.copy(id = reminderId))
         Log.d(
             TAG,
@@ -153,6 +160,16 @@ class ReminderUseCases(
 
     suspend fun restoreAllOnAppStart(nowProvider: () -> Long = { System.currentTimeMillis() }) =
         withContext(Dispatchers.IO) {
+            Log.d(TAG, "restoreGeofences(): start")
+            val geoReminders = reminderDao.getActiveGeo()
+            Log.d(TAG, "restoreGeofences(): activeGeoCount=${geoReminders.size}")
+            geoReminders.forEach { r ->
+                Log.d(
+                    TAG,
+                    "restoreGeofences(): re-add id=${r.id} note=${r.noteId} lat=${r.lat} lon=${r.lon} radius=${r.radius}"
+                )
+            }
+
             val now = nowProvider()
             val reminders = reminderDao.getUpcomingTimeReminders(now)
 
@@ -166,7 +183,15 @@ class ReminderUseCases(
         }
 
     suspend fun restoreGeofences() = withContext(Dispatchers.IO) {
+        Log.d(TAG, "restoreGeofences(): start")
         val geoReminders = reminderDao.getActiveGeo()
+        Log.d(TAG, "restoreGeofences(): activeGeoCount=${geoReminders.size}")
+        geoReminders.forEach { r ->
+            Log.d(
+                TAG,
+                "restoreGeofences(): re-add id=${r.id} note=${r.noteId} lat=${r.lat} lon=${r.lon} radius=${r.radius}"
+            )
+        }
         geoReminders.forEach { reminder ->
             addGeofenceForExisting(reminder)
             Log.d(
@@ -205,68 +230,49 @@ class ReminderUseCases(
     }
 
     private fun addGeofenceForExisting(reminder: ReminderEntity) {
-        val lat = reminder.lat
-        val lon = reminder.lon
-        if (lat == null || lon == null) {
-            Log.w(TAG, "Cannot add geofence, missing coordinates for reminderId=${reminder.id}")
-            return
-        }
-        val radius = reminder.radius ?: DEFAULT_GEOFENCE_RADIUS_METERS
-
-        val request = buildGeofencingRequest(reminder, lat, lon, radius)
-        val pendingIntent = buildGeofencePendingIntent(reminder.id, reminder.noteId)
         val client = LocationServices.getGeofencingClient(context)
-
-        try {
-            client.addGeofences(request, pendingIntent)
-                .addOnSuccessListener {
-                    Log.d(TAG, "✅ Geofence ADDED id=${reminder.id}")
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "❌ Geofence ADD failed id=${reminder.id}", e)
-                }
-        } catch (se: SecurityException) {
-            Log.w(
-                TAG,
-                "Missing location permission when adding geofence reminderId=${reminder.id}",
-                se
-            )
-        }
-    }
-
-    private fun buildGeofencingRequest(
-        reminder: ReminderEntity,
-        lat: Double,
-        lon: Double,
-        radius: Int
-    ): GeofencingRequest {
         val geofence = Geofence.Builder()
             .setRequestId(reminder.id.toString())
-            .setCircularRegion(lat, lon, radius.toFloat())
-            .setTransitionTypes(
-                Geofence.GEOFENCE_TRANSITION_ENTER /* | Geofence.GEOFENCE_TRANSITION_DWELL */
-            )
-            .setLoiteringDelay(120_000)
+            .setCircularRegion(reminder.lat!!, reminder.lon!!, (reminder.radius ?: DEFAULT_GEOFENCE_RADIUS_METERS).toFloat())
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
+            .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER)
             .build()
 
-        return GeofencingRequest.Builder()
+        val request = GeofencingRequest.Builder()
             .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
             .addGeofence(geofence)
             .build()
+
+        val pi = buildGeofencePendingIntent(reminder.id, reminder.noteId)
+        Log.d(TAG, "addGeofence(): id=${reminder.id} note=${reminder.noteId} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} initialTrigger=ENTER")
+        GeofenceDiag.logProviders(context)
+        GeofenceDiag.logPerms(context)
+
+        try {
+            client.addGeofences(request, pi)
+                .addOnSuccessListener { Log.d(TAG, "✅ addGeofences SUCCESS id=${reminder.id}") }
+                .addOnFailureListener { e -> GeofenceDiag.logAddFailure(e) }
+        } catch (se: SecurityException) {
+            Log.e(TAG, "❌ addGeofences SecurityException (missing permission?) id=${reminder.id}", se)
+        }
     }
 
     private fun buildGeofencePendingIntent(reminderId: Long, noteId: Long): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ACTION_FIRE_GEOFENCE
+            // ⚠️ Certains firmwares remplacent totalement les extras. On les met quand même.
             putExtra(EXTRA_REMINDER_ID, reminderId)
             putExtra(EXTRA_NOTE_ID, noteId)
         }
-        val flags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         } else {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
+        Log.d(
+            TAG,
+            "buildGeofencePI(): id=$reminderId note=$noteId flags=${GeofenceDiag.flagsToString(flags)}"
+        )
         return PendingIntent.getBroadcast(context, requestCodeFor(reminderId), intent, flags)
     }
 
@@ -275,21 +281,17 @@ class ReminderUseCases(
     }
 
     private suspend fun removeGeofenceInternal(reminderId: Long) {
+        Log.d(TAG, "removeGeofence(): id=$reminderId")
         try {
             val client = LocationServices.getGeofencingClient(context)
             client.removeGeofences(listOf(reminderId.toString()))
-                .addOnSuccessListener {
-                    Log.d(TAG, "Removed geofence reminderId=$reminderId")
-                }
-                .addOnFailureListener { error ->
-                    Log.e(TAG, "Failed to remove geofence reminderId=$reminderId", error)
-                }
+                .addOnSuccessListener { Log.d(TAG, "✅ removeGeofences SUCCESS id=$reminderId") }
+                .addOnFailureListener { e -> Log.e(TAG, "❌ removeGeofences FAILED id=$reminderId", e) }
         } catch (se: SecurityException) {
-            Log.w(TAG, "Missing location permission when removing geofence reminderId=$reminderId", se)
+            Log.w(TAG, "removeGeofence(): SecurityException id=$reminderId", se)
         }
-
         reminderDao.cancelById(reminderId)
-        Log.d(TAG, "Cancelled geo reminderId=$reminderId")
+        Log.d(TAG, "removeGeofence(): DAO cancel id=$reminderId")
     }
 
     private companion object {
