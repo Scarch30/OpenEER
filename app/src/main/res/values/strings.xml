@@ -146,6 +146,11 @@
     <string name="map_location_disabled">Localisation désactivée</string>
     <string name="map_location_open_settings">Ouvrir les réglages</string>
     <string name="map_location_undo_success">Ajout annulé</string>
+    <string name="map_background_location_title">Autorisation en arrière-plan</string>
+    <string name="map_background_location_message">Pour déclencher vos rappels géolocalisés, autorisez OpenEER à accéder à la localisation en arrière-plan.</string>
+    <string name="map_background_location_positive_request">Autoriser</string>
+    <string name="map_background_location_positive_settings">Ouvrir les paramètres</string>
+    <string name="map_background_location_negative">Plus tard</string>
     <string name="map_route_start">🧭 Itinéraire</string>
     <string name="map_route_stop">⏹️ Arrêter (%1$d)</string>
     <string name="map_route_recording_hint">Enregistrement de l’itinéraire…</string>
