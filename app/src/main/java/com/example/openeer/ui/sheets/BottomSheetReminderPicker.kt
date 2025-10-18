@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlarmManager
 import android.app.TimePickerDialog
 import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import android.text.format.DateFormat
 import android.util.Log
@@ -13,9 +14,11 @@ import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
+import com.example.openeer.core.LocationPerms
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.domain.ReminderUseCases
@@ -23,6 +26,7 @@ import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapFragment
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputLayout
@@ -81,6 +85,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private var selectedLat: Double? = null
     private var selectedLon: Double? = null
     private var selectedLabel: String? = null
+
+    private var backgroundPermissionDialog: AlertDialog? = null
+    private var pendingGeoAction: (() -> Unit)? = null
+    private var waitingBgSettingsReturn = false
 
     private val mapPickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -154,7 +162,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
 
         view.findViewById<View>(R.id.btnPlan).setOnClickListener {
-            scheduleGeoReminder()
+            attemptScheduleGeoReminderWithPermissions()
         }
 
         preloadExistingData()
@@ -273,6 +281,78 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
     }
 
+    private fun attemptScheduleGeoReminderWithPermissions() {
+        val lat = selectedLat
+        val lon = selectedLon
+        if (lat == null || lon == null) {
+            Toast.makeText(requireContext(), getString(R.string.reminder_geo_location_missing), Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+
+        val action = { scheduleGeoReminder() }
+        ensureGeofencePermissions(action)
+    }
+
+    private fun ensureGeofencePermissions(onReady: () -> Unit) {
+        val ctx = requireContext().applicationContext
+        LocationPerms.dump(ctx)
+
+        if (!LocationPerms.hasFine(ctx)) {
+            Log.d(TAG, "GeoFlow ensureForeground → requesting FINE")
+            val retry = { ensureGeofencePermissions(onReady) }
+            pendingGeoAction = retry
+            LocationPerms.requestFine(this, object : LocationPerms.Callback {
+                override fun onResult(granted: Boolean) {
+                    Log.d(TAG, "GeoFlow ensureForeground → $granted")
+                    if (granted) {
+                        retry()
+                    } else {
+                        pendingGeoAction = null
+                        Log.w(TAG, "GeoFlow aborted: FINE denied")
+                    }
+                }
+            })
+            return
+        }
+
+        if (LocationPerms.requiresBackground(ctx) && !LocationPerms.hasBackground(ctx)) {
+            Log.d(TAG, "GeoFlow ensureBackground → missing BG, preparing staged flow")
+            val retry = { ensureGeofencePermissions(onReady) }
+            pendingGeoAction = retry
+            showBackgroundPermissionDialog(
+                onAccept = {
+                    if (LocationPerms.mustOpenSettingsForBackground()) {
+                        Log.d(TAG, "GeoFlow ensureBackground → launching Settings")
+                        waitingBgSettingsReturn = true
+                        LocationPerms.launchSettingsForBackground(this)
+                    } else {
+                        Log.d(TAG, "GeoFlow ensureBackground → direct requestPermissions(BG) API29")
+                        LocationPerms.requestBackground(this, object : LocationPerms.Callback {
+                            override fun onResult(granted: Boolean) {
+                                Log.d(TAG, "GeoFlow ensureBackground (API29) → $granted")
+                                if (granted) {
+                                    retry()
+                                } else {
+                                    pendingGeoAction = null
+                                    Log.w(TAG, "GeoFlow aborted: BG denied")
+                                }
+                            }
+                        })
+                    }
+                },
+                onCancel = {
+                    Log.w(TAG, "GeoFlow cancelled by user at BG rationale")
+                    pendingGeoAction = null
+                }
+            )
+            return
+        }
+
+        pendingGeoAction = null
+        onReady()
+    }
+
     private fun scheduleGeoReminder() {
         val lat = selectedLat
         val lon = selectedLon
@@ -320,6 +400,65 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 handleFailure(error)
             }
         }
+    }
+
+    private fun showBackgroundPermissionDialog(onAccept: () -> Unit, onCancel: () -> Unit) {
+        if (!isAdded) return
+        backgroundPermissionDialog?.dismiss()
+        val positiveRes = if (Build.VERSION.SDK_INT >= 30) {
+            R.string.map_background_location_positive_settings
+        } else {
+            R.string.map_background_location_positive_request
+        }
+        backgroundPermissionDialog = MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.map_background_location_title)
+            .setMessage(R.string.map_background_location_message)
+            .setPositiveButton(positiveRes) { _, _ ->
+                Log.d(TAG, "GeoFlow: background permission dialog positive")
+                onAccept()
+            }
+            .setNegativeButton(R.string.map_background_location_negative) { _, _ ->
+                Log.d(TAG, "GeoFlow: background permission dialog negative")
+                onCancel()
+            }
+            .setOnCancelListener {
+                Log.d(TAG, "GeoFlow: background permission dialog canceled")
+                onCancel()
+            }
+            .setOnDismissListener { backgroundPermissionDialog = null }
+            .show()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (waitingBgSettingsReturn) {
+            waitingBgSettingsReturn = false
+            val ctx = requireContext().applicationContext
+            val hasBg = !LocationPerms.requiresBackground(ctx) || LocationPerms.hasBackground(ctx)
+            Log.d(TAG, "GeoFlow onResume ← from Settings, hasBG=$hasBg")
+            val action = pendingGeoAction
+            pendingGeoAction = null
+            if (hasBg) {
+                action?.invoke()
+            } else {
+                Log.w(TAG, "GeoFlow onResume: BG still missing, not scheduling geofence")
+            }
+        }
+    }
+
+    override fun onDestroyView() {
+        backgroundPermissionDialog?.dismiss()
+        backgroundPermissionDialog = null
+        super.onDestroyView()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        LocationPerms.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
     private fun cleanupCreatedBlock(blockId: Long?) {
