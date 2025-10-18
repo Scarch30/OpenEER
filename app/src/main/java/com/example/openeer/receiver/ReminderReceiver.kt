@@ -38,6 +38,8 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         ReminderChannels.ensureCreated(context)
 
+        Log.d(TAG, "onReceive action=${intent?.action} extras=${intent?.extras?.keySet()}")
+
         val reminderId = intent?.getLongExtra(EXTRA_REMINDER_ID, -1L)?.takeIf { it >= 0L }
         val noteId = intent?.getLongExtra(EXTRA_NOTE_ID, -1L)?.takeIf { it >= 0L }
         val openNoteId = intent?.getLongExtra(EXTRA_OPEN_NOTE_ID, -1L)?.takeIf { it >= 0L }
@@ -182,6 +184,8 @@ class ReminderReceiver : BroadcastReceiver() {
             Log.w(TAG, "handleGeofence: missing ids reminderId=$reminderId noteId=$noteId")
             return
         }
+
+        Log.d(TAG, "handleGeofence(reminderId=$reminderId, noteId=$noteId)")
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
