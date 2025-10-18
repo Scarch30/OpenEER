@@ -240,7 +240,7 @@ class ReminderUseCases(
             return
         }
 
-        LocationPerms.logAll(context)
+        LocationPerms.dump(context)
         val fineOk = LocationPerms.hasFine(context)
         val bgOk = LocationPerms.hasBackground(context)
 
