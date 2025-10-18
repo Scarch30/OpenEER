@@ -12,6 +12,7 @@ import com.example.openeer.core.GeofenceDiag
 import com.example.openeer.core.ReminderChannels
 import com.example.openeer.core.ReminderNotifier
 import com.example.openeer.data.AppDatabase
+import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.domain.ReminderUseCases
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.google.android.gms.location.GeofenceStatusCodes
@@ -92,6 +93,7 @@ class ReminderReceiver : BroadcastReceiver() {
                                 Log.w(TAG, "No reminder in DB for requestId=$rid")
                                 continue
                             }
+                            logReminderDump("geofence#$rid", r)
                             Log.d(
                                 TAG,
                                 "handleGeofence enter: id=${r.id} note=${r.noteId} type=${r.type} status=${r.status} cooldown=${r.cooldownMinutes}"
@@ -133,6 +135,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     ?.trim()
                     ?.take(160)
                 val reminder = reminderDao.getById(reminderId)
+                reminder?.let { logReminderDump("handleFireAlarm", it) }
                 val overrideText = reminder?.blockId?.let { blockId ->
                     db.blockDao().getById(blockId)?.text
                         ?.lineSequence()
@@ -178,6 +181,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     Log.w(TAG, "handleSnooze($minutes): reminderId=$reminderId not found")
                     return@launch
                 }
+                logReminderDump("handleSnooze($minutes)", reminder)
                 val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                 val useCases = ReminderUseCases(appContext, db, alarmManager)
                 useCases.snooze(reminderId, minutes)
@@ -210,6 +214,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     Log.w(TAG, "handleMarkDone: reminderId=$reminderId not found")
                     return@launch
                 }
+                logReminderDump("handleMarkDone", reminder)
 
                 val noteId = reminder.noteId
                 val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -256,6 +261,7 @@ class ReminderReceiver : BroadcastReceiver() {
             Log.w(TAG, "handleGeofence: reminderId=$reminderId not found")
             return
         }
+        logReminderDump("handleGeofence", reminder)
         Log.d(
             TAG,
             "handleGeofence: reminder fetched status=${reminder.status} type=${reminder.type} lastFired=${reminder.lastFiredAt}"
@@ -314,5 +320,12 @@ class ReminderReceiver : BroadcastReceiver() {
             val useCases = ReminderUseCases(appContext, db, alarmManager)
             useCases.removeGeofence(reminderId)
         }
+    }
+
+    private fun logReminderDump(source: String, reminder: ReminderEntity) {
+        Log.d(
+            TAG,
+            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} block=${reminder.blockId}"
+        )
     }
 }
