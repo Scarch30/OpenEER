@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import com.example.openeer.core.GeofenceDiag
+import com.example.openeer.core.LocationPerms
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.reminders.ReminderDao
 import com.example.openeer.data.reminders.ReminderEntity
@@ -230,10 +231,42 @@ class ReminderUseCases(
     }
 
     private fun addGeofenceForExisting(reminder: ReminderEntity) {
+        val lat = reminder.lat ?: run {
+            Log.w(TAG, "addGeofence(): missing coordinates id=${reminder.id}")
+            return
+        }
+        val lon = reminder.lon ?: run {
+            Log.w(TAG, "addGeofence(): missing coordinates id=${reminder.id}")
+            return
+        }
+
+        LocationPerms.logAll(context)
+        val fineOk = LocationPerms.hasFine(context)
+        val bgOk = LocationPerms.hasBackground(context)
+
+        if (!fineOk) {
+            Log.e(
+                TAG,
+                "❌ addGeofence(): missing ACCESS_FINE_LOCATION → will not call addGeofences() [id=${reminder.id}]"
+            )
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 29 && !bgOk) {
+            Log.e(
+                TAG,
+                "❌ addGeofence(): missing ACCESS_BACKGROUND_LOCATION on API>=29 → will not call addGeofences() [id=${reminder.id}]"
+            )
+            return
+        }
+
         val client = LocationServices.getGeofencingClient(context)
         val geofence = Geofence.Builder()
             .setRequestId(reminder.id.toString())
-            .setCircularRegion(reminder.lat!!, reminder.lon!!, (reminder.radius ?: DEFAULT_GEOFENCE_RADIUS_METERS).toFloat())
+            .setCircularRegion(
+                lat,
+                lon,
+                (reminder.radius ?: DEFAULT_GEOFENCE_RADIUS_METERS).toFloat()
+            )
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
             .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER)
             .build()
@@ -244,7 +277,10 @@ class ReminderUseCases(
             .build()
 
         val pi = buildGeofencePendingIntent(reminder.id, reminder.noteId)
-        Log.d(TAG, "addGeofence(): id=${reminder.id} note=${reminder.noteId} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} initialTrigger=ENTER")
+        Log.d(
+            TAG,
+            "addGeofence(): id=${reminder.id} note=${reminder.noteId} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} initialTrigger=ENTER"
+        )
         GeofenceDiag.logProviders(context)
         GeofenceDiag.logPerms(context)
 
