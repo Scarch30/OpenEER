@@ -213,6 +213,33 @@ class ReminderUseCases(
         }
         val radius = reminder.radius ?: DEFAULT_GEOFENCE_RADIUS_METERS
 
+        val request = buildGeofencingRequest(reminder, lat, lon, radius)
+        val pendingIntent = buildGeofencePendingIntent(reminder.id, reminder.noteId)
+        val client = LocationServices.getGeofencingClient(context)
+
+        try {
+            client.addGeofences(request, pendingIntent)
+                .addOnSuccessListener {
+                    Log.d(TAG, "✅ Geofence ADDED id=${reminder.id}")
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "❌ Geofence ADD failed id=${reminder.id}", e)
+                }
+        } catch (se: SecurityException) {
+            Log.w(
+                TAG,
+                "Missing location permission when adding geofence reminderId=${reminder.id}",
+                se
+            )
+        }
+    }
+
+    private fun buildGeofencingRequest(
+        reminder: ReminderEntity,
+        lat: Double,
+        lon: Double,
+        radius: Int
+    ): GeofencingRequest {
         val geofence = Geofence.Builder()
             .setRequestId(reminder.id.toString())
             .setCircularRegion(lat, lon, radius.toFloat())
@@ -223,25 +250,10 @@ class ReminderUseCases(
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
             .build()
 
-        val request = GeofencingRequest.Builder()
+        return GeofencingRequest.Builder()
             .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
             .addGeofence(geofence)
             .build()
-
-        val pendingIntent = buildGeofencePendingIntent(reminder.id, reminder.noteId)
-
-        try {
-            val client = LocationServices.getGeofencingClient(context)
-            client.addGeofences(request, pendingIntent)
-                .addOnSuccessListener {
-                    Log.d(TAG, "Registered geofence reminderId=${reminder.id}")
-                }
-                .addOnFailureListener { error ->
-                    Log.e(TAG, "Failed to register geofence reminderId=${reminder.id}", error)
-                }
-        } catch (se: SecurityException) {
-            Log.w(TAG, "Missing location permission when adding geofence reminderId=${reminder.id}", se)
-        }
     }
 
     private fun buildGeofencePendingIntent(reminderId: Long, noteId: Long): PendingIntent {
@@ -250,12 +262,12 @@ class ReminderUseCases(
             putExtra(EXTRA_REMINDER_ID, reminderId)
             putExtra(EXTRA_NOTE_ID, noteId)
         }
-        return PendingIntent.getBroadcast(
-            context,
-            requestCodeFor(reminderId),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val flags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        return PendingIntent.getBroadcast(context, requestCodeFor(reminderId), intent, flags)
     }
 
     private fun requestCodeFor(reminderId: Long): Int {
