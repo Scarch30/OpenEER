@@ -59,9 +59,9 @@ object GeofenceDiag {
     }
 
     fun dumpEvent(prefix: String, intent: Intent?): GeofencingEvent? {
-        val ev = GeofencingEvent.fromIntent(intent)
+        val ev = intent?.let { GeofencingEvent.fromIntent(it) }
         if (ev == null) {
-            Log.w(TAG, "$prefix GeofencingEvent=null")
+            Log.w(TAG, "$prefix GeofencingEvent=null (intent=$intent)")
             return null
         }
         Log.d(TAG, buildString {
