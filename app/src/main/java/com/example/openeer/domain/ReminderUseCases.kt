@@ -184,14 +184,52 @@ class ReminderUseCases(
             }
 
             val now = nowProvider()
-            val reminders = reminderDao.getUpcomingTimeReminders(now)
+            val scheduledIds = mutableSetOf<Long>()
 
-            reminders.forEach { reminder ->
-                scheduleAlarm(reminder.id, reminder.noteId, reminder.nextTriggerAt)
-                Log.d(
-                    TAG,
-                    "Restored reminderId=${reminder.id} noteId=${reminder.noteId} at ${reminder.nextTriggerAt}"
-                )
+            val dueReminders = reminderDao.getDue(now)
+            Log.d(TAG, "restoreAllOnAppStart(): found dueCount=${dueReminders.size}")
+            dueReminders.forEach { reminder ->
+                val repeatMinutes = reminder.repeatEveryMinutes
+                if (repeatMinutes != null && repeatMinutes > 0) {
+                    val advancedTrigger = computeNextRepeatingTrigger(now, reminder.nextTriggerAt, repeatMinutes)
+                    if (advancedTrigger != reminder.nextTriggerAt) {
+                        reminderDao.update(reminder.copy(nextTriggerAt = advancedTrigger))
+                        Log.d(
+                            TAG,
+                            "restoreAllOnAppStart(): advanced repeating reminderId=${reminder.id} interval=${repeatMinutes}m " +
+                                "from=${reminder.nextTriggerAt} to=$advancedTrigger"
+                        )
+                    } else {
+                        Log.d(
+                            TAG,
+                            "restoreAllOnAppStart(): repeating reminderId=${reminder.id} interval=${repeatMinutes}m already future=${reminder.nextTriggerAt}"
+                        )
+                    }
+                    scheduleAlarm(reminder.id, reminder.noteId, advancedTrigger)
+                    scheduledIds += reminder.id
+                    Log.d(
+                        TAG,
+                        "restoreAllOnAppStart(): rescheduled repeating reminderId=${reminder.id} noteId=${reminder.noteId} next=$advancedTrigger"
+                    )
+                } else {
+                    Log.d(
+                        TAG,
+                        "restoreAllOnAppStart(): skipping overdue one-shot reminderId=${reminder.id} noteId=${reminder.noteId} next=${reminder.nextTriggerAt}"
+                    )
+                }
+            }
+
+            val upcomingReminders = reminderDao.getUpcomingTimeReminders(now)
+            Log.d(TAG, "restoreAllOnAppStart(): upcomingCount=${upcomingReminders.size}")
+            upcomingReminders.forEach { reminder ->
+                if (scheduledIds.add(reminder.id)) {
+                    scheduleAlarm(reminder.id, reminder.noteId, reminder.nextTriggerAt)
+                    val repeatLabel = reminder.repeatEveryMinutes?.let { "${it}m" } ?: "once"
+                    Log.d(
+                        TAG,
+                        "restoreAllOnAppStart(): restored reminderId=${reminder.id} noteId=${reminder.noteId} at ${reminder.nextTriggerAt} repeat=$repeatLabel"
+                    )
+                }
             }
         }
 
@@ -217,6 +255,11 @@ class ReminderUseCases(
     private fun scheduleAlarm(reminderId: Long, noteId: Long, triggerAt: Long) {
         val pendingIntent = buildAlarmPendingIntent(context, reminderId, noteId)
         alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+    }
+
+    fun rescheduleAlarm(reminderId: Long, noteId: Long, triggerAt: Long) {
+        Log.d(TAG, "rescheduleAlarm(): reminderId=$reminderId noteId=$noteId triggerAt=$triggerAt")
+        scheduleAlarm(reminderId, noteId, triggerAt)
     }
 
     private fun cancelAlarm(reminderId: Long, noteId: Long) {
@@ -353,5 +396,26 @@ class ReminderUseCases(
         private const val ONE_MINUTE_IN_MILLIS = 60_000L
         private const val DEFAULT_GEOFENCE_RADIUS_METERS = 100
         private const val DEFAULT_GEO_COOLDOWN_MINUTES = 30
+
+        internal fun computeNextRepeatingTrigger(
+            now: Long,
+            scheduledAt: Long,
+            repeatEveryMinutes: Int
+        ): Long {
+            val interval = repeatEveryMinutes.toLong() * ONE_MINUTE_IN_MILLIS
+            if (interval <= 0L) {
+                Log.w(
+                    TAG,
+                    "computeNextRepeatingTrigger(): invalid repeatEveryMinutes=$repeatEveryMinutes -> fallback to now + 1min"
+                )
+                return now + ONE_MINUTE_IN_MILLIS
+            }
+
+            var next = scheduledAt
+            while (next <= now) {
+                next += interval
+            }
+            return next
+        }
     }
 }
