@@ -33,6 +33,7 @@ import com.example.openeer.domain.ReminderUseCases
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapFragment
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -103,6 +104,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private lateinit var labelInput: TextInputLayout
     private lateinit var radiusInput: TextInputLayout
     private lateinit var locationPreview: TextView
+    private lateinit var planTimeButton: MaterialButton
     private lateinit var everySwitch: MaterialSwitch
     private lateinit var textWhenSummary: TextView
     private lateinit var radioRepeat: RadioGroup
@@ -152,6 +154,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         labelInput = view.findViewById(R.id.inputLabel)
         radiusInput = view.findViewById(R.id.inputRadius)
         locationPreview = view.findViewById(R.id.textLocationPreview)
+        planTimeButton = view.findViewById(R.id.btnPlanTime)
         everySwitch = view.findViewById(R.id.switchEvery)
         textWhenSummary = view.findViewById(R.id.textWhenSummary)
         radioRepeat = view.findViewById(R.id.radioRepeat)
@@ -171,19 +174,18 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
 
         setupRepeatControls()
         updateWhenSummary()
+        updatePlanTimeButtonState()
 
         view.findViewById<View>(R.id.btnIn10).setOnClickListener {
             val timeMillis = nowProvider() + 10 * 60_000L
             Log.d(TAG, "Preset +10 min for noteId=$noteId blockId=$blockId")
             setSelectedDateTime(timeMillis, "preset_10m")
-            scheduleTimeReminder(timeMillis)
         }
 
         view.findViewById<View>(R.id.btnIn1h).setOnClickListener {
             val timeMillis = nowProvider() + 60 * 60_000L
             Log.d(TAG, "Preset +1h for noteId=$noteId blockId=$blockId")
             setSelectedDateTime(timeMillis, "preset_1h")
-            scheduleTimeReminder(timeMillis)
         }
 
         view.findViewById<View>(R.id.btnTomorrow9).setOnClickListener {
@@ -196,7 +198,6 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             }
             Log.d(TAG, "Preset tomorrow 9AM for noteId=$noteId blockId=$blockId")
             setSelectedDateTime(calendar.timeInMillis, "preset_tomorrow9")
-            scheduleTimeReminder(calendar.timeInMillis)
         }
 
         view.findViewById<View>(R.id.btnCustom).setOnClickListener {
@@ -213,6 +214,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
 
         view.findViewById<View>(R.id.btnPlan).setOnClickListener {
             attemptScheduleGeoReminderWithPermissions()
+        }
+
+        planTimeButton.setOnClickListener {
+            attemptScheduleTimeReminder()
         }
 
         preloadExistingData()
@@ -284,7 +289,6 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 }
                 Log.d(TAG, "Preset custom time=${selected.time} for noteId=$noteId blockId=$blockId")
                 setSelectedDateTime(selected.timeInMillis, "time_picker")
-                scheduleTimeReminder(selected.timeInMillis)
             },
             now.get(Calendar.HOUR_OF_DAY),
             now.get(Calendar.MINUTE),
@@ -324,7 +328,6 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                         )
                         val millis = picked.timeInMillis
                         setSelectedDateTime(millis, "date_time_picker")
-                        scheduleTimeReminder(millis)
                     },
                     seedTime.get(Calendar.HOUR_OF_DAY),
                     seedTime.get(Calendar.MINUTE),
@@ -384,6 +387,16 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 handleFailure(error)
             }
         }
+    }
+
+    private fun attemptScheduleTimeReminder() {
+        val timeMillis = selectedDateTimeMillis
+        if (timeMillis == null) {
+            Toast.makeText(requireContext(), getString(R.string.reminder_time_missing), Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+        scheduleTimeReminder(timeMillis)
     }
 
     private fun attemptScheduleGeoReminderWithPermissions() {
@@ -750,6 +763,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         val timeMillis = selectedDateTimeMillis
         if (timeMillis == null) {
             textWhenSummary.setText(R.string.reminder_when_summary_placeholder)
+            updatePlanTimeButtonState()
             return
         }
         val ctx = context ?: return
@@ -763,6 +777,12 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
         val repeatLabel = formatRepeatSummaryLabel(repeatEveryMinutes)
         textWhenSummary.text = getString(R.string.reminder_when_summary_time_repeat, whenText, repeatLabel)
+        updatePlanTimeButtonState()
+    }
+
+    private fun updatePlanTimeButtonState() {
+        if (!::planTimeButton.isInitialized) return
+        planTimeButton.isEnabled = selectedDateTimeMillis != null
     }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
@@ -772,6 +792,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
         selectedDateTimeMillis = timeMillis
         updateWhenSummary()
+        updatePlanTimeButtonState()
     }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
