@@ -35,43 +35,40 @@ import com.example.openeer.data.block.RoutePointPayload
 import com.example.openeer.databinding.FragmentMapBinding
 import com.example.openeer.databinding.SheetMapSelectedLocationBinding
 import com.example.openeer.domain.ReminderUseCases
-import com.example.openeer.ui.sheets.BottomSheetReminderPicker
-import com.example.openeer.ui.sheets.MapSnapshotSheet
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import org.maplibre.android.camera.CameraUpdateFactory
-import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.maps.MapView
-import org.maplibre.android.maps.OnMapReadyCallback
-import com.google.gson.Gson
-import org.maplibre.android.plugins.annotation.Line
-import org.maplibre.android.plugins.annotation.LineManager
-import org.maplibre.android.plugins.annotation.Symbol
-import org.maplibre.android.plugins.annotation.SymbolManager
-import org.maplibre.geojson.Feature
+import com.example.openeer.data.block.BlockType
 import com.example.openeer.ui.map.MapCamera
 import com.example.openeer.ui.map.MapClusters
 import com.example.openeer.ui.map.MapIcons
 import com.example.openeer.ui.map.MapManagers
 import com.example.openeer.ui.map.MapPin
 import com.example.openeer.ui.map.MapPolylines
-import com.example.openeer.ui.map.MapStyleIds
-import com.example.openeer.ui.map.RecentHere
-import com.example.openeer.data.block.BlockType
 import com.example.openeer.ui.map.MapRenderers
-import com.example.openeer.ui.map.MapText
+import com.example.openeer.ui.map.MapStyleIds
 import com.example.openeer.ui.map.MapUiDefaults
+import com.example.openeer.ui.map.RecentHere
+import com.example.openeer.ui.sheets.BottomSheetReminderPicker
+import com.example.openeer.ui.sheets.MapSnapshotSheet
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.textfield.MaterialAutoCompleteTextView
+import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.max
-import java.io.IOException
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.OnMapReadyCallback
+import org.maplibre.android.plugins.annotation.Line
+import org.maplibre.android.plugins.annotation.LineManager
+import org.maplibre.android.plugins.annotation.Symbol
+import org.maplibre.android.plugins.annotation.SymbolManager
+import org.maplibre.geojson.Feature
 import java.util.Locale
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.CancellationException
+import kotlin.math.max
 
 // ----------------------------------------------------------------------
 // Utilitaires de trace (réutilisés dans les autres fichiers du package)
@@ -147,10 +144,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var selectionPlace: Place? = null
     internal var selectionJob: Job? = null
 
+    private lateinit var searchInput: MaterialAutoCompleteTextView
     private var searchAdapter: ArrayAdapter<String>? = null
-    private val searchSuggestions = mutableListOf<Place>()
     private var searchJob: Job? = null
-    private var suppressSearchWatcher = false
+    private var searchResults: List<Address> = emptyList()
 
     private var backgroundPermissionDialog: AlertDialog? = null
 
@@ -377,7 +374,40 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         mapView?.onCreate(savedInstanceState)
         mapView?.getMapAsync(this)
 
-        setupSearchUi()
+        searchInput = view.findViewById(R.id.searchInput)
+        searchAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, mutableListOf())
+        searchInput.setAdapter(searchAdapter)
+
+        // écoute la saisie avec un petit délai (debounce)
+        searchInput.addTextChangedListener(afterTextChanged = { text ->
+            val q = text?.toString()?.trim().orEmpty()
+            searchJob?.cancel()
+            if (q.length < 3) {
+                searchAdapter?.clear()
+                searchResults = emptyList()
+                return@addTextChangedListener
+            }
+            searchJob = viewLifecycleOwner.lifecycleScope.launch {
+                delay(250) // attend un quart de seconde avant la recherche
+                fetchSuggestions(q)
+            }
+        })
+
+        // quand l’utilisateur clique sur une suggestion
+        searchInput.setOnItemClickListener { _, _, position, _ ->
+            val addr = searchResults.getOrNull(position) ?: return@setOnItemClickListener
+            val lat = addr.latitude
+            val lon = addr.longitude
+            val label = addr.getAddressLine(0) ?: addr.featureName ?: String.format(Locale.US, "%.5f, %.5f", lat, lon)
+            showSelectionFromSearch(
+                com.example.openeer.core.Place(
+                    lat = lat,
+                    lon = lon,
+                    label = label,
+                    placeId = null
+                )
+            )
+        }
 
         // Boutons UI
         b.btnZoomIn.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomIn()) }
@@ -413,134 +443,25 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         setupRouteUiBindings()
     }
 
-    private fun setupSearchUi() {
-        val binding = _b ?: return
-        val ctx = context ?: return
-        val adapter = ArrayAdapter<String>(ctx, android.R.layout.simple_dropdown_item_1line, mutableListOf())
-        binding.searchInput.setAdapter(adapter)
-        binding.searchInput.threshold = 1
-        searchAdapter = adapter
+    @Suppress("DEPRECATION")
+    private suspend fun fetchSuggestions(query: String) {
+        val ctx = requireContext().applicationContext
+        val geocoder = Geocoder(ctx, Locale.getDefault())
 
-        binding.searchInput.addTextChangedListener { editable ->
-            if (suppressSearchWatcher) {
-                suppressSearchWatcher = false
-                return@addTextChangedListener
-            }
-            val query = editable?.toString()?.trim().orEmpty()
-            onSearchQueryChanged(query)
+        val results = withContext(Dispatchers.IO) {
+            runCatching {
+                geocoder.getFromLocationName(query, 8)
+            }.getOrElse { emptyList() } ?: emptyList()
         }
 
-        binding.searchInput.setOnItemClickListener { _, _, position, _ ->
-            onSearchSuggestionSelected(position)
+        searchResults = results
+        val labels = results.map { it.getAddressLine(0) ?: it.featureName ?: "${it.latitude}, ${it.longitude}" }
+        searchAdapter?.apply {
+            clear()
+            addAll(labels)
+            notifyDataSetChanged()
         }
-    }
-
-    private fun onSearchQueryChanged(query: String) {
-        searchJob?.cancel()
-        if (query.length < 3) {
-            clearSearchSuggestions()
-            return
-        }
-        if (!Geocoder.isPresent()) {
-            clearSearchSuggestions()
-            showHint(getString(R.string.map_search_unavailable))
-            return
-        }
-        val ctx = context ?: return
-        val appCtx = ctx.applicationContext
-        searchJob = viewLifecycleOwner.lifecycleScope.launch {
-            delay(350)
-            val places = withContext(Dispatchers.IO) {
-                runCatching {
-                    val geocoder = Geocoder(appCtx, Locale.getDefault())
-                    @Suppress("DEPRECATION")
-                    val addresses = geocoder.getFromLocationName(query, 5)
-                    addresses?.filterNotNull()?.mapNotNull { address ->
-                        addressToPlace(address)
-                    }.orEmpty()
-                }.getOrElse { error ->
-                    when (error) {
-                        is CancellationException -> throw error
-                        is IOException,
-                        is IllegalArgumentException -> {
-                            Log.w(TAG, "Geocode search failed", error)
-                            null
-                        }
-                        else -> {
-                            Log.w(TAG, "Geocode search unexpected error", error)
-                            null
-                        }
-                    }
-                }
-            }
-            if (!isActive) return@launch
-            val binding = _b ?: return@launch
-            if (places == null) {
-                clearSearchSuggestions()
-                showHint(getString(R.string.map_search_error))
-                return@launch
-            }
-            if (places.isEmpty()) {
-                clearSearchSuggestions()
-                showHint(getString(R.string.map_search_no_results))
-                return@launch
-            }
-            updateSearchSuggestions(places)
-            if (!binding.searchInput.isPopupShowing) {
-                binding.searchInput.showDropDown()
-            }
-        }
-    }
-
-    private fun onSearchSuggestionSelected(position: Int) {
-        val place = searchSuggestions.getOrNull(position) ?: return
-        val binding = _b ?: return
-        suppressSearchWatcher = true
-        binding.searchInput.setText(MapText.displayLabelFor(place), false)
-        binding.searchInput.dismissDropDown()
-        searchJob?.cancel()
-
-        val latLng = LatLng(place.lat, place.lon)
-        val currentZoom = map?.cameraPosition?.zoom ?: 0.0
-        val targetZoom = if (currentZoom < 14.0) 15.5 else currentZoom
-        map?.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, targetZoom))
-
-        if (symbolManager == null) {
-            showHint(getString(R.string.map_search_error))
-            return
-        }
-        showSelectionFromSearch(place)
-    }
-
-    private fun updateSearchSuggestions(places: List<Place>) {
-        searchSuggestions.clear()
-        searchSuggestions.addAll(places)
-        val adapter = searchAdapter ?: return
-        adapter.clear()
-        adapter.addAll(places.map { MapText.displayLabelFor(it) })
-        adapter.notifyDataSetChanged()
-    }
-
-    private fun clearSearchSuggestions() {
-        searchSuggestions.clear()
-        searchAdapter?.let { adapter ->
-            adapter.clear()
-            adapter.notifyDataSetChanged()
-        }
-        _b?.searchInput?.dismissDropDown()
-    }
-
-    private fun addressToPlace(address: Address): Place? {
-        if (!address.hasLatitude() || !address.hasLongitude()) return null
-        val label = when {
-            !address.getAddressLine(0).isNullOrBlank() -> address.getAddressLine(0)
-            !address.featureName.isNullOrBlank() && !address.locality.isNullOrBlank() ->
-                "${address.featureName}, ${address.locality}"
-            !address.locality.isNullOrBlank() -> address.locality
-            !address.adminArea.isNullOrBlank() -> address.adminArea
-            else -> null
-        }
-        return Place(address.latitude, address.longitude, label, null)
+        if (labels.isNotEmpty()) searchInput.showDropDown()
     }
 
     override fun onStart() {
@@ -752,8 +673,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         searchJob?.cancel()
         searchJob = null
         searchAdapter = null
-        searchSuggestions.clear()
-        suppressSearchWatcher = false
+        searchResults = emptyList()
         _b?.clusterHint?.let { hintView ->
             hintDismissRunnable?.let { hintView.removeCallbacks(it) }
         }
