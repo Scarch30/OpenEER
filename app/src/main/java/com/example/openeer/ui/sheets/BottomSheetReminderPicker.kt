@@ -56,6 +56,9 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         private const val TAG = "ReminderPicker"
         private const val DEFAULT_RADIUS_METERS = 100
 
+        @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+        internal const val IMMEDIATE_REPEAT_OFFSET_MILLIS = 1_000L
+
         fun newInstance(noteId: Long, blockId: Long? = null): BottomSheetReminderPicker {
             val fragment = BottomSheetReminderPicker()
             fragment.arguments = Bundle().apply {
@@ -390,7 +393,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     }
 
     private fun attemptScheduleTimeReminder() {
-        val timeMillis = selectedDateTimeMillis
+        val timeMillis = resolveTimeReminderTrigger()
         if (timeMillis == null) {
             Toast.makeText(requireContext(), getString(R.string.reminder_time_missing), Toast.LENGTH_SHORT)
                 .show()
@@ -761,28 +764,36 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private fun updateWhenSummary() {
         if (!::textWhenSummary.isInitialized) return
         val timeMillis = selectedDateTimeMillis
-        if (timeMillis == null) {
-            textWhenSummary.setText(R.string.reminder_when_summary_placeholder)
-            updatePlanTimeButtonState()
-            return
+        val summaryText = when {
+            timeMillis == null && repeatEveryMinutes != null && repeatSelectionValid -> {
+                val repeatLabel = formatRepeatSummaryLabel(repeatEveryMinutes)
+                getString(R.string.reminder_when_summary_immediate_repeat, repeatLabel)
+            }
+            timeMillis == null -> {
+                getString(R.string.reminder_when_summary_placeholder)
+            }
+            else -> {
+                val ctx = context ?: return
+                val timeFmt = DateFormat.getTimeFormat(ctx)
+                val dateFmt = DateFormat.getDateFormat(ctx)
+                val sameDay = isSameDay(timeMillis)
+                val whenText = if (sameDay) {
+                    timeFmt.format(Date(timeMillis))
+                } else {
+                    "${dateFmt.format(Date(timeMillis))} ${timeFmt.format(Date(timeMillis))}"
+                }
+                val repeatLabel = formatRepeatSummaryLabel(repeatEveryMinutes)
+                getString(R.string.reminder_when_summary_time_repeat, whenText, repeatLabel)
+            }
         }
-        val ctx = context ?: return
-        val timeFmt = DateFormat.getTimeFormat(ctx)
-        val dateFmt = DateFormat.getDateFormat(ctx)
-        val sameDay = isSameDay(timeMillis)
-        val whenText = if (sameDay) {
-            timeFmt.format(Date(timeMillis))
-        } else {
-            "${dateFmt.format(Date(timeMillis))} ${timeFmt.format(Date(timeMillis))}"
-        }
-        val repeatLabel = formatRepeatSummaryLabel(repeatEveryMinutes)
-        textWhenSummary.text = getString(R.string.reminder_when_summary_time_repeat, whenText, repeatLabel)
+        textWhenSummary.text = summaryText
         updatePlanTimeButtonState()
     }
 
     private fun updatePlanTimeButtonState() {
         if (!::planTimeButton.isInitialized) return
-        planTimeButton.isEnabled = selectedDateTimeMillis != null
+        planTimeButton.isEnabled = selectedDateTimeMillis != null ||
+            (repeatEveryMinutes != null && repeatSelectionValid)
     }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
@@ -813,6 +824,16 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
         updateWhenSummary()
         return result.valid
+    }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun resolveTimeReminderTrigger(): Long? {
+        selectedDateTimeMillis?.let { return it }
+        if (repeatEveryMinutes != null && repeatSelectionValid) {
+            val baseNow = nowProvider()
+            return baseNow + IMMEDIATE_REPEAT_OFFSET_MILLIS
+        }
+        return null
     }
 
     private fun computeRepeatEveryMinutes(): RepeatComputationResult {
