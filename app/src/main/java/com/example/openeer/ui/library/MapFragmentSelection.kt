@@ -90,6 +90,29 @@ internal fun MapFragment.handleMapLongClick(latLng: LatLng): Boolean {
     return true
 }
 
+internal fun MapFragment.showSelectionFromSearch(place: Place) {
+    val manager = symbolManager ?: return
+    selectionJob?.cancel()
+    selectionJob = null
+
+    val latLng = LatLng(place.lat, place.lon)
+    selectionLatLng = latLng
+    selectionPlace = place
+
+    selectionSymbol?.let { existing ->
+        runCatching { manager.delete(existing) }
+    }
+    selectionSymbol = manager.create(
+        SymbolOptions()
+            .withLatLng(latLng)
+            .withIconImage(MapStyleIds.ICON_SELECTION)
+    )
+
+    val label = MapText.displayLabelFor(place)
+    showSelectionSheet(label, latLng, showLoading = false)
+    updateSelectionSheet(place, showLoading = false)
+}
+
 internal fun MapFragment.showSelectionSheet(initialLabel: String, latLng: LatLng, showLoading: Boolean) {
     val ctx = context ?: return
     val inflater = LayoutInflater.from(ctx)
