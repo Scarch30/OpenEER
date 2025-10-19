@@ -445,23 +445,7 @@ class MainActivity : AppCompatActivity() {
                                 .show(supportFragmentManager, "reminder_picker")
                         } else {
                             lifecycleScope.launch {
-                                val newNoteId = withContext(Dispatchers.IO) {
-                                    val db = AppDatabase.getInstance(this@MainActivity)
-                                    val repo = NoteRepository(
-                                        this@MainActivity.applicationContext,
-                                        db.noteDao(),
-                                        db.attachmentDao(),
-                                        db.blockReadDao(),
-                                        BlocksRepository(
-                                            blockDao = db.blockDao(),
-                                            noteDao = db.noteDao(),
-                                            linkDao = db.blockLinkDao()
-                                        ),
-                                        database = db
-                                    )
-                                    repo.createTextNote("")
-                                }
-                                notePanel.open(newNoteId)
+                                val newNoteId = ensureOpenNote()
                                 BottomSheetReminderPicker.newInstance(newNoteId)
                                     .show(supportFragmentManager, "reminder_picker")
                             }
