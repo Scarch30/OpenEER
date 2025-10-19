@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
@@ -104,11 +105,31 @@ internal fun MapFragment.handleMapLongClick(latLng: LatLng): Boolean {
 }
 
 internal fun MapFragment.showSelectionFromSearch(place: Place) {
+    val latLng = LatLng(place.lat, place.lon)
+
+    map?.let { mapInstance ->
+        val currentZoom = mapInstance.cameraPosition?.zoom ?: 0.0
+        val cameraUpdate = if (currentZoom < 13.5) {
+            CameraUpdateFactory.newLatLngZoom(latLng, 15.0)
+        } else {
+            CameraUpdateFactory.newLatLng(latLng)
+        }
+        mapInstance.animateCamera(cameraUpdate)
+    }
+
+    if (!isPickMode) {
+        if (selectionDialog != null) {
+            dismissSelectionSheet()
+        } else {
+            handleSelectionDismissed()
+        }
+        return
+    }
+
     val manager = symbolManager ?: return
     selectionJob?.cancel()
     selectionJob = null
 
-    val latLng = LatLng(place.lat, place.lon)
     selectionLatLng = latLng
     selectionPlace = place
 
