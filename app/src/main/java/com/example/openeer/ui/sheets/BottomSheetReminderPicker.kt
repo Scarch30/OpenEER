@@ -2,6 +2,7 @@ package com.example.openeer.ui.sheets
 
 import android.app.Activity
 import android.app.AlarmManager
+import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import android.os.Build
@@ -11,9 +12,14 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.widget.AppCompatSpinner
+import androidx.core.widget.doOnTextChanged
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
@@ -29,6 +35,7 @@ import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import java.util.Calendar
 import java.util.Date
@@ -81,10 +88,18 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private lateinit var radiusInput: TextInputLayout
     private lateinit var locationPreview: TextView
     private lateinit var everySwitch: MaterialSwitch
+    private lateinit var textWhenSummary: TextView
+    private lateinit var radioRepeat: RadioGroup
+    private lateinit var spinnerRepeatPreset: AppCompatSpinner
+    private lateinit var inputRepeatCustom: TextInputLayout
+    private lateinit var editRepeatCustom: TextInputEditText
 
     private var selectedLat: Double? = null
     private var selectedLon: Double? = null
     private var selectedLabel: String? = null
+    private var selectedDateTimeMillis: Long? = null
+    private var repeatEveryMinutes: Int? = null
+    private var repeatSelectionValid: Boolean = true
 
     private var backgroundPermissionDialog: AlertDialog? = null
     private var pendingGeoAction: (() -> Unit)? = null
@@ -120,6 +135,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         radiusInput = view.findViewById(R.id.inputRadius)
         locationPreview = view.findViewById(R.id.textLocationPreview)
         everySwitch = view.findViewById(R.id.switchEvery)
+        textWhenSummary = view.findViewById(R.id.textWhenSummary)
+        radioRepeat = view.findViewById(R.id.radioRepeat)
+        spinnerRepeatPreset = view.findViewById(R.id.spinnerRepeatPreset)
+        inputRepeatCustom = view.findViewById(R.id.inputRepeatCustom)
+        editRepeatCustom = view.findViewById(R.id.editRepeatCustom)
 
         radiusInput.editText?.setText(DEFAULT_RADIUS_METERS.toString())
 
@@ -129,15 +149,20 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
         toggleGroup.check(R.id.btnModeTime)
 
+        setupRepeatControls()
+        updateWhenSummary()
+
         view.findViewById<View>(R.id.btnIn10).setOnClickListener {
             val timeMillis = System.currentTimeMillis() + 10 * 60_000L
             Log.d(TAG, "Preset +10 min for noteId=$noteId blockId=$blockId")
+            setSelectedDateTime(timeMillis, "preset_10m")
             scheduleTimeReminder(timeMillis)
         }
 
         view.findViewById<View>(R.id.btnIn1h).setOnClickListener {
             val timeMillis = System.currentTimeMillis() + 60 * 60_000L
             Log.d(TAG, "Preset +1h for noteId=$noteId blockId=$blockId")
+            setSelectedDateTime(timeMillis, "preset_1h")
             scheduleTimeReminder(timeMillis)
         }
 
@@ -150,11 +175,16 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 set(Calendar.MILLISECOND, 0)
             }
             Log.d(TAG, "Preset tomorrow 9AM for noteId=$noteId blockId=$blockId")
+            setSelectedDateTime(calendar.timeInMillis, "preset_tomorrow9")
             scheduleTimeReminder(calendar.timeInMillis)
         }
 
         view.findViewById<View>(R.id.btnCustom).setOnClickListener {
             showTimePicker()
+        }
+
+        view.findViewById<View>(R.id.btnOtherDateTime).setOnClickListener {
+            showDateThenTimePicker()
         }
 
         view.findViewById<View>(R.id.btnPickLocation).setOnClickListener {
@@ -233,6 +263,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                     selected.add(Calendar.DAY_OF_YEAR, 1)
                 }
                 Log.d(TAG, "Preset custom time=${selected.time} for noteId=$noteId blockId=$blockId")
+                setSelectedDateTime(selected.timeInMillis, "time_picker")
                 scheduleTimeReminder(selected.timeInMillis)
             },
             now.get(Calendar.HOUR_OF_DAY),
@@ -241,7 +272,59 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         ).show()
     }
 
+    private fun showDateThenTimePicker() {
+        if (!isAdded) return
+        val ctx = requireContext()
+        val baseCalendar = selectedDateTimeMillis?.let {
+            Calendar.getInstance().apply { timeInMillis = it }
+        } ?: Calendar.getInstance()
+        DatePickerDialog(
+            ctx,
+            { _, year, month, dayOfMonth ->
+                if (!isAdded) return@DatePickerDialog
+                val seedTime = selectedDateTimeMillis?.let {
+                    Calendar.getInstance().apply { timeInMillis = it }
+                } ?: Calendar.getInstance()
+                val is24h = DateFormat.is24HourFormat(ctx)
+                TimePickerDialog(
+                    ctx,
+                    { _, hourOfDay, minute ->
+                        val picked = Calendar.getInstance().apply {
+                            set(Calendar.YEAR, year)
+                            set(Calendar.MONTH, month)
+                            set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                            set(Calendar.HOUR_OF_DAY, hourOfDay)
+                            set(Calendar.MINUTE, minute)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+                        Log.d(
+                            TAG,
+                            "Preset other date/time=${picked.time} for noteId=$noteId blockId=$blockId"
+                        )
+                        val millis = picked.timeInMillis
+                        setSelectedDateTime(millis, "date_time_picker")
+                        scheduleTimeReminder(millis)
+                    },
+                    seedTime.get(Calendar.HOUR_OF_DAY),
+                    seedTime.get(Calendar.MINUTE),
+                    is24h
+                ).show()
+            },
+            baseCalendar.get(Calendar.YEAR),
+            baseCalendar.get(Calendar.MONTH),
+            baseCalendar.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
     private fun scheduleTimeReminder(timeMillis: Long) {
+        if (!updateRepeatEveryMinutes("schedule")) {
+            if (radioRepeat.checkedRadioButtonId == R.id.radioRepeatCustom) {
+                editRepeatCustom.requestFocus()
+            }
+            Log.w(TAG, "Aborting scheduleTimeReminder: repeat selection invalid")
+            return
+        }
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
             val db = AppDatabase.getInstance(appContext)
@@ -259,7 +342,9 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             } else {
                 "${dateFmt.format(Date(timeMillis))} ${timeFmt.format(Date(timeMillis))}"
             }
-            val body = buildReminderBody(label, whenText)
+            val repeatText = formatRepeatDescription(repeatEveryMinutes)
+            val whenWithRepeat = repeatText?.let { "$whenText • $it" } ?: whenText
+            val body = buildReminderBody(label, whenText, repeatText)
             var createdBlockId: Long? = null
             runCatching {
                 val blockId = withContext(Dispatchers.IO) { blocksRepo.appendText(noteId, body) }
@@ -272,7 +357,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 }
                 ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             }.onSuccess {
-                notifySuccess(whenText)
+                notifySuccess(whenWithRepeat, repeatEveryMinutes != null)
                 dismiss()
             }.onFailure { error ->
                 cleanupCreatedBlock(createdBlockId)
@@ -372,8 +457,9 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             val label = currentLabel()
             val radius = currentRadius()
             val locationDescription = buildLocationDescription(lat, lon, radius)
-            val body = buildReminderBody(label, locationDescription)
             val every = everySwitch.isChecked
+            val repeatPart = if (every) getString(R.string.reminder_geo_every) else null
+            val body = buildReminderBody(label, locationDescription, repeatPart)
             var createdBlockId: Long? = null
             runCatching {
                 val blockId = withContext(Dispatchers.IO) { blocksRepo.appendText(noteId, body) }
@@ -393,7 +479,12 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 }
                 ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             }.onSuccess {
-                notifySuccess(locationDescription)
+                val successSummary = if (every) {
+                    "$locationDescription • ${getString(R.string.reminder_geo_every)}"
+                } else {
+                    locationDescription
+                }
+                notifySuccess(successSummary, every)
                 dismiss()
             }.onFailure { error ->
                 cleanupCreatedBlock(createdBlockId)
@@ -505,7 +596,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
     }
 
-    private fun buildReminderBody(label: String?, whenPart: String): String {
+    private fun buildReminderBody(label: String?, whenPart: String, repeatPart: String? = null): String {
         return buildString {
             append("⏰ ")
             if (!label.isNullOrBlank()) {
@@ -513,6 +604,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 append(" — ")
             }
             append(whenPart)
+            if (!repeatPart.isNullOrBlank()) {
+                append(" • ")
+                append(repeatPart)
+            }
         }
     }
 
@@ -523,9 +618,14 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             now.get(Calendar.DAY_OF_YEAR) == tgt.get(Calendar.DAY_OF_YEAR)
     }
 
-    private fun notifySuccess(summary: String) {
+    private fun notifySuccess(summary: String, recurring: Boolean) {
         val ctx = context ?: return
-        val formatted = getString(R.string.reminder_created, summary)
+        val messageRes = if (recurring) {
+            R.string.reminder_created_recurring
+        } else {
+            R.string.reminder_created_once
+        }
+        val formatted = getString(messageRes, summary)
         view?.let {
             Snackbar.make(it, formatted, Snackbar.LENGTH_SHORT).show()
         } ?: run {
@@ -556,4 +656,166 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             Toast.makeText(ctx, getString(R.string.reminder_error_schedule), Toast.LENGTH_SHORT).show()
         }
     }
+
+    private fun setupRepeatControls() {
+        val ctx = requireContext()
+        val presetLabels = RepeatPreset.values().map { getString(it.labelRes) }
+        spinnerRepeatPreset.adapter = ArrayAdapter(
+            ctx,
+            android.R.layout.simple_spinner_item,
+            presetLabels
+        ).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        spinnerRepeatPreset.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (radioRepeat.checkedRadioButtonId == R.id.radioRepeatPreset) {
+                    updateRepeatEveryMinutes("preset_changed")
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        radioRepeat.setOnCheckedChangeListener { _, checkedId ->
+            updateRepeatControlsVisibility(checkedId)
+            updateRepeatEveryMinutes("radio_changed")
+        }
+
+        editRepeatCustom.doOnTextChanged { _, _, _, _ ->
+            if (radioRepeat.checkedRadioButtonId == R.id.radioRepeatCustom) {
+                updateRepeatEveryMinutes("custom_edited")
+            }
+        }
+
+        radioRepeat.check(R.id.radioRepeatNever)
+        updateRepeatControlsVisibility(R.id.radioRepeatNever)
+        updateRepeatEveryMinutes("init")
+    }
+
+    private fun updateRepeatControlsVisibility(checkedId: Int) {
+        spinnerRepeatPreset.isVisible = checkedId == R.id.radioRepeatPreset
+        val isCustom = checkedId == R.id.radioRepeatCustom
+        inputRepeatCustom.isVisible = isCustom
+        if (!isCustom) {
+            inputRepeatCustom.error = null
+        }
+    }
+
+    private fun updateWhenSummary() {
+        if (!::textWhenSummary.isInitialized) return
+        val timeMillis = selectedDateTimeMillis
+        if (timeMillis == null) {
+            textWhenSummary.setText(R.string.reminder_when_summary_placeholder)
+            return
+        }
+        val ctx = context ?: return
+        val timeFmt = DateFormat.getTimeFormat(ctx)
+        val dateFmt = DateFormat.getDateFormat(ctx)
+        val sameDay = isSameDay(timeMillis)
+        val whenText = if (sameDay) {
+            timeFmt.format(Date(timeMillis))
+        } else {
+            "${dateFmt.format(Date(timeMillis))} ${timeFmt.format(Date(timeMillis))}"
+        }
+        val repeatLabel = formatRepeatSummaryLabel(repeatEveryMinutes)
+        textWhenSummary.text = getString(R.string.reminder_when_summary_time_repeat, whenText, repeatLabel)
+    }
+
+    private fun setSelectedDateTime(timeMillis: Long, reason: String) {
+        if (selectedDateTimeMillis != timeMillis) {
+            Log.d(TAG, "Selected date/time updated ($reason) -> $timeMillis")
+        }
+        selectedDateTimeMillis = timeMillis
+        updateWhenSummary()
+    }
+
+    private fun updateRepeatEveryMinutes(reason: String): Boolean {
+        val result = computeRepeatEveryMinutes()
+        val previousMinutes = repeatEveryMinutes
+        val previousValid = repeatSelectionValid
+        repeatEveryMinutes = result.minutes
+        repeatSelectionValid = result.valid
+        when {
+            !result.valid -> if (previousValid || previousMinutes != result.minutes) {
+                Log.d(TAG, "Repeat interval invalid ($reason)")
+            }
+            previousMinutes != result.minutes || !previousValid -> {
+                val display = result.minutes?.let { "$it min" } ?: "none"
+                Log.d(TAG, "Repeat interval ($reason) → $display")
+            }
+        }
+        updateWhenSummary()
+        return result.valid
+    }
+
+    private fun computeRepeatEveryMinutes(): RepeatComputationResult {
+        return when (radioRepeat.checkedRadioButtonId) {
+            R.id.radioRepeatNever -> {
+                inputRepeatCustom.error = null
+                RepeatComputationResult(minutes = null, valid = true)
+            }
+            R.id.radioRepeatPreset -> {
+                inputRepeatCustom.error = null
+                val preset = RepeatPreset.values().getOrNull(spinnerRepeatPreset.selectedItemPosition)
+                RepeatComputationResult(minutes = preset?.minutes, valid = true)
+            }
+            R.id.radioRepeatCustom -> computeCustomRepeatMinutes()
+            else -> RepeatComputationResult(minutes = null, valid = true)
+        }
+    }
+
+    private fun computeCustomRepeatMinutes(): RepeatComputationResult {
+        val raw = editRepeatCustom.text?.toString()?.trim()
+        if (raw.isNullOrEmpty()) {
+            inputRepeatCustom.error = getString(R.string.reminder_repeat_custom_error)
+            return RepeatComputationResult(minutes = null, valid = false)
+        }
+        val days = raw.toIntOrNull()
+        if (days == null || days <= 0) {
+            inputRepeatCustom.error = getString(R.string.reminder_repeat_custom_error)
+            return RepeatComputationResult(minutes = null, valid = false)
+        }
+        inputRepeatCustom.error = null
+        val minutes = days * 24 * 60
+        return RepeatComputationResult(minutes = minutes, valid = true)
+    }
+
+    private fun formatRepeatSummaryLabel(minutes: Int?): String {
+        return when (minutes) {
+            null -> getString(R.string.reminder_repeat_summary_once)
+            RepeatPreset.TEN_MINUTES.minutes -> getString(R.string.reminder_repeat_every_10_minutes)
+            RepeatPreset.THREE_HOURS.minutes -> getString(R.string.reminder_repeat_every_3_hours)
+            RepeatPreset.DAILY.minutes -> getString(R.string.reminder_repeat_every_day)
+            else -> formatGenericRepeatLabel(minutes)
+        }
+    }
+
+    private fun formatRepeatDescription(minutes: Int?): String? {
+        return when (minutes) {
+            null -> null
+            RepeatPreset.TEN_MINUTES.minutes -> getString(R.string.reminder_repeat_every_10_minutes)
+            RepeatPreset.THREE_HOURS.minutes -> getString(R.string.reminder_repeat_every_3_hours)
+            RepeatPreset.DAILY.minutes -> getString(R.string.reminder_repeat_every_day)
+            else -> formatGenericRepeatLabel(minutes)
+        }
+    }
+
+    private fun formatGenericRepeatLabel(minutes: Int): String {
+        val minutesPerDay = 24 * 60
+        return if (minutes % minutesPerDay == 0) {
+            val days = minutes / minutesPerDay
+            getString(R.string.reminder_repeat_every_days, days)
+        } else {
+            getString(R.string.reminder_repeat_every_minutes_generic, minutes)
+        }
+    }
+
+    private enum class RepeatPreset(val minutes: Int, val labelRes: Int) {
+        TEN_MINUTES(10, R.string.reminder_repeat_every_10_minutes),
+        THREE_HOURS(3 * 60, R.string.reminder_repeat_every_3_hours),
+        DAILY(24 * 60, R.string.reminder_repeat_every_day)
+    }
+
+    private data class RepeatComputationResult(val minutes: Int?, val valid: Boolean)
 }
