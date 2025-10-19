@@ -350,7 +350,6 @@ abstract class AppDatabase : RoomDatabase() {
                         radius INTEGER,
                         status TEXT NOT NULL,
                         cooldownMinutes INTEGER,
-                        repeatEveryMinutes INTEGER,
                         FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE,
                         FOREIGN KEY(blockId) REFERENCES blocks(id) ON DELETE SET NULL
                     )
