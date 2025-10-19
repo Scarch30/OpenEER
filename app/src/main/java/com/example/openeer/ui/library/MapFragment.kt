@@ -3,6 +3,8 @@ package com.example.openeer.ui.library
 import android.app.AlarmManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Address
+import android.location.Geocoder
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -12,12 +14,14 @@ import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.core.widget.addTextChangedListener
 import com.example.openeer.R
 import com.example.openeer.core.LocationPerms
 import com.example.openeer.core.Place
@@ -36,6 +40,7 @@ import com.example.openeer.ui.sheets.MapSnapshotSheet
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -57,11 +62,16 @@ import com.example.openeer.ui.map.MapStyleIds
 import com.example.openeer.ui.map.RecentHere
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.ui.map.MapRenderers
+import com.example.openeer.ui.map.MapText
 import com.example.openeer.ui.map.MapUiDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
+import java.io.IOException
+import java.util.Locale
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.CancellationException
 
 // ----------------------------------------------------------------------
 // Utilitaires de trace (réutilisés dans les autres fichiers du package)
@@ -131,6 +141,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var selectionLatLng: LatLng? = null
     internal var selectionPlace: Place? = null
     internal var selectionJob: Job? = null
+
+    private var searchAdapter: ArrayAdapter<String>? = null
+    private val searchSuggestions = mutableListOf<Place>()
+    private var searchJob: Job? = null
+    private var suppressSearchWatcher = false
 
     private var backgroundPermissionDialog: AlertDialog? = null
 
@@ -357,6 +372,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         mapView?.onCreate(savedInstanceState)
         mapView?.getMapAsync(this)
 
+        setupSearchUi()
+
         // Boutons UI
         b.btnZoomIn.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomIn()) }
         b.btnZoomOut.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomOut()) }
@@ -389,6 +406,136 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
         // 🔗 Branche la logique Route (service + receivers + libellé bouton)
         setupRouteUiBindings()
+    }
+
+    private fun setupSearchUi() {
+        val binding = _b ?: return
+        val ctx = context ?: return
+        val adapter = ArrayAdapter<String>(ctx, android.R.layout.simple_dropdown_item_1line, mutableListOf())
+        binding.searchInput.setAdapter(adapter)
+        binding.searchInput.threshold = 1
+        searchAdapter = adapter
+
+        binding.searchInput.addTextChangedListener { editable ->
+            if (suppressSearchWatcher) {
+                suppressSearchWatcher = false
+                return@addTextChangedListener
+            }
+            val query = editable?.toString()?.trim().orEmpty()
+            onSearchQueryChanged(query)
+        }
+
+        binding.searchInput.setOnItemClickListener { _, _, position, _ ->
+            onSearchSuggestionSelected(position)
+        }
+    }
+
+    private fun onSearchQueryChanged(query: String) {
+        searchJob?.cancel()
+        if (query.length < 3) {
+            clearSearchSuggestions()
+            return
+        }
+        if (!Geocoder.isPresent()) {
+            clearSearchSuggestions()
+            showHint(getString(R.string.map_search_unavailable))
+            return
+        }
+        val ctx = context ?: return
+        val appCtx = ctx.applicationContext
+        searchJob = viewLifecycleOwner.lifecycleScope.launch {
+            delay(350)
+            val places = withContext(Dispatchers.IO) {
+                runCatching {
+                    val geocoder = Geocoder(appCtx, Locale.getDefault())
+                    @Suppress("DEPRECATION")
+                    val addresses = geocoder.getFromLocationName(query, 5)
+                    addresses?.filterNotNull()?.mapNotNull { address ->
+                        addressToPlace(address)
+                    }.orEmpty()
+                }.getOrElse { error ->
+                    when (error) {
+                        is CancellationException -> throw error
+                        is IOException,
+                        is IllegalArgumentException -> {
+                            Log.w(TAG, "Geocode search failed", error)
+                            null
+                        }
+                        else -> {
+                            Log.w(TAG, "Geocode search unexpected error", error)
+                            null
+                        }
+                    }
+                }
+            }
+            if (!isActive) return@launch
+            val binding = _b ?: return@launch
+            if (places == null) {
+                clearSearchSuggestions()
+                showHint(getString(R.string.map_search_error))
+                return@launch
+            }
+            if (places.isEmpty()) {
+                clearSearchSuggestions()
+                showHint(getString(R.string.map_search_no_results))
+                return@launch
+            }
+            updateSearchSuggestions(places)
+            if (!binding.searchInput.isPopupShowing) {
+                binding.searchInput.showDropDown()
+            }
+        }
+    }
+
+    private fun onSearchSuggestionSelected(position: Int) {
+        val place = searchSuggestions.getOrNull(position) ?: return
+        val binding = _b ?: return
+        suppressSearchWatcher = true
+        binding.searchInput.setText(MapText.displayLabelFor(place), false)
+        binding.searchInput.dismissDropDown()
+        searchJob?.cancel()
+
+        val latLng = LatLng(place.lat, place.lon)
+        val currentZoom = map?.cameraPosition?.zoom ?: 0.0
+        val targetZoom = if (currentZoom < 14.0) 15.5 else currentZoom
+        map?.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, targetZoom))
+
+        if (symbolManager == null) {
+            showHint(getString(R.string.map_search_error))
+            return
+        }
+        showSelectionFromSearch(place)
+    }
+
+    private fun updateSearchSuggestions(places: List<Place>) {
+        searchSuggestions.clear()
+        searchSuggestions.addAll(places)
+        val adapter = searchAdapter ?: return
+        adapter.clear()
+        adapter.addAll(places.map { MapText.displayLabelFor(it) })
+        adapter.notifyDataSetChanged()
+    }
+
+    private fun clearSearchSuggestions() {
+        searchSuggestions.clear()
+        searchAdapter?.let { adapter ->
+            adapter.clear()
+            adapter.notifyDataSetChanged()
+        }
+        _b?.searchInput?.dismissDropDown()
+    }
+
+    private fun addressToPlace(address: Address): Place? {
+        if (!address.hasLatitude() || !address.hasLongitude()) return null
+        val label = when {
+            !address.getAddressLine(0).isNullOrBlank() -> address.getAddressLine(0)
+            !address.featureName.isNullOrBlank() && !address.locality.isNullOrBlank() ->
+                "${address.featureName}, ${address.locality}"
+            !address.locality.isNullOrBlank() -> address.locality
+            !address.adminArea.isNullOrBlank() -> address.adminArea
+            else -> null
+        }
+        return Place(address.latitude, address.longitude, label, null)
     }
 
     override fun onStart() {
@@ -590,6 +737,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         isStyleReady = false
         pendingBlockFocus = targetBlockId
         locationPins.values.forEach { it.symbol = null }
+        searchJob?.cancel()
+        searchJob = null
+        searchAdapter = null
+        searchSuggestions.clear()
+        suppressSearchWatcher = false
         _b?.clusterHint?.let { hintView ->
             hintDismissRunnable?.let { hintView.removeCallbacks(it) }
         }
