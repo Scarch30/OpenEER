@@ -41,6 +41,7 @@
     <string name="reminder_created_once">Rappel ponctuel créé pour %1$s</string>
     <string name="reminder_created_recurring">Rappel récurrent créé pour %1$s</string>
     <string name="reminder_error_schedule">Impossible de créer le rappel</string>
+    <string name="reminder_time_missing">Choisissez d’abord une date et une heure</string>
     <string name="reminder_geo_every">À chaque fois</string>
     <string name="reminder_geo_pick">Choisir sur la carte</string>
     <string name="reminder_geo_radius">Rayon (m)</string>
