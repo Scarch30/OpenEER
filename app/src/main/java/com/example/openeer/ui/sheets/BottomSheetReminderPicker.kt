@@ -1,10 +1,12 @@
 package com.example.openeer.ui.sheets
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.text.format.DateFormat
@@ -22,11 +24,13 @@ import androidx.annotation.StringRes
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.AppCompatSpinner
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.core.widget.doOnTextChanged
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.core.LocationPerms
+import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.domain.ReminderUseCases
@@ -116,6 +120,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private lateinit var inputRepeatCustom: TextInputLayout
     private lateinit var editRepeatCustom: TextInputEditText
     private lateinit var spinnerRepeatCustomUnit: AppCompatSpinner
+    private lateinit var useCurrentLocationButton: MaterialButton
 
     private var selectedLat: Double? = null
     private var selectedLon: Double? = null
@@ -123,6 +128,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private var selectedDateTimeMillis: Long? = null
     private var repeatEveryMinutes: Int? = null
     private var repeatSelectionValid: Boolean = true
+    private var locationRequiresExitArming = false
 
     private var backgroundPermissionDialog: AlertDialog? = null
     private var pendingGeoAction: (() -> Unit)? = null
@@ -139,6 +145,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         selectedLat = lat
         selectedLon = lon
         selectedLabel = data.getStringExtra(MapFragment.RESULT_PICK_LOCATION_LABEL)
+        locationRequiresExitArming = false
         updateLocationPreview()
     }
 
@@ -166,6 +173,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         inputRepeatCustom = view.findViewById(R.id.inputRepeatCustom)
         editRepeatCustom = view.findViewById(R.id.editRepeatCustom)
         spinnerRepeatCustomUnit = view.findViewById(R.id.spinnerRepeatCustomUnit)
+        useCurrentLocationButton = view.findViewById(R.id.btnUseCurrentLocation)
 
         radiusInput.editText?.setText(DEFAULT_RADIUS_METERS.toString())
 
@@ -215,6 +223,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             launchMapPicker()
         }
 
+        useCurrentLocationButton.setOnClickListener {
+            handleUseCurrentLocation()
+        }
+
         view.findViewById<View>(R.id.btnPlan).setOnClickListener {
             attemptScheduleGeoReminderWithPermissions()
         }
@@ -238,6 +250,88 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         mapPickerLauncher.launch(intent)
     }
 
+    private fun handleUseCurrentLocation() {
+        if (!isAdded) return
+        val ctx = requireContext()
+        val fineGranted = LocationPerms.hasFine(ctx)
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            ctx,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!fineGranted && !coarseGranted) {
+            Log.d(TAG, "GeoFlow current location → requesting FINE permission")
+            LocationPerms.requestFine(this, object : LocationPerms.Callback {
+                override fun onResult(granted: Boolean) {
+                    Log.d(TAG, "GeoFlow current location permission result=$granted")
+                    if (granted) {
+                        fetchCurrentLocation()
+                    } else {
+                        if (isAdded) {
+                            Toast.makeText(
+                                requireContext(),
+                                getString(R.string.reminder_geo_location_unavailable),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            })
+            return
+        }
+
+        fetchCurrentLocation()
+    }
+
+    private fun fetchCurrentLocation() {
+        if (!isAdded) return
+        val ctx = requireContext()
+        val appContext = ctx.applicationContext
+        useCurrentLocationButton.isEnabled = false
+        locationPreview.text = getString(R.string.reminder_geo_locating)
+        locationPreview.isVisible = true
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val place = getOneShotPlace(appContext)
+                if (!isAdded) return@launch
+                if (place == null) {
+                    locationRequiresExitArming = false
+                    locationPreview.isVisible = false
+                    locationPreview.text = null
+                    Toast.makeText(
+                        ctx,
+                        getString(R.string.reminder_geo_location_unavailable),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                selectedLat = place.lat
+                selectedLon = place.lon
+                selectedLabel = place.label
+                locationRequiresExitArming = true
+                updateLocationPreview()
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to obtain current location", t)
+                if (isAdded) {
+                    locationRequiresExitArming = false
+                    locationPreview.isVisible = false
+                    locationPreview.text = null
+                    Toast.makeText(
+                        ctx,
+                        getString(R.string.reminder_geo_location_unavailable),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } finally {
+                if (isAdded) {
+                    useCurrentLocationButton.isEnabled = true
+                }
+            }
+        }
+    }
+
     private fun preloadExistingData() {
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
@@ -252,6 +346,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                     selectedLat = lat
                     selectedLon = lon
                     selectedLabel = note.placeLabel
+                    locationRequiresExitArming = false
                     updateLocationPreview()
                 }
             }
@@ -507,7 +602,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                         lon = lon,
                         radiusMeters = radius,
                         every = every,
-                        blockId = blockId
+                        blockId = blockId,
+                        disarmedUntilExit = locationRequiresExitArming
                     )
                 }
                 withContext(Dispatchers.IO) {

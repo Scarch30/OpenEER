@@ -15,6 +15,7 @@ import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.domain.ReminderUseCases
 import com.example.openeer.ui.sheets.ReminderListSheet
+import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofenceStatusCodes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +78,20 @@ class ReminderReceiver : BroadcastReceiver() {
                     return
                 }
 
+                val transition = ev.geofenceTransition
+                val transitions = mutableListOf<Int>().apply {
+                    if (transition and Geofence.GEOFENCE_TRANSITION_ENTER != 0) {
+                        add(Geofence.GEOFENCE_TRANSITION_ENTER)
+                    }
+                    if (transition and Geofence.GEOFENCE_TRANSITION_EXIT != 0) {
+                        add(Geofence.GEOFENCE_TRANSITION_EXIT)
+                    }
+                }
+                if (transitions.isEmpty()) {
+                    Log.w(TAG, "Geofence transition=$transition not handled; abort")
+                    return
+                }
+
                 val ids = ev.triggeringGeofences?.mapNotNull { it.requestId.toLongOrNull() }.orEmpty()
                 Log.d(TAG, "Resolved requestIds -> $ids")
                 if (ids.isEmpty()) return
@@ -94,12 +109,18 @@ class ReminderReceiver : BroadcastReceiver() {
                                 continue
                             }
                             logReminderDump("geofence#$rid", r)
-                            Log.d(
-                                TAG,
-                                "handleGeofence enter: id=${r.id} note=${r.noteId} type=${r.type} status=${r.status} cooldown=${r.cooldownMinutes}"
-                            )
-
-                            handleGeofenceInternal(app, r.id, r.noteId)
+                            transitions.forEach { trans ->
+                                val transitionLabel = when (trans) {
+                                    Geofence.GEOFENCE_TRANSITION_ENTER -> "ENTER"
+                                    Geofence.GEOFENCE_TRANSITION_EXIT -> "EXIT"
+                                    else -> trans.toString()
+                                }
+                                Log.d(
+                                    TAG,
+                                    "handleGeofence transition=$transitionLabel id=${r.id} note=${r.noteId} type=${r.type} status=${r.status} cooldown=${r.cooldownMinutes}"
+                                )
+                                handleGeofenceInternal(app, r.id, r.noteId, trans)
+                            }
                         }
                     } catch (t: Throwable) {
                         Log.e(TAG, "Receiver geofence handling failed", t)
@@ -278,7 +299,12 @@ class ReminderReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                handleGeofenceInternal(context.applicationContext, reminderId, noteId)
+                handleGeofenceInternal(
+                    context.applicationContext,
+                    reminderId,
+                    noteId,
+                    Geofence.GEOFENCE_TRANSITION_ENTER
+                )
             } catch (t: Throwable) {
                 Log.e(TAG, "Error handling geofence reminderId=$reminderId", t)
             } finally {
@@ -287,7 +313,12 @@ class ReminderReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun handleGeofenceInternal(context: Context, reminderId: Long, initialNoteId: Long?) {
+    private suspend fun handleGeofenceInternal(
+        context: Context,
+        reminderId: Long,
+        initialNoteId: Long?,
+        transition: Int
+    ) {
         val appContext = context.applicationContext
         val db = AppDatabase.getInstance(appContext)
         val reminderDao = db.reminderDao()
@@ -304,6 +335,27 @@ class ReminderReceiver : BroadcastReceiver() {
         )
 
         val noteId = initialNoteId ?: reminder.noteId
+
+        if (transition == Geofence.GEOFENCE_TRANSITION_EXIT) {
+            val now = System.currentTimeMillis()
+            reminderDao.update(reminder.copy(armedAt = now))
+            Log.d(
+                TAG,
+                "handleGeofence: EXIT armedAt updated to $now for reminderId=$reminderId"
+            )
+            ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
+            return
+        }
+
+        if (transition != Geofence.GEOFENCE_TRANSITION_ENTER) {
+            Log.w(TAG, "handleGeofence: unsupported transition=$transition for reminderId=$reminderId")
+            return
+        }
+
+        if (reminder.armedAt == null) {
+            Log.d(TAG, "handleGeofence: ENTER ignored because reminder not armed yet (id=$reminderId)")
+            return
+        }
 
         val now = System.currentTimeMillis()
         val cooldownMinutes = reminder.cooldownMinutes ?: 0
@@ -344,8 +396,8 @@ class ReminderReceiver : BroadcastReceiver() {
             overrideText
         )
 
-        Log.d(TAG, "handleGeofence: rescheduling reminderId=$reminderId -> lastFiredAt/nextTriggerAt=$now")
-        reminderDao.update(reminder.copy(lastFiredAt = now, nextTriggerAt = now))
+        Log.d(TAG, "handleGeofence: rescheduling reminderId=$reminderId -> lastFiredAt/nextTriggerAt=$now (disarming)")
+        reminderDao.update(reminder.copy(lastFiredAt = now, nextTriggerAt = now, armedAt = null))
 
         if (reminder.type == TYPE_LOC_ONCE) {
             Log.d(
@@ -361,7 +413,7 @@ class ReminderReceiver : BroadcastReceiver() {
     private fun logReminderDump(source: String, reminder: ReminderEntity) {
         Log.d(
             TAG,
-            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} block=${reminder.blockId}"
+            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} cooldown=${reminder.cooldownMinutes} armed=${reminder.armedAt} block=${reminder.blockId}"
         )
     }
 }

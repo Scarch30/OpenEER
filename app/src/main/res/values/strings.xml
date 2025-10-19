@@ -45,7 +45,10 @@
     <string name="reminder_time_missing">Choisissez d’abord une date et une heure</string>
     <string name="reminder_geo_every">À chaque fois</string>
     <string name="reminder_geo_pick">Choisir sur la carte</string>
+    <string name="reminder_geo_use_current">Utiliser ma position actuelle</string>
     <string name="reminder_geo_radius">Rayon (m)</string>
+    <string name="reminder_geo_locating">Recherche de votre position…</string>
+    <string name="reminder_geo_location_unavailable">Impossible de récupérer votre position actuelle.</string>
     <string name="reminder_plan">Planifier</string>
     <string name="reminder_geo_desc_fmt">📍 %1$s · ~%2$dm</string>
     <string name="note_menu_create_reminder">Créer un rappel</string>
