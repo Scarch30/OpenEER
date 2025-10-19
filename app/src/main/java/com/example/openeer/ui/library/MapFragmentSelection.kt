@@ -30,25 +30,38 @@ import kotlin.math.abs
 
 internal fun MapFragment.refreshPins() {
     val manager = symbolManager ?: return
-    manager.deleteAll()
     locationPins.forEach { (_, pin) ->
-        val symbol = manager.create(
-            SymbolOptions()
-                .withLatLng(LatLng(pin.lat, pin.lon))
-                .withIconImage(MapStyleIds.ICON_HERE)
-        )
-        pin.symbol = symbol
+        val latLng = LatLng(pin.lat, pin.lon)
+        val existing = pin.symbol
+        if (existing == null) {
+            val symbol = manager.create(
+                SymbolOptions()
+                    .withLatLng(latLng)
+                    .withIconImage(pin.iconId)
+            )
+            pin.symbol = symbol
+        } else {
+            existing.latLng = latLng
+            manager.update(existing)
+        }
     }
 }
 
 internal fun MapFragment.addCustomPin(blockId: Long, lat: Double, lon: Double) {
-    locationPins[blockId] = MapPin(lat, lon)
+    locationPins[blockId]?.symbol?.let { existing ->
+        runCatching { symbolManager?.delete(existing) }
+    }
+    locationPins[blockId] = MapPin(lat, lon, MapStyleIds.ICON_HERE)
     refreshPins()
 }
 
 internal fun MapFragment.removeCustomPin(blockId: Long) {
-    locationPins.remove(blockId)
-    refreshPins()
+    val pin = locationPins.remove(blockId)
+    if (pin != null) {
+        pin.symbol?.let { existing ->
+            runCatching { symbolManager?.delete(existing) }
+        }
+    }
 }
 
 internal fun MapFragment.handleMapLongClick(latLng: LatLng): Boolean {

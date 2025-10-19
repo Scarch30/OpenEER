@@ -31,6 +31,12 @@ object MapIcons {
 
         if (style.getImage(MapStyleIds.ICON_SELECTION) == null)
             style.addImage(MapStyleIds.ICON_SELECTION, MapRenderers.makeDot(context, 18, com.example.openeer.R.color.map_pin_selection))
+
+        if (style.getImage(MapStyleIds.ICON_USER_LOCATION) == null)
+            style.addImage(
+                MapStyleIds.ICON_USER_LOCATION,
+                MapRenderers.makeDot(context, 26, com.example.openeer.R.color.map_pin_user)
+            )
     }
 
     /**

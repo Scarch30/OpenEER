@@ -17,4 +17,5 @@ object MapStyleIds {
     const val ICON_MANY = "icon-many"
     const val ICON_HERE = "icon-here"
     const val ICON_SELECTION = "icon-selection"
+    const val ICON_USER_LOCATION = "icon-user-location"
 }

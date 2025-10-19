@@ -134,6 +134,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal val routeGson by lazy { Gson() }
 
     internal val locationPins = mutableMapOf<Long, MapPin>()
+    internal var userLocationSymbol: Symbol? = null
+    internal var userLocationLatLng: LatLng? = null
+    internal var userLocationListener: android.location.LocationListener? = null
+    internal var userLocationManager: android.location.LocationManager? = null
+    internal var lastUserLocation: android.location.Location? = null
 
     internal var selectionDialog: BottomSheetDialog? = null
     internal var selectionBinding: SheetMapSelectedLocationBinding? = null
@@ -578,7 +583,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
             symbolManager?.onDestroy()
             symbolManager = MapManagers.createSymbolManager(mv, mapInstance, style)
+            locationPins.values.forEach { it.symbol = null }
+            resetUserLocationSymbolForNewManager()
             refreshPins()
+            renderUserLocationSymbol()
 
             polylineManager?.onDestroy()
             polylineManager = MapManagers.createLineManager(mv, mapInstance, style)
@@ -619,6 +627,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             isStyleReady = true
             applyPendingBlockFocus() // focus bloc au démarrage
             applyStartMode(initialMode)
+            maybeStartUserLocationTracking()
         }
 
         // Tap carte
@@ -711,9 +720,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             }
         }
         mapView?.onResume()
+        maybeStartUserLocationTracking()
     }
     override fun onPause() {
         // ❌ on ne stoppe plus l’enregistrement ici : le service gère la vie en arrière-plan
+        stopUserLocationTracking(clearLocation = false)
         mapView?.onPause()
         super.onPause()
     }
@@ -737,6 +748,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         isStyleReady = false
         pendingBlockFocus = targetBlockId
         locationPins.values.forEach { it.symbol = null }
+        stopUserLocationTracking(clearLocation = true)
         searchJob?.cancel()
         searchJob = null
         searchAdapter = null
@@ -918,18 +930,24 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             if (awaitingHerePermission) {
                 val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
                 awaitingHerePermission = false
-                if (granted) onAddHereClicked() else {
+                if (granted) {
+                    maybeStartUserLocationTracking()
+                    onAddHereClicked()
+                } else {
                     val shouldShowRationale = permissions.any { shouldShowRequestPermissionRationale(it) }
                     if (shouldShowRationale) showHint(getString(R.string.map_location_permission_needed)) else showLocationDisabledHint()
+                    onLocationPermissionLost()
                 }
                 return
             }
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
+                maybeStartUserLocationTracking()
                 recenterToUserOrAll()
             }
             if (grantResults.all { it == PackageManager.PERMISSION_DENIED }) {
                 val shouldShowRationale = permissions.any { shouldShowRequestPermissionRationale(it) }
                 if (!shouldShowRationale) showLocationDisabledHint()
+                onLocationPermissionLost()
             }
         }
     }

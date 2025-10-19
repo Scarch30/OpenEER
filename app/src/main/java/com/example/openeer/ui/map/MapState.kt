@@ -10,6 +10,7 @@ import com.example.openeer.data.block.RoutePayload
 data class MapPin(
     val lat: Double,
     val lon: Double,
+    val iconId: String,
     var symbol: Symbol? = null
 )
 
