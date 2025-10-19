@@ -111,9 +111,9 @@ class BottomSheetReminderPickerTest {
             fragment.setSelectedDateTime(trigger, "initial")
 
             radioRepeat.check(R.id.radioRepeatPreset)
-            ShadowLooper.runUiThreadTasksIncludingDelayed()
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
             spinnerPreset.setSelection(0)
-            ShadowLooper.runUiThreadTasksIncludingDelayed()
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
             fragment.updateRepeatEveryMinutes("preset10")
             fragment.setSelectedDateTime(trigger, "preset10_apply")
             val every10 = ctx.getString(R.string.reminder_repeat_every_10_minutes)
@@ -123,7 +123,7 @@ class BottomSheetReminderPickerTest {
             )
 
             spinnerPreset.setSelection(1)
-            ShadowLooper.runUiThreadTasksIncludingDelayed()
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
             fragment.updateRepeatEveryMinutes("preset3h")
             fragment.setSelectedDateTime(trigger, "preset3h_apply")
             val every3h = ctx.getString(R.string.reminder_repeat_every_3_hours)
@@ -133,7 +133,7 @@ class BottomSheetReminderPickerTest {
             )
 
             spinnerPreset.setSelection(2)
-            ShadowLooper.runUiThreadTasksIncludingDelayed()
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
             fragment.updateRepeatEveryMinutes("presetDaily")
             fragment.setSelectedDateTime(trigger, "presetDaily_apply")
             val everyDay = ctx.getString(R.string.reminder_repeat_every_day)
@@ -143,9 +143,9 @@ class BottomSheetReminderPickerTest {
             )
 
             radioRepeat.check(R.id.radioRepeatCustom)
-            ShadowLooper.runUiThreadTasksIncludingDelayed()
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
             editCustom.setText("2")
-            ShadowLooper.runUiThreadTasksIncludingDelayed()
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
             fragment.updateRepeatEveryMinutes("customValid")
             fragment.setSelectedDateTime(trigger, "customValid_apply")
             val everyTwoDays = ctx.getString(R.string.reminder_repeat_every_days, 2)
@@ -155,7 +155,7 @@ class BottomSheetReminderPickerTest {
             )
 
             editCustom.setText("0")
-            ShadowLooper.runUiThreadTasksIncludingDelayed()
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
             fragment.updateRepeatEveryMinutes("customInvalid")
             val errorText = ctx.getString(R.string.reminder_repeat_custom_error)
             assertEquals(errorText, inputLayout.error)
@@ -166,10 +166,10 @@ class BottomSheetReminderPickerTest {
             )
 
             editCustom.setText("3")
-            ShadowLooper.runUiThreadTasksIncludingDelayed()
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
             fragment.updateRepeatEveryMinutes("customValidAgain")
             radioRepeat.check(R.id.radioRepeatNever)
-            ShadowLooper.runUiThreadTasksIncludingDelayed()
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
             fragment.updateRepeatEveryMinutes("never")
             fragment.setSelectedDateTime(trigger, "never_apply")
             assertNull(inputLayout.error)
