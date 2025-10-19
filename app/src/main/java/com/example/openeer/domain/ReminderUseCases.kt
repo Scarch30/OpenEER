@@ -76,22 +76,25 @@ class ReminderUseCases(
         radiusMeters: Int = DEFAULT_GEOFENCE_RADIUS_METERS,
         every: Boolean = false,
         blockId: Long? = null,
-        cooldownMinutes: Int? = DEFAULT_GEO_COOLDOWN_MINUTES
+        cooldownMinutes: Int? = DEFAULT_GEO_COOLDOWN_MINUTES,
+        disarmedUntilExit: Boolean = false
     ): Long = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
         Log.d(
             TAG,
-            "scheduleGeofence(): note=$noteId every=$every lat=$lat lon=$lon radius=$radiusMeters cooldown=$cooldownMinutes block=$blockId"
+            "scheduleGeofence(): note=$noteId every=$every lat=$lat lon=$lon radius=$radiusMeters cooldown=$cooldownMinutes block=$blockId disarmedUntilExit=$disarmedUntilExit"
         )
         val reminder = ReminderEntity(
             noteId = noteId,
             blockId = blockId,
             type = if (every) TYPE_LOC_EVERY else TYPE_LOC_ONCE,
-            nextTriggerAt = System.currentTimeMillis(),
+            nextTriggerAt = now,
             lat = lat,
             lon = lon,
             radius = radiusMeters,
             status = STATUS_ACTIVE,
-            cooldownMinutes = cooldownMinutes
+            cooldownMinutes = cooldownMinutes,
+            armedAt = if (disarmedUntilExit) null else now
         )
 
         val reminderId = reminderDao.insert(reminder)
@@ -323,18 +326,20 @@ class ReminderUseCases(
                 (reminder.radius ?: DEFAULT_GEOFENCE_RADIUS_METERS).toFloat()
             )
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
-            .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER)
+            .setTransitionTypes(
+                Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT
+            )
             .build()
 
         val request = GeofencingRequest.Builder()
-            .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+            .setInitialTrigger(0)
             .addGeofence(geofence)
             .build()
 
         val pi = buildGeofencePendingIntent(reminder.id, reminder.noteId)
         Log.d(
             TAG,
-            "addGeofence(): id=${reminder.id} note=${reminder.noteId} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} initialTrigger=ENTER"
+            "addGeofence(): id=${reminder.id} note=${reminder.noteId} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} transitions=ENTER|EXIT initialTrigger=0"
         )
         GeofenceDiag.logProviders(context)
         GeofenceDiag.logPerms(context)
