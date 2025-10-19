@@ -13,6 +13,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import java.util.Calendar
@@ -20,7 +21,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -176,6 +179,59 @@ class BottomSheetReminderPickerTest {
             assertEquals(
                 buildSummary(ctx, baseNow, trigger, repeatOnce),
                 summary.text.toString()
+            )
+        }
+    }
+
+    @Test
+    fun recurringReminderWithoutExplicitTimeShowsImmediateSummaryAndEnablesPlan() {
+        val baseNow = calendarBase().timeInMillis
+        withPicker(baseNow) { fragment ->
+            val root = fragment.requireView()
+            val summary = root.findViewById<TextView>(R.id.textWhenSummary)
+            val planButton = root.findViewById<MaterialButton>(R.id.btnPlanTime)
+            val radioRepeat = root.findViewById<RadioGroup>(R.id.radioRepeat)
+            val spinnerUnit = root.findViewById<AppCompatSpinner>(R.id.spinnerRepeatCustomUnit)
+            val editCustom = root.findViewById<TextInputEditText>(R.id.editRepeatCustom)
+
+            radioRepeat.check(R.id.radioRepeatCustom)
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+            spinnerUnit.setSelection(0)
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+            editCustom.setText("15")
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+            fragment.updateRepeatEveryMinutes("customImmediate")
+
+            val ctx = fragment.requireContext()
+            val repeatLabel = ctx.getString(R.string.reminder_repeat_every_minutes_generic, 15)
+            val expected = ctx.getString(R.string.reminder_when_summary_immediate_repeat, repeatLabel)
+            assertEquals(expected, summary.text.toString())
+            assertTrue(planButton.isEnabled)
+        }
+    }
+
+    @Test
+    fun resolveTimeReminderTriggerFallsBackToNowForRecurring() {
+        val baseNow = calendarBase().timeInMillis
+        withPicker(baseNow) { fragment ->
+            val root = fragment.requireView()
+            val radioRepeat = root.findViewById<RadioGroup>(R.id.radioRepeat)
+            val spinnerUnit = root.findViewById<AppCompatSpinner>(R.id.spinnerRepeatCustomUnit)
+            val editCustom = root.findViewById<TextInputEditText>(R.id.editRepeatCustom)
+
+            radioRepeat.check(R.id.radioRepeatCustom)
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+            spinnerUnit.setSelection(0)
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+            editCustom.setText("30")
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+            fragment.updateRepeatEveryMinutes("customFallback")
+
+            val resolved = fragment.resolveTimeReminderTrigger()
+            assertNotNull(resolved)
+            assertEquals(
+                baseNow + BottomSheetReminderPicker.IMMEDIATE_REPEAT_OFFSET_MILLIS,
+                resolved
             )
         }
     }

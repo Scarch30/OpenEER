@@ -38,6 +38,7 @@
     <string name="reminder_repeat_custom_unit_days">jours</string>
     <string name="reminder_when_summary_placeholder">Déclenchement : —</string>
     <string name="reminder_when_summary_time_repeat">Déclenchement : %1$s • %2$s</string>
+    <string name="reminder_when_summary_immediate_repeat">Déclenchement : Dès la planification • %1$s</string>
     <string name="reminder_created_once">Rappel ponctuel créé pour %1$s</string>
     <string name="reminder_created_recurring">Rappel récurrent créé pour %1$s</string>
     <string name="reminder_error_schedule">Impossible de créer le rappel</string>
