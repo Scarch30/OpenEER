@@ -19,6 +19,13 @@
     <string name="reminder_in_1h">Dans 1 heure</string>
     <string name="reminder_tomorrow_9">Demain à 09:00</string>
     <string name="reminder_custom_time">Heure personnalisée…</string>
+    <string name="reminder_other_datetime">Autre date / heure…</string>
+    <string name="reminder_repeat_title">Répéter</string>
+    <string name="reminder_repeat_never">Ne pas répéter</string>
+    <string name="reminder_repeat_presets">Selon un modèle</string>
+    <string name="reminder_repeat_custom">Intervalle personnalisé</string>
+    <string name="reminder_repeat_custom_hint">Nombre de jours</string>
+    <string name="reminder_when_summary_placeholder">Déclenchement : —</string>
     <string name="reminder_created">Rappel créé pour %1$s</string>
     <string name="reminder_error_schedule">Impossible de créer le rappel</string>
     <string name="reminder_geo_every">À chaque fois</string>
