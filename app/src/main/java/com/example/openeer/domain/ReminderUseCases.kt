@@ -385,7 +385,7 @@ class ReminderUseCases(
         Log.d(TAG, "removeGeofence(): DAO cancel id=$reminderId")
     }
 
-    private companion object {
+    companion object {
         private const val TAG = "ReminderUseCases"
         private const val TYPE_TIME_ONE_SHOT = "TIME_ONE_SHOT"
         private const val TYPE_TIME_REPEATING = "TIME_REPEATING"
