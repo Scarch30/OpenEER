@@ -292,6 +292,11 @@ private fun MapFragment.updateRouteUi() {
     val s = state()
     Log.d(RTAG, "updateRouteUi(): isRunning=${s.isRunning} count=${s.count}")
 
+    if (!shouldShowLocationActions) {
+        b.locationActions.isVisible = false
+        return
+    }
+
     if (isManualRouteModeSafe()) {
         runCatching {
             val manualUi = this::class.java.getDeclaredMethod("updateManualRouteUi")

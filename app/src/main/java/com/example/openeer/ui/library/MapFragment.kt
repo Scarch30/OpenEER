@@ -99,6 +99,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal val isPickMode: Boolean
         get() = startMode == MapActivity.MODE_PICK_LOCATION
 
+    private val showLibraryPins: Boolean
+        get() = arguments?.getBoolean(ARG_SHOW_LIBRARY_PINS, false) == true
+
+    internal val shouldShowLocationActions: Boolean
+        get() = !isPickMode && !showLibraryPins
+
     internal var awaitingHerePermission = false
     internal var lastHereLocation: RecentHere? = null
     internal var hintDismissRunnable: Runnable? = null
@@ -356,6 +362,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         b.btnZoomOut.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomOut()) }
         b.btnRecenter.setOnClickListener { recenterToUserOrAll() }
         recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
+        val showLocationActions = shouldShowLocationActions
+        b.locationActions.isVisible = showLocationActions
         b.btnAddHere.isEnabled = false
         b.btnAddHere.setOnClickListener { onAddHereClicked() }
         b.btnRecordRoute.isEnabled = false
@@ -433,8 +441,14 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 manualRouteLine = MapPolylines.updateManualRoutePolyline(polylineManager, manualRouteLine, manualPoints)
             }
 
-            b.btnAddHere.isEnabled = true
-            b.btnRecordRoute.isEnabled = true
+            b.locationActions.isVisible = shouldShowLocationActions
+            if (shouldShowLocationActions) {
+                b.btnAddHere.isEnabled = true
+                b.btnRecordRoute.isEnabled = true
+            } else {
+                b.btnAddHere.isEnabled = false
+                b.btnRecordRoute.isEnabled = false
+            }
 
             if (initialMode == MapActivity.MODE_BROWSE) {
                 // Centrage direct (pas d'animation) pour qu'un snapshot immédiat capture *exactement* ce qui est visible
@@ -847,6 +861,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     }
 
     private fun startManualRouteDrawing() {
+        if (!shouldShowLocationActions) return
         if (isManualRouteMode) return
         Log.d(MANUAL_ROUTE_LOG_TAG, "startManualRouteDrawing(anchor=${manualAnchorLabel ?: ""})")
         isManualRouteMode = true
@@ -870,6 +885,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     private fun updateManualRouteUi() {
         val binding = _b ?: return
+        if (!shouldShowLocationActions) {
+            binding.locationActions.isVisible = false
+            binding.manualRouteHint.isVisible = false
+            return
+        }
         val inManualMode = isManualRouteMode
         val pointCount = manualPoints.size
         val saving = isSavingRoute
