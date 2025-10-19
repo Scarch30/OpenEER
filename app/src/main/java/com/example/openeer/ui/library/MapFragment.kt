@@ -404,7 +404,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                     lat = lat,
                     lon = lon,
                     label = label,
-                    placeId = null
+                    accuracyM = null
                 )
             )
         }
