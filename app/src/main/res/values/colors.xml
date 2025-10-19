@@ -11,4 +11,5 @@
     <color name="sketch_toolbar_icon">#FF1F2933</color>
     <color name="pile_counter_bg">#1A000000</color>
     <color name="map_pin_selection">#FF9C27B0</color>
+    <color name="map_pin_user">#FF1E88E5</color>
 </resources>
