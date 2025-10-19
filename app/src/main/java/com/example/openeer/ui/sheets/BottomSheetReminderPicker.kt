@@ -18,6 +18,7 @@ import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.AppCompatSpinner
@@ -106,8 +107,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private lateinit var textWhenSummary: TextView
     private lateinit var radioRepeat: RadioGroup
     private lateinit var spinnerRepeatPreset: AppCompatSpinner
+    private lateinit var layoutRepeatCustom: View
     private lateinit var inputRepeatCustom: TextInputLayout
     private lateinit var editRepeatCustom: TextInputEditText
+    private lateinit var spinnerRepeatCustomUnit: AppCompatSpinner
 
     private var selectedLat: Double? = null
     private var selectedLon: Double? = null
@@ -153,8 +156,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         textWhenSummary = view.findViewById(R.id.textWhenSummary)
         radioRepeat = view.findViewById(R.id.radioRepeat)
         spinnerRepeatPreset = view.findViewById(R.id.spinnerRepeatPreset)
+        layoutRepeatCustom = view.findViewById(R.id.layoutRepeatCustom)
         inputRepeatCustom = view.findViewById(R.id.inputRepeatCustom)
         editRepeatCustom = view.findViewById(R.id.editRepeatCustom)
+        spinnerRepeatCustomUnit = view.findViewById(R.id.spinnerRepeatCustomUnit)
 
         radiusInput.editText?.setText(DEFAULT_RADIUS_METERS.toString())
 
@@ -696,6 +701,25 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
+        val customUnitLabels = CustomRepeatUnit.values().map { getString(it.labelRes) }
+        spinnerRepeatCustomUnit.adapter = ArrayAdapter(
+            ctx,
+            android.R.layout.simple_spinner_item,
+            customUnitLabels
+        ).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        spinnerRepeatCustomUnit.setSelection(CustomRepeatUnit.DEFAULT.ordinal)
+        spinnerRepeatCustomUnit.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (radioRepeat.checkedRadioButtonId == R.id.radioRepeatCustom) {
+                    updateRepeatEveryMinutes("custom_unit_changed")
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
         radioRepeat.setOnCheckedChangeListener { _, checkedId ->
             updateRepeatControlsVisibility(checkedId)
             updateRepeatEveryMinutes("radio_changed")
@@ -715,7 +739,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private fun updateRepeatControlsVisibility(checkedId: Int) {
         spinnerRepeatPreset.isVisible = checkedId == R.id.radioRepeatPreset
         val isCustom = checkedId == R.id.radioRepeatCustom
-        inputRepeatCustom.isVisible = isCustom
+        layoutRepeatCustom.isVisible = isCustom
         if (!isCustom) {
             inputRepeatCustom.error = null
         }
@@ -792,13 +816,15 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             inputRepeatCustom.error = getString(R.string.reminder_repeat_custom_error)
             return RepeatComputationResult(minutes = null, valid = false)
         }
-        val days = raw.toIntOrNull()
-        if (days == null || days <= 0) {
+        val quantity = raw.toIntOrNull()
+        if (quantity == null || quantity <= 0) {
             inputRepeatCustom.error = getString(R.string.reminder_repeat_custom_error)
             return RepeatComputationResult(minutes = null, valid = false)
         }
         inputRepeatCustom.error = null
-        val minutes = days * 24 * 60
+        val unit = CustomRepeatUnit.values().getOrNull(spinnerRepeatCustomUnit.selectedItemPosition)
+            ?: CustomRepeatUnit.DEFAULT
+        val minutes = quantity * unit.minutesMultiplier
         return RepeatComputationResult(minutes = minutes, valid = true)
     }
 
@@ -823,12 +849,18 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     }
 
     private fun formatGenericRepeatLabel(minutes: Int): String {
-        val minutesPerDay = 24 * 60
-        return if (minutes % minutesPerDay == 0) {
-            val days = minutes / minutesPerDay
-            getString(R.string.reminder_repeat_every_days, days)
-        } else {
-            getString(R.string.reminder_repeat_every_minutes_generic, minutes)
+        val minutesPerHour = 60
+        val minutesPerDay = 24 * minutesPerHour
+        return when {
+            minutes % minutesPerDay == 0 -> {
+                val days = minutes / minutesPerDay
+                getString(R.string.reminder_repeat_every_days, days)
+            }
+            minutes % minutesPerHour == 0 -> {
+                val hours = minutes / minutesPerHour
+                getString(R.string.reminder_repeat_every_hours, hours)
+            }
+            else -> getString(R.string.reminder_repeat_every_minutes_generic, minutes)
         }
     }
 
@@ -836,6 +868,16 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         TEN_MINUTES(10, R.string.reminder_repeat_every_10_minutes),
         THREE_HOURS(3 * 60, R.string.reminder_repeat_every_3_hours),
         DAILY(24 * 60, R.string.reminder_repeat_every_day)
+    }
+
+    private enum class CustomRepeatUnit(@StringRes val labelRes: Int, val minutesMultiplier: Int) {
+        MINUTES(R.string.reminder_repeat_custom_unit_minutes, 1),
+        HOURS(R.string.reminder_repeat_custom_unit_hours, 60),
+        DAYS(R.string.reminder_repeat_custom_unit_days, 24 * 60);
+
+        companion object {
+            val DEFAULT = DAYS
+        }
     }
 
     private data class RepeatComputationResult(val minutes: Int?, val valid: Boolean)

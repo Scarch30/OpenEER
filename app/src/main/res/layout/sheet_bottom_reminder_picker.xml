@@ -162,22 +162,39 @@
                     android:prompt="@string/reminder_repeat_presets"
                     android:visibility="gone" />
 
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/inputRepeatCustom"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                <LinearLayout
+                    android:id="@+id/layoutRepeatCustom"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:hint="@string/reminder_repeat_custom_hint"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
                     android:visibility="gone">
 
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/editRepeatCustom"
-                        android:layout_width="match_parent"
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/inputRepeatCustom"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:inputType="number"
-                        android:maxLines="1" />
-                </com.google.android.material.textfield.TextInputLayout>
+                        android:layout_weight="1"
+                        android:hint="@string/reminder_repeat_custom_hint">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editRepeatCustom"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <androidx.appcompat.widget.AppCompatSpinner
+                        android:id="@+id/spinnerRepeatCustomUnit"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:minWidth="120dp"
+                        android:spinnerMode="dropdown" />
+                </LinearLayout>
             </LinearLayout>
 
             <TextView
