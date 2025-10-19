@@ -18,10 +18,11 @@ import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.widget.AppCompatSpinner
-import androidx.core.widget.doOnTextChanged
+import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.widget.AppCompatSpinner
 import androidx.core.view.isVisible
+import androidx.core.widget.doOnTextChanged
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.core.LocationPerms
@@ -75,10 +76,24 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             null
         }
 
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal var reminderUseCasesFactory: (() -> ReminderUseCases)? = null
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal var databaseProvider: (() -> AppDatabase)? = null
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal var nowProvider: () -> Long = { System.currentTimeMillis() }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal var calendarFactory: () -> Calendar = { Calendar.getInstance() }
+
     private val reminderUseCases by lazy(LazyThreadSafetyMode.NONE) {
-        val appContext = requireContext().applicationContext
-        val alarmManager = requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        ReminderUseCases(appContext, AppDatabase.getInstance(appContext), alarmManager)
+        reminderUseCasesFactory?.invoke() ?: run {
+            val appContext = requireContext().applicationContext
+            val alarmManager = requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            ReminderUseCases(appContext, obtainDatabase(appContext), alarmManager)
+        }
     }
 
     private lateinit var toggleGroup: MaterialButtonToggleGroup
@@ -153,21 +168,21 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         updateWhenSummary()
 
         view.findViewById<View>(R.id.btnIn10).setOnClickListener {
-            val timeMillis = System.currentTimeMillis() + 10 * 60_000L
+            val timeMillis = nowProvider() + 10 * 60_000L
             Log.d(TAG, "Preset +10 min for noteId=$noteId blockId=$blockId")
             setSelectedDateTime(timeMillis, "preset_10m")
             scheduleTimeReminder(timeMillis)
         }
 
         view.findViewById<View>(R.id.btnIn1h).setOnClickListener {
-            val timeMillis = System.currentTimeMillis() + 60 * 60_000L
+            val timeMillis = nowProvider() + 60 * 60_000L
             Log.d(TAG, "Preset +1h for noteId=$noteId blockId=$blockId")
             setSelectedDateTime(timeMillis, "preset_1h")
             scheduleTimeReminder(timeMillis)
         }
 
         view.findViewById<View>(R.id.btnTomorrow9).setOnClickListener {
-            val calendar = Calendar.getInstance().apply {
+            val calendar = calendarFactory().apply {
                 add(Calendar.DAY_OF_YEAR, 1)
                 set(Calendar.HOUR_OF_DAY, 9)
                 set(Calendar.MINUTE, 0)
@@ -213,7 +228,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private fun preloadExistingData() {
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
-            val db = AppDatabase.getInstance(appContext)
+            val db = obtainDatabase(appContext)
             val noteDao = db.noteDao()
             val blockDao = db.blockDao()
             val note = withContext(Dispatchers.IO) { noteDao.getByIdOnce(noteId) }
@@ -247,18 +262,18 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
 
     private fun showTimePicker() {
         val ctx = requireContext()
-        val now = Calendar.getInstance()
+        val now = calendarFactory()
         val is24h = DateFormat.is24HourFormat(ctx)
         TimePickerDialog(
             ctx,
             { _, hourOfDay, minute ->
-                val selected = Calendar.getInstance().apply {
+                val selected = calendarFactory().apply {
                     set(Calendar.HOUR_OF_DAY, hourOfDay)
                     set(Calendar.MINUTE, minute)
                     set(Calendar.SECOND, 0)
                     set(Calendar.MILLISECOND, 0)
                 }
-                val nowMillis = System.currentTimeMillis()
+                val nowMillis = nowProvider()
                 if (selected.timeInMillis <= nowMillis) {
                     selected.add(Calendar.DAY_OF_YEAR, 1)
                 }
@@ -276,20 +291,20 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         if (!isAdded) return
         val ctx = requireContext()
         val baseCalendar = selectedDateTimeMillis?.let {
-            Calendar.getInstance().apply { timeInMillis = it }
-        } ?: Calendar.getInstance()
+            calendarFactory().apply { timeInMillis = it }
+        } ?: calendarFactory()
         DatePickerDialog(
             ctx,
             { _, year, month, dayOfMonth ->
                 if (!isAdded) return@DatePickerDialog
                 val seedTime = selectedDateTimeMillis?.let {
-                    Calendar.getInstance().apply { timeInMillis = it }
-                } ?: Calendar.getInstance()
+                    calendarFactory().apply { timeInMillis = it }
+                } ?: calendarFactory()
                 val is24h = DateFormat.is24HourFormat(ctx)
                 TimePickerDialog(
                     ctx,
                     { _, hourOfDay, minute ->
-                        val picked = Calendar.getInstance().apply {
+                        val picked = calendarFactory().apply {
                             set(Calendar.YEAR, year)
                             set(Calendar.MONTH, month)
                             set(Calendar.DAY_OF_MONTH, dayOfMonth)
@@ -327,7 +342,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
-            val db = AppDatabase.getInstance(appContext)
+            val db = obtainDatabase(appContext)
             val blocksRepo = BlocksRepository(
                 blockDao = db.blockDao(),
                 noteDao = db.noteDao(),
@@ -448,7 +463,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
-            val db = AppDatabase.getInstance(appContext)
+            val db = obtainDatabase(appContext)
             val blocksRepo = BlocksRepository(
                 blockDao = db.blockDao(),
                 noteDao = db.noteDao(),
@@ -568,7 +583,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         if (blockId == null) return
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             val appContext = context?.applicationContext ?: return@launch
-            val db = AppDatabase.getInstance(appContext)
+            val db = obtainDatabase(appContext)
             val entity = db.blockDao().getById(blockId)
             if (entity != null) {
                 db.blockDao().delete(entity)
@@ -612,10 +627,14 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     }
 
     private fun isSameDay(t: Long): Boolean {
-        val now = Calendar.getInstance()
-        val tgt = Calendar.getInstance().apply { timeInMillis = t }
+        val now = calendarFactory()
+        val tgt = calendarFactory().apply { timeInMillis = t }
         return now.get(Calendar.YEAR) == tgt.get(Calendar.YEAR) &&
             now.get(Calendar.DAY_OF_YEAR) == tgt.get(Calendar.DAY_OF_YEAR)
+    }
+
+    private fun obtainDatabase(context: Context): AppDatabase {
+        return databaseProvider?.invoke() ?: AppDatabase.getInstance(context)
     }
 
     private fun notifySuccess(summary: String, recurring: Boolean) {
@@ -722,7 +741,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         textWhenSummary.text = getString(R.string.reminder_when_summary_time_repeat, whenText, repeatLabel)
     }
 
-    private fun setSelectedDateTime(timeMillis: Long, reason: String) {
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun setSelectedDateTime(timeMillis: Long, reason: String) {
         if (selectedDateTimeMillis != timeMillis) {
             Log.d(TAG, "Selected date/time updated ($reason) -> $timeMillis")
         }
@@ -730,7 +750,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         updateWhenSummary()
     }
 
-    private fun updateRepeatEveryMinutes(reason: String): Boolean {
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun updateRepeatEveryMinutes(reason: String): Boolean {
         val result = computeRepeatEveryMinutes()
         val previousMinutes = repeatEveryMinutes
         val previousValid = repeatSelectionValid
