@@ -40,7 +40,7 @@ import com.example.openeer.data.tag.TagEntity
         BlockLinkEntity::class,
         ReminderEntity::class
     ],
-    version = 12, // 🔼 bump : ajout rappels (ReminderEntity)
+    version = 13, // 🔼 bump : ajout rappels (ReminderEntity) + repeatEveryMinutes
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -350,12 +350,20 @@ abstract class AppDatabase : RoomDatabase() {
                         radius INTEGER,
                         status TEXT NOT NULL,
                         cooldownMinutes INTEGER,
+                        repeatEveryMinutes INTEGER,
                         FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE,
                         FOREIGN KEY(blockId) REFERENCES blocks(id) ON DELETE SET NULL
                     )
                 """.trimIndent())
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_noteId ON reminders(noteId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_status_nextTriggerAt ON reminders(status, nextTriggerAt)")
+            }
+        }
+
+        // 12 -> 13 : reminder repeat interval
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE reminders ADD COLUMN repeatEveryMinutes INTEGER")
             }
         }
 
@@ -377,7 +385,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_8_9,
                         MIGRATION_9_10,
                         MIGRATION_10_11,
-                        MIGRATION_11_12
+                        MIGRATION_11_12,
+                        MIGRATION_12_13
                     )
                     .build()
                     .also { INSTANCE = it }

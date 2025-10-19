@@ -325,7 +325,7 @@ class ReminderReceiver : BroadcastReceiver() {
     private fun logReminderDump(source: String, reminder: ReminderEntity) {
         Log.d(
             TAG,
-            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} block=${reminder.blockId}"
+            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} block=${reminder.blockId}"
         )
     }
 }

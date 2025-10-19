@@ -350,7 +350,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 val blockId = withContext(Dispatchers.IO) { blocksRepo.appendText(noteId, body) }
                 createdBlockId = blockId
                 val reminderId = withContext(Dispatchers.IO) {
-                    reminderUseCases.scheduleAtEpoch(noteId, timeMillis, blockId)
+                    reminderUseCases.scheduleAtEpoch(noteId, timeMillis, blockId, repeatEveryMinutes)
                 }
                 withContext(Dispatchers.IO) {
                     db.reminderDao().attachBlock(reminderId, blockId)

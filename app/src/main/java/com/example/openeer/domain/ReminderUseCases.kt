@@ -33,7 +33,8 @@ class ReminderUseCases(
     suspend fun scheduleAtEpoch(
         noteId: Long,
         timeMillis: Long,
-        blockId: Long? = null
+        blockId: Long? = null,
+        repeatEveryMinutes: Int? = null
     ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         if (timeMillis <= now) {
@@ -41,19 +42,30 @@ class ReminderUseCases(
             throw IllegalArgumentException("timeMillis must be in the future")
         }
 
+        val type = if (repeatEveryMinutes == null) TYPE_TIME_ONE_SHOT else TYPE_TIME_REPEATING
+        val intervalLabel = repeatEveryMinutes?.let { "${it}m" } ?: "once"
+        Log.d(
+            TAG,
+            "scheduleAtEpoch(): preparing type=$type interval=$intervalLabel noteId=$noteId blockId=$blockId triggerAt=$timeMillis"
+        )
+
         val reminder = ReminderEntity(
             noteId = noteId,
             blockId = blockId,
-            type = TYPE_TIME_ONE_SHOT,
+            type = type,
             nextTriggerAt = timeMillis,
-            status = STATUS_ACTIVE
+            status = STATUS_ACTIVE,
+            repeatEveryMinutes = repeatEveryMinutes
         )
 
         val reminderId = reminderDao.insert(reminder)
 
         scheduleAlarm(reminderId, noteId, timeMillis)
 
-        Log.d(TAG, "Scheduled reminderId=$reminderId noteId=$noteId at $timeMillis")
+        Log.d(
+            TAG,
+            "Scheduled reminderId=$reminderId noteId=$noteId type=$type at $timeMillis interval=$intervalLabel"
+        )
         reminderId
     }
 
@@ -333,6 +345,7 @@ class ReminderUseCases(
     private companion object {
         private const val TAG = "ReminderUseCases"
         private const val TYPE_TIME_ONE_SHOT = "TIME_ONE_SHOT"
+        private const val TYPE_TIME_REPEATING = "TIME_REPEATING"
         private const val TYPE_LOC_ONCE = "LOC_ONCE"
         private const val TYPE_LOC_EVERY = "LOC_EVERY"
         private const val STATUS_ACTIVE = "ACTIVE"
