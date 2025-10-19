@@ -136,6 +136,13 @@ class ReminderReceiver : BroadcastReceiver() {
                     ?.take(160)
                 val reminder = reminderDao.getById(reminderId)
                 reminder?.let { logReminderDump("handleFireAlarm", it) }
+                val repeatMinutes = reminder?.repeatEveryMinutes
+                val intervalLabel = repeatMinutes?.let { "${it}m" } ?: "once"
+                val now = System.currentTimeMillis()
+                Log.d(
+                    TAG,
+                    "handleFireAlarm: firing reminderId=$reminderId noteId=$noteId typeInterval=$intervalLabel now=$now scheduled=${reminder?.nextTriggerAt}"
+                )
                 val overrideText = reminder?.blockId?.let { blockId ->
                     db.blockDao().getById(blockId)?.text
                         ?.lineSequence()
@@ -153,6 +160,35 @@ class ReminderReceiver : BroadcastReceiver() {
                     preview,
                     overrideText
                 )
+
+                if (reminder != null) {
+                    val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                    if (repeatMinutes != null && repeatMinutes > 0) {
+                        val nextTrigger = ReminderUseCases.computeNextRepeatingTrigger(
+                            now,
+                            reminder.nextTriggerAt,
+                            repeatMinutes
+                        )
+                        val updated = reminder.copy(lastFiredAt = now, nextTriggerAt = nextTrigger)
+                        reminderDao.update(updated)
+                        ReminderUseCases(appContext, db, alarmManager)
+                            .rescheduleAlarm(reminderId, reminder.noteId, nextTrigger)
+                        Log.d(
+                            TAG,
+                            "handleFireAlarm: rescheduled repeating reminderId=$reminderId interval=${repeatMinutes}m nextTriggerAt=$nextTrigger"
+                        )
+                        ReminderListSheet.notifyChangedBroadcast(appContext, reminder.noteId)
+                    } else {
+                        reminderDao.update(reminder.copy(lastFiredAt = now))
+                        Log.d(
+                            TAG,
+                            "handleFireAlarm: one-shot reminderId=$reminderId marked lastFiredAt=$now (no reschedule)"
+                        )
+                        ReminderListSheet.notifyChangedBroadcast(appContext, reminder.noteId)
+                    }
+                } else {
+                    Log.w(TAG, "handleFireAlarm: reminderId=$reminderId not found in DB, skipping reschedule")
+                }
             } catch (t: Throwable) {
                 Log.e(TAG, "Error displaying reminderId=$reminderId", t)
             } finally {
