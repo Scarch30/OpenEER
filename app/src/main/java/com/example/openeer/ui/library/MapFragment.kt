@@ -14,14 +14,17 @@ import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.ArrayAdapter
 import android.widget.Toast
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.core.widget.addTextChangedListener
+import androidx.annotation.StringRes
 import com.example.openeer.R
 import com.example.openeer.core.LocationPerms
 import com.example.openeer.core.Place
@@ -147,7 +150,14 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     private lateinit var searchInput: MaterialAutoCompleteTextView
     private var searchAdapter: ArrayAdapter<String>? = null
     private var searchJob: Job? = null
+    private var searchExecutionJob: Job? = null
     private var searchResults: List<Address> = emptyList()
+
+    private sealed interface GeocodeOutcome {
+        data class Success(val addresses: List<Address>) : GeocodeOutcome
+        data object Unavailable : GeocodeOutcome
+        data class Failure(val throwable: Throwable) : GeocodeOutcome
+    }
 
     private var backgroundPermissionDialog: AlertDialog? = null
 
@@ -382,15 +392,30 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         searchInput.addTextChangedListener(afterTextChanged = { text ->
             val q = text?.toString()?.trim().orEmpty()
             searchJob?.cancel()
+            searchExecutionJob?.cancel()
             if (q.length < 3) {
                 searchAdapter?.clear()
                 searchResults = emptyList()
+                clearSearchFeedback()
+                searchInput.dismissDropDown()
                 return@addTextChangedListener
             }
+            clearSearchFeedback()
             searchJob = viewLifecycleOwner.lifecycleScope.launch {
                 delay(250) // attend un quart de seconde avant la recherche
                 fetchSuggestions(q)
             }
+        })
+
+        searchInput.setOnEditorActionListener(TextView.OnEditorActionListener { textView, actionId, _ ->
+            if (actionId != EditorInfo.IME_ACTION_SEARCH) return@OnEditorActionListener false
+            val query = textView.text?.toString()?.trim().orEmpty()
+            if (query.length < 3) {
+                searchInput.dismissDropDown()
+                return@OnEditorActionListener true
+            }
+            launchDirectSearch(query)
+            true
         })
 
         // quand l’utilisateur clique sur une suggestion
@@ -399,6 +424,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             val lat = addr.latitude
             val lon = addr.longitude
             val label = addr.getAddressLine(0) ?: addr.featureName ?: String.format(Locale.US, "%.5f, %.5f", lat, lon)
+            clearSearchFeedback()
+            searchInput.dismissDropDown()
             showSelectionFromSearch(
                 com.example.openeer.core.Place(
                     lat = lat,
@@ -443,17 +470,102 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         setupRouteUiBindings()
     }
 
-    @Suppress("DEPRECATION")
     private suspend fun fetchSuggestions(query: String) {
-        val ctx = requireContext().applicationContext
-        val geocoder = Geocoder(ctx, Locale.getDefault())
+        when (val outcome = geocode(query, 8)) {
+            is GeocodeOutcome.Success -> {
+                val results = outcome.addresses
+                val labels = updateSuggestionAdapter(results)
+                if (labels.isNotEmpty()) {
+                    clearSearchFeedback()
+                    searchInput.showDropDown()
+                } else {
+                    showSearchHelper(R.string.map_search_no_results)
+                    searchInput.dismissDropDown()
+                }
+            }
+            GeocodeOutcome.Unavailable -> {
+                updateSuggestionAdapter(emptyList())
+                showSearchError(R.string.map_search_unavailable)
+                searchInput.dismissDropDown()
+            }
+            is GeocodeOutcome.Failure -> {
+                updateSuggestionAdapter(emptyList())
+                showSearchError(R.string.map_search_error)
+                searchInput.dismissDropDown()
+            }
+        }
+    }
 
-        val results = withContext(Dispatchers.IO) {
-            runCatching {
-                geocoder.getFromLocationName(query, 8)
-            }.getOrElse { emptyList() } ?: emptyList()
+    private fun launchDirectSearch(query: String) {
+        searchExecutionJob?.cancel()
+        searchExecutionJob = viewLifecycleOwner.lifecycleScope.launch {
+            when (val outcome = geocode(query, 8)) {
+                is GeocodeOutcome.Success -> {
+                    val results = outcome.addresses
+                    if (results.isEmpty()) {
+                        updateSuggestionAdapter(emptyList())
+                        showSearchHelper(R.string.map_search_no_results)
+                        searchInput.dismissDropDown()
+                        return@launch
+                    }
+
+                    val labels = updateSuggestionAdapter(results)
+                    clearSearchFeedback()
+                    searchInput.dismissDropDown()
+
+                    val addr = results.first()
+                    val lat = addr.latitude
+                    val lon = addr.longitude
+                    val label = addr.getAddressLine(0) ?: addr.featureName ?: String.format(Locale.US, "%.5f, %.5f", lat, lon)
+                    if (labels.isNotEmpty()) {
+                        searchInput.setText(label, false)
+                    }
+                    showSelectionFromSearch(
+                        com.example.openeer.core.Place(
+                            lat = lat,
+                            lon = lon,
+                            label = label,
+                            accuracyM = null
+                        )
+                    )
+                }
+                GeocodeOutcome.Unavailable -> {
+                    updateSuggestionAdapter(emptyList())
+                    showSearchError(R.string.map_search_unavailable)
+                    searchInput.dismissDropDown()
+                }
+                is GeocodeOutcome.Failure -> {
+                    updateSuggestionAdapter(emptyList())
+                    showSearchError(R.string.map_search_error)
+                    searchInput.dismissDropDown()
+                }
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private suspend fun geocode(query: String, maxResults: Int): GeocodeOutcome {
+        if (!Geocoder.isPresent()) {
+            Log.w(TAG, "Geocoder unavailable on this device")
+            return GeocodeOutcome.Unavailable
         }
 
+        val ctx = requireContext().applicationContext
+        return withContext(Dispatchers.IO) {
+            val geocoder = Geocoder(ctx, Locale.getDefault())
+            runCatching {
+                geocoder.getFromLocationName(query, maxResults)
+            }.fold(
+                onSuccess = { GeocodeOutcome.Success(it.orEmpty()) },
+                onFailure = {
+                    Log.w(TAG, "Geocoder failed for \"$query\"", it)
+                    GeocodeOutcome.Failure(it)
+                }
+            )
+        }
+    }
+
+    private fun updateSuggestionAdapter(results: List<Address>): List<String> {
         searchResults = results
         val labels = results.map { it.getAddressLine(0) ?: it.featureName ?: "${it.latitude}, ${it.longitude}" }
         searchAdapter?.apply {
@@ -461,7 +573,22 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             addAll(labels)
             notifyDataSetChanged()
         }
-        if (labels.isNotEmpty()) searchInput.showDropDown()
+        return labels
+    }
+
+    private fun showSearchError(@StringRes resId: Int) {
+        b.searchContainer.error = getString(resId)
+        b.searchContainer.helperText = null
+    }
+
+    private fun showSearchHelper(@StringRes resId: Int) {
+        b.searchContainer.helperText = getString(resId)
+        b.searchContainer.error = null
+    }
+
+    private fun clearSearchFeedback() {
+        b.searchContainer.error = null
+        b.searchContainer.helperText = null
     }
 
     override fun onStart() {
@@ -674,6 +801,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         searchJob = null
         searchAdapter = null
         searchResults = emptyList()
+        searchExecutionJob?.cancel()
+        searchExecutionJob = null
         _b?.clusterHint?.let { hintView ->
             hintDismissRunnable?.let { hintView.removeCallbacks(it) }
         }
