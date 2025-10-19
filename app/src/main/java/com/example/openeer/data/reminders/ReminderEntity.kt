@@ -39,5 +39,6 @@ data class ReminderEntity(
     val lon: Double? = null,
     val radius: Int? = null,
     val status: String,
-    val cooldownMinutes: Int? = null
+    val cooldownMinutes: Int? = null,
+    val repeatEveryMinutes: Int? = null
 )

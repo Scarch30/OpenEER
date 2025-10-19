@@ -44,7 +44,7 @@ interface ReminderDao {
     suspend fun byBlockId(blockId: Long): ReminderEntity?
 
     @Query(
-        "SELECT * FROM reminders WHERE status = 'ACTIVE' AND type = 'TIME_ONE_SHOT' AND nextTriggerAt >= :now"
+        "SELECT * FROM reminders WHERE status = 'ACTIVE' AND type IN ('TIME_ONE_SHOT', 'TIME_REPEATING') AND nextTriggerAt >= :now"
     )
     suspend fun getUpcomingTimeReminders(now: Long): List<ReminderEntity>
 
