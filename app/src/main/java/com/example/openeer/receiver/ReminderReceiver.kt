@@ -12,6 +12,7 @@ import com.example.openeer.core.GeofenceDiag
 import com.example.openeer.core.ReminderChannels
 import com.example.openeer.core.ReminderNotifier
 import com.example.openeer.data.AppDatabase
+import com.example.openeer.data.location.GeoReverseRepository
 import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.domain.ReminderUseCases
 import com.example.openeer.ui.sheets.ReminderListSheet
@@ -20,6 +21,7 @@ import com.google.android.gms.location.GeofenceStatusCodes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 class ReminderReceiver : BroadcastReceiver() {
 
@@ -329,7 +331,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
         val noteId = initialNoteId ?: reminder.noteId
 
-        val triggersOnExit = reminder.triggerOnExit
+        val triggersOnExit = reminder.isExit()
         val shouldArm = when (transition) {
             Geofence.GEOFENCE_TRANSITION_EXIT -> !triggersOnExit
             Geofence.GEOFENCE_TRANSITION_ENTER -> triggersOnExit
@@ -341,7 +343,7 @@ class ReminderReceiver : BroadcastReceiver() {
             val armLabel = if (triggersOnExit) "ENTER" else "EXIT"
             Log.d(
                 TAG,
-                "handleGeofence: $armLabel armedAt updated to $now for reminderId=$reminderId (triggerOnExit=$triggersOnExit)"
+                "handleGeofence: $armLabel armedAt updated to $now for reminderId=$reminderId (exitMode=$triggersOnExit)"
             )
             ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             return
@@ -360,7 +362,7 @@ class ReminderReceiver : BroadcastReceiver() {
         if (reminder.armedAt == null) {
             Log.d(
                 TAG,
-                "handleGeofence: transition=$transition ignored because reminder not armed yet (id=$reminderId triggerOnExit=$triggersOnExit)"
+                "handleGeofence: transition=$transition ignored because reminder not armed yet (id=$reminderId exitMode=$triggersOnExit)"
             )
             return
         }
@@ -385,14 +387,35 @@ class ReminderReceiver : BroadcastReceiver() {
             ?.firstOrNull { it.isNotBlank() }
             ?.trim()
             ?.take(160)
-        val label = reminder.label?.takeIf { it.isNotBlank() }
+        val userLabel = reminder.label?.takeIf { it.isNotBlank() }
+        val geoRepo = GeoReverseRepository.getInstance(appContext)
+        val address = reminder.lat?.let { lat ->
+            reminder.lon?.let { lon -> geoRepo.cachedAddressFor(lat, lon) }
+        }
+        val transitionLabel = ReminderUseCases.transitionLabel(reminder)
+        val notificationLabel = userLabel ?: buildString {
+            append(transitionLabel)
+            val coords = reminder.lat?.let { lat ->
+                reminder.lon?.let { lon -> String.format(Locale.US, "%.5f, %.5f", lat, lon) }
+            }
+            when {
+                !address.isNullOrBlank() -> {
+                    append(" · ")
+                    append(address)
+                }
+                coords != null -> {
+                    append(" · ")
+                    append(coords)
+                }
+            }
+        }
 
         Log.d(TAG, "handleGeofence: showing notification for reminderId=$reminderId noteId=$noteId")
         ReminderNotifier.showReminder(
             appContext,
             noteId,
             reminderId,
-            label,
+            notificationLabel,
             note?.title,
             preview,
         )
@@ -415,7 +438,7 @@ class ReminderReceiver : BroadcastReceiver() {
     private fun logReminderDump(source: String, reminder: ReminderEntity) {
         Log.d(
             TAG,
-            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} cooldown=${reminder.cooldownMinutes} armed=${reminder.armedAt} triggerOnExit=${reminder.triggerOnExit} block=${reminder.blockId} label=${reminder.label}"
+            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} cooldown=${reminder.cooldownMinutes} armed=${reminder.armedAt} triggerOnExit=${reminder.triggerOnExit} disarmedUntilExit=${reminder.disarmedUntilExit} block=${reminder.blockId} label=${reminder.label}"
         )
     }
 }
