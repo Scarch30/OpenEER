@@ -61,6 +61,10 @@ private val liveRoutePoints = mutableListOf<LatLng>()
 -------------------------------------------------------------------------------------------------- */
 
 fun MapFragment.setupRouteUiBindings() {
+    if (isPickMode) {
+        Log.d(RTAG, "setupRouteUiBindings(): skipped in pick mode")
+        return
+    }
     val s = state()
     Log.d(RTAG, "setupRouteUiBindings(): state=$s")
 
@@ -271,6 +275,10 @@ fun MapFragment.setupRouteUiBindings() {
  * 3) Sinon → START service (GPS)
  */
 internal fun MapFragment.onRouteButtonClicked() {
+    if (isPickMode) {
+        Log.d(RTAG, "onRouteButtonClicked(): ignored in pick mode")
+        return
+    }
     val s = state()
     when {
         s.isRunning -> {
@@ -325,6 +333,10 @@ private fun MapFragment.updateRouteUi() {
 -------------------------------------------------------------------------------------------------- */
 
 private fun MapFragment.startRouteRecordingViaService() {
+    if (isPickMode) {
+        Log.d(RTAG, "startRouteRecordingViaService(): ignored in pick mode")
+        return
+    }
     Log.d(RTAG, "startRouteRecordingViaService()")
     if (!hasFineLocationPermission()) {
         Log.d(RTAG, "→ missing location permission → hint + return")
@@ -423,12 +435,20 @@ private var FragmentMapBinding?.isVisibleCompat: Boolean
 /** Ancien entrypoint → démarre désormais le ForegroundService */
 internal fun MapFragment.startRouteRecording() {
     Log.d(RTAG, "startRouteRecording() wrapper")
+    if (isPickMode) {
+        Log.d(RTAG, "startRouteRecording(): ignored in pick mode")
+        return
+    }
     startRouteRecordingViaService()
 }
 
 /** Ancien stop → stoppe le service ; l’UI sera mise à jour via les broadcasts */
 internal fun MapFragment.cancelRouteRecording() {
     Log.d(RTAG, "cancelRouteRecording() wrapper")
+    if (isPickMode) {
+        Log.d(RTAG, "cancelRouteRecording(): ignored in pick mode")
+        return
+    }
     RouteRecordingService.stop(requireContext())
 }
 
