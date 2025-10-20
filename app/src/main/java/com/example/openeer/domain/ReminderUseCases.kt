@@ -96,6 +96,7 @@ class ReminderUseCases(
             else -> now
         }
         val sanitizedLabel = label?.trim()?.takeIf { it.isNotEmpty() }
+        val exit = triggerOnExit
         val reminder = ReminderEntity(
             noteId = noteId,
             label = sanitizedLabel,
@@ -106,7 +107,8 @@ class ReminderUseCases(
             radius = radiusMeters,
             status = STATUS_ACTIVE,
             cooldownMinutes = cooldownMinutes,
-            triggerOnExit = triggerOnExit,
+            triggerOnExit = exit,
+            disarmedUntilExit = exit,
             armedAt = armedAt
         )
 
@@ -118,6 +120,110 @@ class ReminderUseCases(
             "Scheduled geo reminderId=$reminderId noteId=$noteId lat=$lat lon=$lon radius=$radiusMeters every=$every"
         )
         reminderId
+    }
+
+    suspend fun updateTimeReminder(
+        reminderId: Long,
+        nextTriggerAt: Long,
+        label: String?,
+        repeatEveryMinutes: Int?,
+    ) = withContext(Dispatchers.IO) {
+        val reminder = reminderDao.getById(reminderId)
+        if (reminder == null) {
+            Log.w(TAG, "updateTimeReminder(): reminderId=$reminderId not found")
+            return@withContext
+        }
+        val now = System.currentTimeMillis()
+        if (nextTriggerAt <= now) {
+            Log.w(
+                TAG,
+                "updateTimeReminder(): refusing past trigger reminderId=$reminderId next=$nextTriggerAt now=$now"
+            )
+            throw IllegalArgumentException("nextTriggerAt must be in the future")
+        }
+        val sanitizedLabel = label?.trim()?.takeIf { it.isNotEmpty() }
+        val oldType = reminder.type
+        val newType = if (repeatEveryMinutes == null) TYPE_TIME_ONE_SHOT else TYPE_TIME_REPEATING
+        val repeatLabel = repeatEveryMinutes?.let { "${it}m" } ?: "once"
+        Log.d(
+            TAG,
+            "updateTimeReminder(): id=$reminderId note=${reminder.noteId} $oldType→$newType next=$nextTriggerAt repeat=$repeatLabel"
+        )
+        when (oldType) {
+            TYPE_LOC_ONCE, TYPE_LOC_EVERY -> removeGeofenceInternal(reminderId, cancelInDb = false)
+            else -> cancelAlarm(reminderId, reminder.noteId)
+        }
+
+        val updated = reminder.copy(
+            type = newType,
+            nextTriggerAt = nextTriggerAt,
+            label = sanitizedLabel,
+            lat = null,
+            lon = null,
+            radius = null,
+            cooldownMinutes = null,
+            triggerOnExit = false,
+            disarmedUntilExit = false,
+            armedAt = null,
+            repeatEveryMinutes = repeatEveryMinutes,
+            status = STATUS_ACTIVE
+        )
+        reminderDao.update(updated)
+        scheduleAlarm(reminderId, reminder.noteId, nextTriggerAt)
+        Log.d(TAG, "updateTimeReminder(): rescheduled reminderId=$reminderId note=${reminder.noteId}")
+    }
+
+    suspend fun updateGeofenceReminder(
+        reminderId: Long,
+        lat: Double,
+        lon: Double,
+        radius: Int,
+        every: Boolean,
+        disarmedUntilExit: Boolean,
+        cooldownMinutes: Int?,
+        label: String?,
+    ) = withContext(Dispatchers.IO) {
+        require(radius > 0) { "radius must be > 0" }
+        if (cooldownMinutes != null) {
+            require(cooldownMinutes >= 0) { "cooldownMinutes must be >= 0" }
+        }
+        val reminder = reminderDao.getById(reminderId)
+        if (reminder == null) {
+            Log.w(TAG, "updateGeofenceReminder(): reminderId=$reminderId not found")
+            return@withContext
+        }
+        val sanitizedLabel = label?.trim()?.takeIf { it.isNotEmpty() }
+        val now = System.currentTimeMillis()
+        val newType = if (every) TYPE_LOC_EVERY else TYPE_LOC_ONCE
+        val oldType = reminder.type
+        Log.d(
+            TAG,
+            "updateGeofenceReminder(): id=$reminderId note=${reminder.noteId} $oldType→$newType lat=$lat lon=$lon radius=$radius exit=$disarmedUntilExit cooldown=$cooldownMinutes"
+        )
+
+        when (oldType) {
+            TYPE_TIME_ONE_SHOT, TYPE_TIME_REPEATING -> cancelAlarm(reminderId, reminder.noteId)
+            else -> removeGeofenceInternal(reminderId, cancelInDb = false)
+        }
+
+        val armedAt = if (disarmedUntilExit) null else now
+        val updated = reminder.copy(
+            type = newType,
+            nextTriggerAt = now,
+            lat = lat,
+            lon = lon,
+            radius = radius,
+            cooldownMinutes = cooldownMinutes,
+            label = sanitizedLabel,
+            triggerOnExit = disarmedUntilExit,
+            disarmedUntilExit = disarmedUntilExit,
+            armedAt = armedAt,
+            repeatEveryMinutes = null,
+            status = STATUS_ACTIVE
+        )
+        reminderDao.update(updated)
+        addGeofenceForExisting(updated)
+        Log.d(TAG, "updateGeofenceReminder(): rearmed reminderId=$reminderId note=${reminder.noteId}")
     }
 
     suspend fun removeGeofence(reminderId: Long) = withContext(Dispatchers.IO) {
@@ -350,7 +456,7 @@ class ReminderUseCases(
             .build()
 
         val pi = buildGeofencePendingIntent(reminder.id, reminder.noteId)
-        val triggerLabel = if (reminder.triggerOnExit) "EXIT" else "ENTER"
+        val triggerLabel = reminder.transition.name
         Log.d(
             TAG,
             "addGeofence(): id=${reminder.id} note=${reminder.noteId} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} transitions=ENTER|EXIT fireOn=$triggerLabel initialTrigger=0"
@@ -390,7 +496,7 @@ class ReminderUseCases(
         return (reminderId % Int.MAX_VALUE).toInt()
     }
 
-    private suspend fun removeGeofenceInternal(reminderId: Long) {
+    private suspend fun removeGeofenceInternal(reminderId: Long, cancelInDb: Boolean = true) {
         Log.d(TAG, "removeGeofence(): id=$reminderId")
         try {
             val client = LocationServices.getGeofencingClient(context)
@@ -400,8 +506,10 @@ class ReminderUseCases(
         } catch (se: SecurityException) {
             Log.w(TAG, "removeGeofence(): SecurityException id=$reminderId", se)
         }
-        reminderDao.cancelById(reminderId)
-        Log.d(TAG, "removeGeofence(): DAO cancel id=$reminderId")
+        if (cancelInDb) {
+            reminderDao.cancelById(reminderId)
+            Log.d(TAG, "removeGeofence(): DAO cancel id=$reminderId")
+        }
     }
 
     companion object {
@@ -435,6 +543,13 @@ class ReminderUseCases(
                 next += interval
             }
             return next
+        }
+
+        fun transitionLabel(reminder: ReminderEntity): String {
+            return when (reminder.transition) {
+                ReminderEntity.Transition.ENTER -> "Arrivée"
+                ReminderEntity.Transition.EXIT -> "Départ"
+            }
         }
     }
 }

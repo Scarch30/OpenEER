@@ -26,6 +26,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
+import com.example.openeer.data.location.GeoReverseRepository
 import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.domain.ReminderUseCases
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -63,6 +64,12 @@ class ReminderListSheet : BottomSheetDialogFragment() {
     private lateinit var emptyView: View
     private lateinit var adapter: ReminderAdapter
 
+    private val geoRepository: GeoReverseRepository by lazy {
+        GeoReverseRepository.getInstance(requireContext().applicationContext)
+    }
+    private val addressCache = mutableMapOf<Long, CachedAddress>()
+    private var currentItems: List<ReminderItem> = emptyList()
+
     private val reminderChangedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val targetId = intent?.getLongExtra(EXTRA_NOTE_ID, -1L) ?: return
@@ -87,7 +94,8 @@ class ReminderListSheet : BottomSheetDialogFragment() {
 
         adapter = ReminderAdapter(
             onSnooze = { reminder, minutes -> handleSnooze(reminder, minutes) },
-            onCancel = { reminder -> handleCancel(reminder) }
+            onCancel = { reminder -> handleCancel(reminder) },
+            onEdit = { reminder -> openEditReminder(reminder) }
         )
         reminderList.adapter = adapter
 
@@ -126,20 +134,70 @@ class ReminderListSheet : BottomSheetDialogFragment() {
     private fun reloadReminders() {
         viewLifecycleOwner.lifecycleScope.launch {
             val appCtx = requireContext().applicationContext
+            val repo = geoRepository
+            val knownAddresses = addressCache.toMap()
             val items = withContext(Dispatchers.IO) {
                 val db = AppDatabase.getInstance(appCtx)
                 val reminderDao = db.reminderDao()
                 val reminders = reminderDao.listForNoteOrdered(noteId)
                 reminders.map { reminder ->
                     val label = reminder.label?.takeIf { it.isNotBlank() }
-                    ReminderItem(reminder, label)
+                    val address = reminder.lat?.let { lat ->
+                        reminder.lon?.let { lon ->
+                            val cached = knownAddresses[reminder.id]?.takeIf {
+                                it.lat == lat && it.lon == lon
+                            }
+                            cached?.address ?: repo.cachedAddressFor(lat, lon)
+                        }
+                    }
+                    ReminderItem(reminder, label, address)
                 }
             }
+            currentItems = items
             adapter.submitList(items)
             val isEmpty = items.isEmpty()
             emptyView.isVisible = isEmpty
             reminderList.isVisible = !isEmpty
+            items.forEach { item ->
+                val lat = item.entity.lat
+                val lon = item.entity.lon
+                if (lat != null && lon != null) {
+                    addressCache[item.entity.id] = CachedAddress(lat, lon, item.address)
+                } else {
+                    addressCache.remove(item.entity.id)
+                }
+            }
+            items.forEach { maybeFetchAddress(it) }
         }
+    }
+
+    private fun maybeFetchAddress(item: ReminderItem) {
+        val lat = item.entity.lat ?: return
+        val lon = item.entity.lon ?: return
+        if (item.address != null) return
+        val reminderId = item.entity.id
+        viewLifecycleOwner.lifecycleScope.launch {
+            val resolved = geoRepository.addressFor(lat, lon)
+            val current = addressCache[reminderId]
+            if (current != null && current.address == resolved && current.lat == lat && current.lon == lon) {
+                return@launch
+            }
+            addressCache[reminderId] = CachedAddress(lat, lon, resolved)
+            updateItemAddress(reminderId, resolved)
+        }
+    }
+
+    private fun updateItemAddress(reminderId: Long, address: String?) {
+        val updated = currentItems.map { item ->
+            if (item.entity.id == reminderId) {
+                item.copy(address = address)
+            } else {
+                item
+            }
+        }
+        if (updated == currentItems) return
+        currentItems = updated
+        adapter.submitList(updated)
     }
 
     private fun handleSnooze(reminder: ReminderEntity, minutes: Int) {
@@ -170,9 +228,15 @@ class ReminderListSheet : BottomSheetDialogFragment() {
         }
     }
 
+    private fun openEditReminder(reminder: ReminderEntity) {
+        val fragment = BottomSheetReminderPicker.newInstanceForEdit(reminder.id)
+        fragment.show(parentFragmentManager, "ReminderPickerEdit")
+    }
+
     private class ReminderAdapter(
         private val onSnooze: (ReminderEntity, Int) -> Unit,
-        private val onCancel: (ReminderEntity) -> Unit
+        private val onCancel: (ReminderEntity) -> Unit,
+        private val onEdit: (ReminderEntity) -> Unit
     ) : ListAdapter<ReminderItem, ReminderAdapter.ReminderViewHolder>(DIFF) {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ReminderViewHolder {
@@ -245,7 +309,7 @@ class ReminderListSheet : BottomSheetDialogFragment() {
         }
 
         override fun onBindViewHolder(holder: ReminderViewHolder, position: Int) {
-            holder.bind(getItem(position), onSnooze, onCancel)
+            holder.bind(getItem(position), onSnooze, onCancel, onEdit)
         }
 
         class ReminderViewHolder(
@@ -261,13 +325,19 @@ class ReminderListSheet : BottomSheetDialogFragment() {
             fun bind(
                 item: ReminderItem,
                 onSnooze: (ReminderEntity, Int) -> Unit,
-                onCancel: (ReminderEntity) -> Unit
+                onCancel: (ReminderEntity) -> Unit,
+                onEdit: (ReminderEntity) -> Unit
             ) {
                 val ctx = itemView.context
                 titleView.text = buildTitle(ctx, item)
 
-                // Subtitle optional for future use
-                subtitleView.visibility = View.GONE
+                val subtitle = buildSubtitle(ctx, item)
+                if (subtitle.isNullOrBlank()) {
+                    subtitleView.visibility = View.GONE
+                } else {
+                    subtitleView.visibility = View.VISIBLE
+                    subtitleView.text = subtitle
+                }
 
                 val isActive = item.entity.status == "ACTIVE"
                 buttonsRow.alpha = if (isActive) 1f else 0.6f
@@ -278,28 +348,24 @@ class ReminderListSheet : BottomSheetDialogFragment() {
                 snooze5Button.setOnClickListener { onSnooze(item.entity, 5) }
                 snooze60Button.setOnClickListener { onSnooze(item.entity, 60) }
                 cancelButton.setOnClickListener { onCancel(item.entity) }
+                itemView.setOnClickListener { onEdit(item.entity) }
             }
 
             private fun buildTitle(ctx: Context, item: ReminderItem): String {
                 val builder = StringBuilder()
+                val entity = item.entity
                 val explicitLabel = item.label
+                val lat = entity.lat
+                val lon = entity.lon
                 if (!explicitLabel.isNullOrBlank()) {
                     builder.append(explicitLabel)
+                    if (lat == null || lon == null) {
+                        builder.append("  • ")
+                        builder.append(entity.status)
+                    }
                 } else {
-                    val entity = item.entity
-                    val lat = entity.lat
-                    val lon = entity.lon
                     if (lat != null && lon != null) {
                         builder.append(String.format(Locale.US, "📍 %.5f, %.5f", lat, lon))
-                        entity.radius?.takeIf { it > 0 }?.let { radius ->
-                            builder.append(" · ~").append(radius).append("m")
-                        }
-                        val triggerRes = if (entity.triggerOnExit) {
-                            R.string.reminder_geo_trigger_exit_short
-                        } else {
-                            R.string.reminder_geo_trigger_enter_short
-                        }
-                        builder.append(" • ").append(ctx.getString(triggerRes))
                     } else {
                         builder.append("⏰ ")
                         val triggerDate = Date(entity.nextTriggerAt)
@@ -308,10 +374,27 @@ class ReminderListSheet : BottomSheetDialogFragment() {
                             builder.append(" · ")
                             builder.append(DateFormat.getMediumDateFormat(ctx).format(triggerDate))
                         }
+                        builder.append("  • ")
+                        builder.append(entity.status)
                     }
                 }
-                builder.append("  • ")
-                builder.append(item.entity.status)
+                return builder.toString()
+            }
+
+            private fun buildSubtitle(ctx: Context, item: ReminderItem): String? {
+                val entity = item.entity
+                val lat = entity.lat ?: return null
+                val lon = entity.lon ?: return null
+                val builder = StringBuilder()
+                builder.append("📍 ")
+                builder.append(item.address ?: String.format(Locale.US, "%.5f, %.5f", lat, lon))
+                entity.radius?.takeIf { it > 0 }?.let { radius ->
+                    builder.append(" · ~").append(radius).append("m")
+                }
+                builder.append(" · ")
+                builder.append(ReminderUseCases.transitionLabel(entity))
+                builder.append(" · ")
+                builder.append(entity.status)
                 return builder.toString()
             }
         }
@@ -330,5 +413,8 @@ class ReminderListSheet : BottomSheetDialogFragment() {
     private data class ReminderItem(
         val entity: ReminderEntity,
         val label: String?,
+        val address: String?,
     )
+
+    private data class CachedAddress(val lat: Double, val lon: Double, val address: String?)
 }

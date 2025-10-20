@@ -40,7 +40,7 @@ import com.example.openeer.data.tag.TagEntity
         BlockLinkEntity::class,
         ReminderEntity::class
     ],
-    version = 16, // 🔼 bump : ajout rappels (ReminderEntity) + repeatEveryMinutes + armedAt + triggerOnExit + label
+    version = 17, // 🔼 bump : ajout disarmedUntilExit sur ReminderEntity
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -387,6 +387,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE reminders ADD COLUMN disarmedUntilExit INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE reminders SET disarmedUntilExit = CASE WHEN triggerOnExit = 1 THEN 1 ELSE 0 END")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -409,7 +416,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_12_13,
                         MIGRATION_13_14,
                         MIGRATION_14_15,
-                        MIGRATION_15_16
+                        MIGRATION_15_16,
+                        MIGRATION_16_17
                     )
                     .build()
                     .also { INSTANCE = it }

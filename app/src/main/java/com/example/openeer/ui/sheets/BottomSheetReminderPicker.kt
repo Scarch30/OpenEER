@@ -32,6 +32,7 @@ import com.example.openeer.R
 import com.example.openeer.core.LocationPerms
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.data.AppDatabase
+import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.domain.ReminderUseCases
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapFragment
@@ -56,8 +57,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val ARG_BLOCK_ID = "arg_block_id"
+        private const val ARG_REMINDER_ID = "arg_reminder_id"
         private const val TAG = "ReminderPicker"
         private const val DEFAULT_RADIUS_METERS = 100
+        private const val DEFAULT_COOLDOWN_MINUTES = 30
 
         @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
         internal const val IMMEDIATE_REPEAT_OFFSET_MILLIS = 1_000L
@@ -72,10 +75,24 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             }
             return fragment
         }
+
+        fun newInstanceForEdit(reminderId: Long): BottomSheetReminderPicker {
+            return BottomSheetReminderPicker().apply {
+                arguments = Bundle().apply {
+                    putLong(ARG_REMINDER_ID, reminderId)
+                }
+            }
+        }
     }
 
+    private val reminderId: Long?
+        get() = arguments?.getLong(ARG_REMINDER_ID)?.takeIf { it > 0L }
+
+    private var noteIdValue: Long? = null
+
     private val noteId: Long
-        get() = requireArguments().getLong(ARG_NOTE_ID)
+        get() = noteIdValue ?: editingReminder?.noteId
+        ?: requireArguments().getLong(ARG_NOTE_ID)
 
     private val blockId: Long?
         get() = if (arguments?.containsKey(ARG_BLOCK_ID) == true) {
@@ -83,6 +100,9 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         } else {
             null
         }
+
+    private val isEditing: Boolean
+        get() = reminderId != null
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     internal var reminderUseCasesFactory: (() -> ReminderUseCases)? = null
@@ -109,8 +129,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private lateinit var geoSection: View
     private lateinit var labelInput: TextInputLayout
     private lateinit var radiusInput: TextInputLayout
+    private lateinit var cooldownInput: TextInputLayout
     private lateinit var locationPreview: TextView
     private lateinit var planTimeButton: MaterialButton
+    private lateinit var planGeoButton: MaterialButton
     private lateinit var everySwitch: MaterialSwitch
     private lateinit var geoTriggerToggle: MaterialButtonToggleGroup
     private lateinit var textWhenSummary: TextView
@@ -130,10 +152,18 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private var repeatSelectionValid: Boolean = true
     private var startingInsideGeofence = false
     private var geoTriggerOnExit = false
+    private var editingReminder: ReminderEntity? = null
 
     private var backgroundPermissionDialog: AlertDialog? = null
     private var pendingGeoAction: (() -> Unit)? = null
     private var waitingBgSettingsReturn = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (!isEditing) {
+            noteIdValue = arguments?.getLong(ARG_NOTE_ID)?.takeIf { it > 0L }
+        }
+    }
 
     private val mapPickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -164,8 +194,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         geoSection = view.findViewById(R.id.sectionGeo)
         labelInput = view.findViewById(R.id.inputLabel)
         radiusInput = view.findViewById(R.id.inputRadius)
+        cooldownInput = view.findViewById(R.id.inputCooldown)
         locationPreview = view.findViewById(R.id.textLocationPreview)
         planTimeButton = view.findViewById(R.id.btnPlanTime)
+        planGeoButton = view.findViewById(R.id.btnPlan)
         everySwitch = view.findViewById(R.id.switchEvery)
         geoTriggerToggle = view.findViewById(R.id.toggleGeoTrigger)
         textWhenSummary = view.findViewById(R.id.textWhenSummary)
@@ -178,6 +210,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         useCurrentLocationButton = view.findViewById(R.id.btnUseCurrentLocation)
 
         radiusInput.editText?.setText(DEFAULT_RADIUS_METERS.toString())
+        cooldownInput.editText?.setText(DEFAULT_COOLDOWN_MINUTES.toString())
 
         toggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked) return@addOnButtonCheckedListener
@@ -235,7 +268,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             handleUseCurrentLocation()
         }
 
-        view.findViewById<View>(R.id.btnPlan).setOnClickListener {
+        planGeoButton.setOnClickListener {
             attemptScheduleGeoReminderWithPermissions()
         }
 
@@ -243,7 +276,14 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             attemptScheduleTimeReminder()
         }
 
-        preloadExistingData()
+        updatePrimaryButtonsLabel()
+
+        if (isEditing) {
+            reminderId?.let { loadReminderForEdit(it) }
+        } else {
+            val baseNoteId = noteIdValue ?: requireArguments().getLong(ARG_NOTE_ID)
+            preloadExistingData(baseNoteId)
+        }
     }
 
     private fun updateSections(checkedId: Int) {
@@ -340,13 +380,13 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
     }
 
-    private fun preloadExistingData() {
+    private fun preloadExistingData(targetNoteId: Long) {
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
             val db = obtainDatabase(appContext)
             val noteDao = db.noteDao()
             val blockDao = db.blockDao()
-            val note = withContext(Dispatchers.IO) { noteDao.getByIdOnce(noteId) }
+            val note = withContext(Dispatchers.IO) { noteDao.getByIdOnce(targetNoteId) }
             if (note != null) {
                 val lat = note.lat
                 val lon = note.lon
@@ -374,6 +414,89 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 }
             }
         }
+    }
+
+    private fun loadReminderForEdit(reminderId: Long) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val appContext = requireContext().applicationContext
+            val db = obtainDatabase(appContext)
+            val reminder = withContext(Dispatchers.IO) { db.reminderDao().getById(reminderId) }
+            if (reminder == null) {
+                Log.w(TAG, "loadReminderForEdit: reminderId=$reminderId not found")
+                if (isAdded) {
+                    dismissAllowingStateLoss()
+                }
+                return@launch
+            }
+            editingReminder = reminder
+            noteIdValue = reminder.noteId
+            labelInput.editText?.setText(reminder.label)
+            when (reminder.type) {
+                ReminderEntity.TYPE_TIME_ONE_SHOT, ReminderEntity.TYPE_TIME_REPEATING -> {
+                    toggleGroup.check(R.id.btnModeTime)
+                    setSelectedDateTime(reminder.nextTriggerAt, "edit_load")
+                    applyRepeatSelection(reminder.repeatEveryMinutes)
+                }
+                ReminderEntity.TYPE_LOC_ONCE, ReminderEntity.TYPE_LOC_EVERY -> {
+                    toggleGroup.check(R.id.btnModePlace)
+                    selectedLat = reminder.lat
+                    selectedLon = reminder.lon
+                    selectedLabel = null
+                    val radius = reminder.radius ?: DEFAULT_RADIUS_METERS
+                    radiusInput.editText?.setText(radius.toString())
+                    val cooldown = reminder.cooldownMinutes
+                    if (cooldown != null) {
+                        cooldownInput.editText?.setText(cooldown.toString())
+                    } else {
+                        cooldownInput.editText?.setText(null)
+                    }
+                    everySwitch.isChecked = reminder.type == ReminderEntity.TYPE_LOC_EVERY
+                    geoTriggerOnExit = reminder.isExit()
+                    geoTriggerToggle.check(if (geoTriggerOnExit) R.id.btnGeoTriggerExit else R.id.btnGeoTriggerEnter)
+                    startingInsideGeofence = false
+                    updateLocationPreview()
+                    repeatEveryMinutes = null
+                    repeatSelectionValid = true
+                }
+                else -> {
+                    toggleGroup.check(R.id.btnModeTime)
+                    setSelectedDateTime(reminder.nextTriggerAt, "edit_load_other")
+                    applyRepeatSelection(reminder.repeatEveryMinutes)
+                }
+            }
+            updatePrimaryButtonsLabel()
+            updatePlanTimeButtonState()
+        }
+    }
+
+    private fun applyRepeatSelection(minutes: Int?) {
+        when {
+            minutes == null -> {
+                radioRepeat.check(R.id.radioRepeatNever)
+            }
+            RepeatPreset.values().any { it.minutes == minutes } -> {
+                radioRepeat.check(R.id.radioRepeatPreset)
+                val index = RepeatPreset.values().indexOfFirst { it.minutes == minutes }
+                if (index >= 0) {
+                    spinnerRepeatPreset.setSelection(index)
+                }
+            }
+            else -> {
+                radioRepeat.check(R.id.radioRepeatCustom)
+                val minutesPerDay = 24 * 60
+                val (quantity, unit) = when {
+                    minutes % minutesPerDay == 0 -> minutes / minutesPerDay to CustomRepeatUnit.DAYS
+                    minutes % 60 == 0 -> minutes / 60 to CustomRepeatUnit.HOURS
+                    else -> minutes to CustomRepeatUnit.MINUTES
+                }
+                spinnerRepeatCustomUnit.setSelection(unit.ordinal)
+                editRepeatCustom.setText(quantity.toString())
+            }
+        }
+        repeatEveryMinutes = minutes
+        repeatSelectionValid = true
+        updateRepeatControlsVisibility(radioRepeat.checkedRadioButtonId)
+        updateRepeatEveryMinutes("edit_prefill")
     }
 
     private fun showTimePicker() {
@@ -446,7 +569,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         ).show()
     }
 
-    private fun scheduleTimeReminder(timeMillis: Long) {
+    private fun saveTimeReminder(timeMillis: Long) {
+        if (isEditing && editingReminder == null) {
+            Log.w(TAG, "saveTimeReminder(): editing reminder not loaded yet")
+            return
+        }
         if (!updateRepeatEveryMinutes("schedule")) {
             if (radioRepeat.checkedRadioButtonId == R.id.radioRepeatCustom) {
                 editRepeatCustom.requestFocus()
@@ -469,12 +596,22 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             val whenWithRepeat = repeatText?.let { "$whenText • $it" } ?: whenText
             runCatching {
                 withContext(Dispatchers.IO) {
-                    reminderUseCases.scheduleAtEpoch(
-                        noteId = noteId,
-                        timeMillis = timeMillis,
-                        label = label,
-                        repeatEveryMinutes = repeatEveryMinutes
-                    )
+                    val current = editingReminder
+                    if (current == null) {
+                        reminderUseCases.scheduleAtEpoch(
+                            noteId = noteId,
+                            timeMillis = timeMillis,
+                            label = label,
+                            repeatEveryMinutes = repeatEveryMinutes
+                        )
+                    } else {
+                        reminderUseCases.updateTimeReminder(
+                            reminderId = current.id,
+                            nextTriggerAt = timeMillis,
+                            label = label,
+                            repeatEveryMinutes = repeatEveryMinutes
+                        )
+                    }
                 }
                 ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             }.onSuccess {
@@ -493,7 +630,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 .show()
             return
         }
-        scheduleTimeReminder(timeMillis)
+        saveTimeReminder(timeMillis)
     }
 
     private fun attemptScheduleGeoReminderWithPermissions() {
@@ -505,7 +642,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             return
         }
 
-        val action = { scheduleGeoReminder() }
+        val action = { saveGeoReminder() }
         ensureGeofencePermissions(action)
     }
 
@@ -568,12 +705,20 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         onReady()
     }
 
-    private fun scheduleGeoReminder() {
+    private fun saveGeoReminder() {
+        if (isEditing && editingReminder == null) {
+            Log.w(TAG, "saveGeoReminder(): editing reminder not loaded yet")
+            return
+        }
         val lat = selectedLat
         val lon = selectedLon
         if (lat == null || lon == null) {
             Toast.makeText(requireContext(), getString(R.string.reminder_geo_location_missing), Toast.LENGTH_SHORT)
                 .show()
+            return
+        }
+        val cooldownMinutes = resolveCooldownMinutes()
+        if (cooldownInput.error != null) {
             return
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -584,16 +729,31 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             val every = everySwitch.isChecked
             runCatching {
                 withContext(Dispatchers.IO) {
-                    reminderUseCases.scheduleGeofence(
-                        noteId = noteId,
-                        lat = lat,
-                        lon = lon,
-                        radiusMeters = radius,
-                        every = every,
-                        label = label,
-                        triggerOnExit = geoTriggerOnExit,
-                        startingInside = startingInsideGeofence
-                    )
+                    val current = editingReminder
+                    if (current == null) {
+                        reminderUseCases.scheduleGeofence(
+                            noteId = noteId,
+                            lat = lat,
+                            lon = lon,
+                            radiusMeters = radius,
+                            every = every,
+                            label = label,
+                            cooldownMinutes = cooldownMinutes,
+                            triggerOnExit = geoTriggerOnExit,
+                            startingInside = startingInsideGeofence
+                        )
+                    } else {
+                        reminderUseCases.updateGeofenceReminder(
+                            reminderId = current.id,
+                            lat = lat,
+                            lon = lon,
+                            radius = radius,
+                            every = every,
+                            disarmedUntilExit = geoTriggerOnExit,
+                            cooldownMinutes = cooldownMinutes,
+                            label = label
+                        )
+                    }
                 }
                 ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             }.onSuccess {
@@ -691,6 +851,22 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         return parsed?.takeIf { it > 0 } ?: DEFAULT_RADIUS_METERS
     }
 
+    private fun resolveCooldownMinutes(): Int? {
+        val text = cooldownInput.editText?.text?.toString()?.trim()
+        if (text.isNullOrEmpty()) {
+            cooldownInput.error = null
+            return null
+        }
+        val parsed = text.toIntOrNull()
+        return if (parsed == null || parsed < 0) {
+            cooldownInput.error = getString(R.string.reminder_geo_cooldown_error)
+            null
+        } else {
+            cooldownInput.error = null
+            parsed
+        }
+    }
+
     private fun geoTriggerLabelLong(): String {
         val resId = if (geoTriggerOnExit) {
             R.string.reminder_geo_trigger_exit
@@ -735,6 +911,13 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         } ?: run {
             Toast.makeText(ctx, formatted, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun updatePrimaryButtonsLabel() {
+        if (!::planTimeButton.isInitialized || !::planGeoButton.isInitialized) return
+        val textRes = if (isEditing) R.string.reminder_save else R.string.reminder_plan
+        planTimeButton.text = getString(textRes)
+        planGeoButton.text = getString(textRes)
     }
 
     private fun updateLocationPreview() {

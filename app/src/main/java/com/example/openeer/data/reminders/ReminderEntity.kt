@@ -43,5 +43,21 @@ data class ReminderEntity(
     val cooldownMinutes: Int? = null,
     val repeatEveryMinutes: Int? = null,
     val triggerOnExit: Boolean = false,
+    val disarmedUntilExit: Boolean = false,
     val armedAt: Long? = null
-)
+) {
+
+    enum class Transition { ENTER, EXIT }
+
+    fun isExit(): Boolean = disarmedUntilExit || triggerOnExit
+
+    val transition: Transition
+        get() = if (isExit()) Transition.EXIT else Transition.ENTER
+
+    companion object {
+        const val TYPE_TIME_ONE_SHOT = "TIME_ONE_SHOT"
+        const val TYPE_TIME_REPEATING = "TIME_REPEATING"
+        const val TYPE_LOC_ONCE = "LOC_ONCE"
+        const val TYPE_LOC_EVERY = "LOC_EVERY"
+    }
+}
