@@ -69,6 +69,8 @@
     <string name="reminder_action_snooze_5">Snooze 5 min</string>
     <string name="reminder_action_snooze_60">Snooze 1 h</string>
     <string name="reminder_action_cancel">Annuler</string>
+    <string name="reminder_action_pause">Mettre en pause</string>
+    <string name="reminder_action_resume">Reprendre</string>
     <string name="map_menu_create_reminder_time">Créer un rappel (temps)</string>
     <string name="map_menu_create_reminder_geo_once">Quand je repasse ici</string>
     <string name="map_menu_create_reminder_geo_every">À chaque fois que je repasse ici</string>

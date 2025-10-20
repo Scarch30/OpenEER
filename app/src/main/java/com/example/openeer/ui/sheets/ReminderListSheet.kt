@@ -288,10 +288,18 @@ class ReminderListSheet : BottomSheetDialogFragment() {
                 text = ctx.getString(R.string.reminder_action_cancel)
                 isAllCaps = false
             }
+            val pauseResumeButton = MaterialButton(ContextThemeWrapper(ctx, textButtonStyle)).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = spacing }
+                isAllCaps = false
+            }
 
             buttonsRow.addView(snooze5Button)
             buttonsRow.addView(snooze60Button)
             buttonsRow.addView(cancelButton)
+            buttonsRow.addView(pauseResumeButton)
 
             container.addView(titleView)
             container.addView(subtitleView)
@@ -304,6 +312,7 @@ class ReminderListSheet : BottomSheetDialogFragment() {
                 snooze5Button,
                 snooze60Button,
                 cancelButton,
+                pauseResumeButton,
                 buttonsRow
             )
         }
@@ -319,6 +328,7 @@ class ReminderListSheet : BottomSheetDialogFragment() {
             private val snooze5Button: MaterialButton,
             private val snooze60Button: MaterialButton,
             private val cancelButton: MaterialButton,
+            private val pauseResumeButton: MaterialButton,
             private val buttonsRow: LinearLayout
         ) : RecyclerView.ViewHolder(itemView) {
 
@@ -339,11 +349,20 @@ class ReminderListSheet : BottomSheetDialogFragment() {
                     subtitleView.text = subtitle
                 }
 
-                val isActive = item.entity.status == "ACTIVE"
+                val isActive = item.entity.status == ReminderEntity.STATUS_ACTIVE
                 buttonsRow.alpha = if (isActive) 1f else 0.6f
                 snooze5Button.isEnabled = isActive
                 snooze60Button.isEnabled = isActive
                 cancelButton.isEnabled = isActive
+                val showPauseResume = item.entity.status == ReminderEntity.STATUS_ACTIVE ||
+                    item.entity.status == ReminderEntity.STATUS_PAUSED
+                pauseResumeButton.visibility = if (showPauseResume) View.VISIBLE else View.GONE
+                pauseResumeButton.isEnabled = false
+                pauseResumeButton.text = when (item.entity.status) {
+                    ReminderEntity.STATUS_ACTIVE -> ctx.getString(R.string.reminder_action_pause)
+                    ReminderEntity.STATUS_PAUSED -> ctx.getString(R.string.reminder_action_resume)
+                    else -> ""
+                }
 
                 snooze5Button.setOnClickListener { onSnooze(item.entity, 5) }
                 snooze60Button.setOnClickListener { onSnooze(item.entity, 60) }

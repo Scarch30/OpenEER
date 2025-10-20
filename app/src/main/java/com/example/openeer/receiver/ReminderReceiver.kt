@@ -159,6 +159,13 @@ class ReminderReceiver : BroadcastReceiver() {
                     ?.take(160)
                 val reminder = reminderDao.getById(reminderId)
                 reminder?.let { logReminderDump("handleFireAlarm", it) }
+                if (reminder?.status != ReminderEntity.STATUS_ACTIVE) {
+                    Log.d(
+                        TAG,
+                        "handleFireAlarm: reminderId=$reminderId ignored status=${reminder?.status}"
+                    )
+                    return@launch
+                }
                 val repeatMinutes = reminder?.repeatEveryMinutes
                 val intervalLabel = repeatMinutes?.let { "${it}m" } ?: "once"
                 val now = System.currentTimeMillis()
@@ -321,6 +328,13 @@ class ReminderReceiver : BroadcastReceiver() {
         val reminder = reminderDao.getById(reminderId)
         if (reminder == null) {
             Log.w(TAG, "handleGeofence: reminderId=$reminderId not found")
+            return
+        }
+        if (reminder.status != ReminderEntity.STATUS_ACTIVE) {
+            Log.d(
+                TAG,
+                "handleGeofence: reminderId=$reminderId status=${reminder.status} -> ignore"
+            )
             return
         }
         logReminderDump("handleGeofence", reminder)

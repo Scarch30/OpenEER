@@ -47,4 +47,10 @@ interface ReminderDao {
 
     @Query("UPDATE reminders SET status='CANCELLED' WHERE id = :id")
     suspend fun cancelById(id: Long)
+
+    @Query("UPDATE reminders SET status='PAUSED' WHERE id = :id")
+    suspend fun pause(id: Long)
+
+    @Query("UPDATE reminders SET status='ACTIVE' WHERE id = :id")
+    suspend fun resume(id: Long)
 }

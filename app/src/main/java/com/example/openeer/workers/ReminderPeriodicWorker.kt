@@ -9,6 +9,7 @@ import androidx.work.WorkerParameters
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.receiver.ReminderReceiver
+import com.example.openeer.data.reminders.ReminderEntity.Companion.STATUS_ACTIVE
 
 class ReminderPeriodicWorker(
     appContext: Context,
@@ -69,7 +70,6 @@ class ReminderPeriodicWorker(
     companion object {
         private const val TAG = "ReminderPeriodicW"
         internal const val KEY_REMINDER_ID = "key_reminder_id"
-        private const val STATUS_ACTIVE = "ACTIVE"
         private const val MIN_PERIODIC_MINUTES = 15
 
         internal fun workName(reminderId: Long): String = "reminder-periodic-$reminderId"
