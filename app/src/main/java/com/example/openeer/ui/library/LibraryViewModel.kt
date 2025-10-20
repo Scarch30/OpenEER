@@ -55,6 +55,18 @@ class LibraryViewModel(
         }
     }
 
+    suspend fun collectCascade(noteId: Long): Set<Long> {
+        return withContext(Dispatchers.IO) {
+            noteRepo.collectCascade(noteId)
+        }
+    }
+
+    suspend fun deleteCascade(rootId: Long, cascadeIds: Set<Long>): Set<Long> {
+        return withContext(Dispatchers.IO) {
+            noteRepo.deleteNoteCascade(rootId, cascadeIds)
+        }
+    }
+
     companion object {
         fun create(context: Context, db: AppDatabase): LibraryViewModel {
             val repo = SearchRepository(

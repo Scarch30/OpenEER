@@ -11,6 +11,8 @@ import com.example.openeer.data.merge.computeBlockHash
 import com.example.openeer.data.merge.toSnapshot
 import com.example.openeer.domain.ReminderUseCases
 import com.google.gson.Gson
+import kotlin.collections.ArrayDeque
+import kotlin.collections.LinkedHashSet
 import kotlin.collections.buildList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -46,6 +48,55 @@ class NoteRepository(
                 }
             noteDao.deleteById(id)
         }
+    }
+
+    suspend fun collectCascade(noteId: Long): Set<Long> = withContext(Dispatchers.IO) {
+        collectCascadeIds(noteId)
+    }
+
+    suspend fun deleteNoteCascade(rootId: Long, cascadeIds: Set<Long>? = null): Set<Long> =
+        withContext(Dispatchers.IO) {
+            val ids = cascadeIds?.let { LinkedHashSet(it) } ?: collectCascadeIds(rootId)
+            if (ids.isEmpty()) return@withContext emptySet()
+
+            val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val reminderUseCases = ReminderUseCases(appContext, database, alarmManager)
+
+            ids.forEach { id ->
+                runCatching { reminderUseCases.cancelAllForNote(id) }
+                    .onFailure { error ->
+                        Log.w(TAG, "Failed to cancel reminders before deleting noteId=$id", error)
+                    }
+            }
+
+            database.runInTransaction {
+                if (ids.isNotEmpty()) {
+                    noteDao.deleteMergeMaps(ids.toList())
+                    ids.forEach { noteDao.deleteById(it) }
+                }
+            }
+
+            ids
+        }
+
+    private suspend fun collectCascadeIds(rootId: Long): LinkedHashSet<Long> {
+        val visited = LinkedHashSet<Long>()
+        val queue = ArrayDeque<Long>()
+        queue.add(rootId)
+
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            if (!visited.add(current)) continue
+
+            val children = noteDao.getMergedChildren(current)
+            for (child in children) {
+                if (!visited.contains(child)) {
+                    queue.add(child)
+                }
+            }
+        }
+
+        return visited
     }
 
     suspend fun createNoteAtStart(

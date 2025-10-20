@@ -16,8 +16,8 @@ import android.view.ViewGroup
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ActionMode
-import androidx.fragment.app.Fragment
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.openeer.R
@@ -29,10 +29,13 @@ import com.example.openeer.ui.MainActivity
 import com.example.openeer.ui.NotesAdapter
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class LibraryFragment : Fragment() {
 
@@ -45,7 +48,10 @@ class LibraryFragment : Fragment() {
     private var debounceJob: Job? = null
     private var actionMode: ActionMode? = null
     private val selectedIds = linkedSetOf<Long>()
+    private var baseItems: List<Note> = emptyList()
     private var currentItems: List<Note> = emptyList()
+    private val pendingDeletionIds = mutableSetOf<Long>()
+    private val pendingDeletions = mutableMapOf<Long, PendingDeletion>()
     private var mergeReceiverRegistered = false
 
     private val mergeReceiver = object : BroadcastReceiver() {
@@ -55,14 +61,12 @@ class LibraryFragment : Fragment() {
                     val ids = intent.getLongArrayExtra(EXTRA_MERGED_SOURCE_IDS) ?: return
                     if (ids.isEmpty()) return
                     val toHide = ids.toSet()
-                    if (currentItems.none { it.id in toHide }) return
+                    if (baseItems.none { it.id in toHide }) return
 
                     selectedIds.removeAll(toHide)
-                    currentItems = currentItems.filterNot { it.id in toHide }
-                    adapter.submitList(currentItems)
-                    adapter.selectedIds = selectedIds
-                    b.emptyView.visibility = if (currentItems.isEmpty()) View.VISIBLE else View.GONE
-                    reconcileSelection()
+                    pendingDeletionIds.removeAll(toHide)
+                    baseItems = baseItems.filterNot { it.id in toHide }
+                    refreshAdapterItems()
                 }
                 ACTION_REFRESH_LIBRARY -> {
                     vm.refresh()
@@ -127,11 +131,10 @@ class LibraryFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             vm.items.collectLatest { list ->
                 val visible = list.filterNot { it.isMerged }
-                currentItems = visible
-                adapter.submitList(visible)
-                adapter.selectedIds = selectedIds
-                b.emptyView.visibility = if (visible.isEmpty()) View.VISIBLE else View.GONE
-                reconcileSelection()
+                baseItems = visible
+                val visibleIds = visible.map { it.id }.toSet()
+                pendingDeletionIds.retainAll(visibleIds)
+                refreshAdapterItems()
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -177,8 +180,17 @@ class LibraryFragment : Fragment() {
         }
     }
 
+    private fun refreshAdapterItems() {
+        val filtered = baseItems.filterNot { pendingDeletionIds.contains(it.id) }
+        currentItems = filtered
+        adapter.submitList(filtered)
+        adapter.selectedIds = selectedIds
+        b.emptyView.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        reconcileSelection()
+    }
+
     private fun reconcileSelection() {
-        val idsInList = currentItems.filterNot { it.isMerged }.map { it.id }.toSet()
+        val idsInList = currentItems.map { it.id }.toSet()
         val removed = selectedIds.removeAll { it !in idsInList }
         if (removed) {
             if (selectedIds.isEmpty()) {
@@ -200,6 +212,7 @@ class LibraryFragment : Fragment() {
 
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
             menu.findItem(R.id.action_merge)?.isEnabled = selectedIds.size >= 2
+            menu.findItem(R.id.action_delete)?.isEnabled = selectedIds.size == 1
             return true
         }
 
@@ -207,6 +220,10 @@ class LibraryFragment : Fragment() {
             return when (item.itemId) {
                 R.id.action_merge -> {
                     showMergeDialog()
+                    true
+                }
+                R.id.action_delete -> {
+                    promptDeleteSelectedNote()
                     true
                 }
                 else -> false
@@ -243,6 +260,102 @@ class LibraryFragment : Fragment() {
                 }
             }
             .show()
+    }
+
+    private fun promptDeleteSelectedNote() {
+        val noteId = selectedIds.firstOrNull() ?: return
+        val note = currentItems.firstOrNull { it.id == noteId }
+            ?: baseItems.firstOrNull { it.id == noteId }
+            ?: return
+        if (pendingDeletions.containsKey(note.id)) {
+            Snackbar.make(b.root, getString(R.string.library_delete_pending), Snackbar.LENGTH_SHORT).show()
+            return
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setMessage(R.string.library_delete_primary_message)
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.library_delete_primary_positive) { _, _ ->
+                showDeleteCascadeConfirmation(note)
+            }
+            .show()
+    }
+
+    private fun showDeleteCascadeConfirmation(note: Note) {
+        AlertDialog.Builder(requireContext())
+            .setMessage(R.string.library_delete_secondary_message)
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.library_delete_secondary_positive) { _, _ ->
+                scheduleNoteDeletion(note)
+            }
+            .show()
+    }
+
+    private fun scheduleNoteDeletion(note: Note) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val cascade = runCatching { vm.collectCascade(note.id) }
+                .onFailure {
+                    Snackbar.make(b.root, getString(R.string.library_delete_failed), Snackbar.LENGTH_SHORT).show()
+                }
+                .getOrNull() ?: return@launch
+
+            if (cascade.isEmpty()) {
+                Snackbar.make(b.root, getString(R.string.library_delete_failed), Snackbar.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            if (pendingDeletions.containsKey(note.id)) {
+                Snackbar.make(b.root, getString(R.string.library_delete_pending), Snackbar.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            startPendingDeletion(note.id, cascade)
+        }
+    }
+
+    private fun startPendingDeletion(rootId: Long, cascade: Set<Long>) {
+        clearSelection()
+        pendingDeletionIds.addAll(cascade)
+        refreshAdapterItems()
+
+        val snackbar = Snackbar.make(b.root, getString(R.string.library_delete_snackbar), Snackbar.LENGTH_INDEFINITE)
+        snackbar.duration = 5000
+        snackbar.setAction(R.string.action_undo) { undoPendingDeletion(rootId) }
+
+        val job = viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                delay(5000)
+                vm.deleteCascade(rootId, cascade)
+                withContext(Dispatchers.Main.immediate) {
+                    pendingDeletions.remove(rootId)?.snackbar?.dismiss()
+                    pendingDeletionIds.removeAll(cascade)
+                    refreshAdapterItems()
+                    vm.refresh()
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                withContext(Dispatchers.Main.immediate) {
+                    pendingDeletions.remove(rootId)?.snackbar?.dismiss()
+                    pendingDeletionIds.removeAll(cascade)
+                    refreshAdapterItems()
+                    Snackbar.make(b.root, getString(R.string.library_delete_failed), Snackbar.LENGTH_SHORT).show()
+                    vm.refresh()
+                }
+            }
+        }
+
+        pendingDeletions[rootId] = PendingDeletion(cascade, job, snackbar)
+        snackbar.show()
+    }
+
+    private fun undoPendingDeletion(rootId: Long) {
+        val pending = pendingDeletions.remove(rootId) ?: return
+        pending.job.cancel()
+        pending.snackbar.dismiss()
+        pendingDeletionIds.removeAll(pending.ids)
+        refreshAdapterItems()
+        Snackbar.make(b.root, getString(R.string.library_delete_undo_success), Snackbar.LENGTH_SHORT).show()
     }
 
     private fun formatNoteLabel(note: Note): String {
@@ -341,6 +454,12 @@ class LibraryFragment : Fragment() {
             mergeReceiverRegistered = false
         }
         actionMode?.finish()
+        pendingDeletions.values.forEach {
+            it.job.cancel()
+            it.snackbar.dismiss()
+        }
+        pendingDeletions.clear()
+        pendingDeletionIds.clear()
         _b = null
     }
 
@@ -352,3 +471,9 @@ class LibraryFragment : Fragment() {
         fun newInstance() = LibraryFragment()
     }
 }
+
+private data class PendingDeletion(
+    val ids: Set<Long>,
+    val job: Job,
+    val snackbar: Snackbar,
+)

@@ -6,4 +6,9 @@
         android:title="@string/library_action_merge"
         android:icon="@android:drawable/ic_menu_upload"
         app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_delete"
+        android:title="@string/library_action_delete"
+        android:icon="@android:drawable/ic_menu_delete"
+        app:showAsAction="ifRoom" />
 </menu>

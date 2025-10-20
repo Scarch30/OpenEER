@@ -260,6 +260,7 @@
 
     <string name="library_title">Bibliothèque</string>
     <string name="library_action_merge">Fusionner…</string>
+    <string name="library_action_delete">Supprimer</string>
     <string name="library_merge_dialog_title">Choisir la note cible</string>
     <string name="library_merge_dialog_message">Sélectionnez la note à conserver dans la fusion.</string>
     <string name="library_merge_positive">Fusionner</string>
@@ -274,6 +275,14 @@
     <string name="library_note_meta_merged">%1$s • Fusionnée</string>
     <string name="library_merge_untitled_placeholder">(vide)</string>
     <string name="library_note_already_merged">Note déjà fusionnée</string>
+    <string name="library_delete_primary_message">Attention, vous allez supprimer cette note. Voulez-vous vraiment supprimer cette note ?</string>
+    <string name="library_delete_secondary_message">Cette action supprimera aussi toutes les notes filles liées et tous les rappels associés. Confirmez-vous la suppression définitive ?</string>
+    <string name="library_delete_primary_positive">Supprimer</string>
+    <string name="library_delete_secondary_positive">Supprimer définitivement</string>
+    <string name="library_delete_snackbar">Note et éléments liés supprimés</string>
+    <string name="library_delete_failed">Suppression impossible</string>
+    <string name="library_delete_undo_success">Suppression annulée</string>
+    <string name="library_delete_pending">Suppression déjà en cours…</string>
 
     <string name="note_menu_merge_with">Fusionner avec…</string>
     <string name="note_merge_dialog_title">Fusionner avec…</string>
