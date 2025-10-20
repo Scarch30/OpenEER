@@ -940,7 +940,13 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             val alarm = requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val use = ReminderUseCases(requireContext().applicationContext, db, alarm)
             val id = withContext(Dispatchers.IO) {
-                use.scheduleGeofence(noteId, lat, lon, radius, every, blockId = null)
+                use.scheduleGeofence(
+                    noteId = noteId,
+                    lat = lat,
+                    lon = lon,
+                    radiusMeters = radius,
+                    every = every,
+                )
             }
             Log.d(TAG, "GeoFlow → scheduleGeofence done id=$id")
         }

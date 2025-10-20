@@ -129,20 +129,9 @@ class ReminderListSheet : BottomSheetDialogFragment() {
             val items = withContext(Dispatchers.IO) {
                 val db = AppDatabase.getInstance(appCtx)
                 val reminderDao = db.reminderDao()
-                val blockDao = db.blockDao()
                 val reminders = reminderDao.listForNoteOrdered(noteId)
-                val cache = mutableMapOf<Long, String?>()
                 reminders.map { reminder ->
-                    val label = reminder.blockId?.let { blockId ->
-                        cache.getOrPut(blockId) {
-                            blockDao.getById(blockId)?.text
-                                ?.lineSequence()
-                                ?.firstOrNull()
-                                ?.removePrefix("⏰")
-                                ?.trim()
-                                ?.takeIf { it.isNotEmpty() }
-                        }
-                    }
+                    val label = reminder.label?.takeIf { it.isNotBlank() }
                     ReminderItem(reminder, label)
                 }
             }
@@ -175,12 +164,6 @@ class ReminderListSheet : BottomSheetDialogFragment() {
                 val alarmManager = appCtx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                 val useCases = ReminderUseCases(appCtx, db, alarmManager)
                 useCases.cancel(reminder.id)
-                db.reminderDao().update(
-                    reminder.copy(
-                        status = "CANCELLED",
-                        lastFiredAt = System.currentTimeMillis()
-                    )
-                )
             }
             notifyChangedBroadcast(appCtx, noteId)
             reloadReminders()
@@ -299,9 +282,9 @@ class ReminderListSheet : BottomSheetDialogFragment() {
 
             private fun buildTitle(ctx: Context, item: ReminderItem): String {
                 val builder = StringBuilder()
-                val blockLabel = item.blockLabel
-                if (!blockLabel.isNullOrBlank()) {
-                    builder.append(blockLabel)
+                val explicitLabel = item.label
+                if (!explicitLabel.isNullOrBlank()) {
+                    builder.append(explicitLabel)
                 } else {
                     val entity = item.entity
                     val lat = entity.lat
@@ -346,6 +329,6 @@ class ReminderListSheet : BottomSheetDialogFragment() {
 
     private data class ReminderItem(
         val entity: ReminderEntity,
-        val blockLabel: String?,
+        val label: String?,
     )
 }

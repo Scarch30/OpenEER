@@ -26,14 +26,14 @@ object ReminderNotifier {
         ctx: Context,
         noteId: Long,
         reminderId: Long,
-        title: String?,
+        label: String?,
+        noteTitle: String?,
         preview: String?,
-        overrideText: String? = null,
     ) {
         val notificationTitle = ctx.getString(R.string.notif_title_reminder)
         val resolvedTitle = notificationTitle.ifBlank { "Rappel OpenEER" }
-        val notificationText = overrideText?.takeIf { it.isNotBlank() } ?: when {
-            !title.isNullOrBlank() -> ctx.getString(R.string.notif_text_note_title, title)
+        val notificationText = label?.takeIf { it.isNotBlank() } ?: when {
+            !noteTitle.isNullOrBlank() -> ctx.getString(R.string.notif_text_note_title, noteTitle)
             !preview.isNullOrBlank() -> preview
             else -> ctx.getString(R.string.notif_text_no_title)
         }

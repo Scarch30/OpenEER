@@ -40,7 +40,7 @@ import com.example.openeer.data.tag.TagEntity
         BlockLinkEntity::class,
         ReminderEntity::class
     ],
-    version = 15, // 🔼 bump : ajout rappels (ReminderEntity) + repeatEveryMinutes + armedAt + triggerOnExit
+    version = 16, // 🔼 bump : ajout rappels (ReminderEntity) + repeatEveryMinutes + armedAt + triggerOnExit + label
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -380,6 +380,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // 15 -> 16 : ajout du label des rappels
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE reminders ADD COLUMN label TEXT")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -401,7 +408,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_11_12,
                         MIGRATION_12_13,
                         MIGRATION_13_14,
-                        MIGRATION_14_15
+                        MIGRATION_14_15,
+                        MIGRATION_15_16
                     )
                     .build()
                     .also { INSTANCE = it }

@@ -32,6 +32,7 @@ data class ReminderEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val noteId: Long,
     val blockId: Long? = null,
+    val label: String? = null,
     val type: String,
     val nextTriggerAt: Long,
     val lastFiredAt: Long? = null,
