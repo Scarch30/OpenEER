@@ -80,9 +80,6 @@ class RecorderService : Service() {
                 body  = "(audio en cours d’enregistrement…)",
                 lat   = place?.lat, lon = place?.lon, place = place?.label
             )
-            if (place != null) {
-                blocksRepo.appendLocation(noteId, place.lat, place.lon, place.label)
-            }
         }
 
         pcm = PcmRecorder(this).also { rec ->

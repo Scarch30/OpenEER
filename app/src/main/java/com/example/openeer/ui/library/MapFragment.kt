@@ -104,10 +104,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var targetBlockId: Long? = null
     internal var pendingBlockFocus: Long? = null
     internal var startMode: String? = null
+    private var pickModeOverride = false
     internal var isStyleReady = false
 
     internal val isPickMode: Boolean
-        get() = startMode == MapActivity.MODE_PICK_LOCATION
+        get() = pickModeOverride || startMode == MapActivity.MODE_PICK_LOCATION
 
     private val showLibraryPins: Boolean
         get() = arguments?.getBoolean(ARG_SHOW_LIBRARY_PINS, false) == true
@@ -192,6 +193,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         const val STATE_BLOCK_ID = "state_block_id"
         const val STATE_MODE = "state_mode"
         const val ARG_SHOW_LIBRARY_PINS = "arg_show_library_pins"
+        const val ARG_PICK_MODE = "arg_pick_mode"
+        const val STATE_PICK_MODE = "state_pick_mode"
         const val RESULT_MANUAL_ROUTE = "result_manual_route"
         const val RESULT_MANUAL_ROUTE_LAT = "result_manual_route_lat"
         const val RESULT_MANUAL_ROUTE_LON = "result_manual_route_lon"
@@ -211,7 +214,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             noteId: Long? = null,
             blockId: Long? = null,
             mode: String? = null,
-            showLibraryPins: Boolean = false
+            showLibraryPins: Boolean = false,
+            pickMode: Boolean = false,
         ): MapFragment =
             MapFragment().apply {
                 arguments = Bundle().apply {
@@ -219,6 +223,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                     if (blockId != null && blockId > 0) putLong(ARG_BLOCK_ID, blockId)
                     if (!mode.isNullOrBlank()) putString(ARG_MODE, mode)
                     putBoolean(ARG_SHOW_LIBRARY_PINS, showLibraryPins)
+                    putBoolean(ARG_PICK_MODE, pickMode)
                 }
             }
     }
@@ -249,12 +254,18 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             ?: arguments?.getLong(ARG_NOTE_ID, -1L)?.takeIf { it > 0 }
         targetBlockId = savedInstanceState?.getLong(STATE_BLOCK_ID, -1L)?.takeIf { it > 0 }
             ?: arguments?.getLong(ARG_BLOCK_ID, -1L)?.takeIf { it > 0 }
-        startMode = when (val mode = savedInstanceState?.getString(STATE_MODE) ?: arguments?.getString(ARG_MODE)) {
-            MapActivity.MODE_BROWSE,
-            MapActivity.MODE_CENTER_ON_HERE,
-            MapActivity.MODE_FOCUS_NOTE,
-            MapActivity.MODE_PICK_LOCATION -> mode
-            else -> MapActivity.MODE_BROWSE
+        pickModeOverride = savedInstanceState?.getBoolean(STATE_PICK_MODE)
+            ?: arguments?.getBoolean(ARG_PICK_MODE)
+            ?: false
+        startMode = when {
+            pickModeOverride -> MapActivity.MODE_PICK_LOCATION
+            else -> when (val mode = savedInstanceState?.getString(STATE_MODE) ?: arguments?.getString(ARG_MODE)) {
+                MapActivity.MODE_BROWSE,
+                MapActivity.MODE_CENTER_ON_HERE,
+                MapActivity.MODE_FOCUS_NOTE,
+                MapActivity.MODE_PICK_LOCATION -> mode
+                else -> MapActivity.MODE_BROWSE
+            }
         }
         setHasOptionsMenu(!isPickMode)
         Log.d(TAG, "Starting map with mode=$startMode note=$targetNoteId block=$targetBlockId")
@@ -761,6 +772,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         targetNoteId?.let { outState.putLong(STATE_NOTE_ID, it) }
         targetBlockId?.let { outState.putLong(STATE_BLOCK_ID, it) }
         startMode?.let { outState.putString(STATE_MODE, it) }
+        if (pickModeOverride) {
+            outState.putBoolean(STATE_PICK_MODE, true)
+        }
     }
 
     // MapView lifecycle

@@ -32,10 +32,17 @@ class MapActivity : AppCompatActivity() {
             val noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L).takeIf { it > 0 }
             val blockId = intent.getLongExtra(EXTRA_BLOCK_ID, -1L).takeIf { it > 0 }
             val mode = intent.getStringExtra(EXTRA_MODE)
+            val isPickMode = intent.getBooleanExtra(EXTRA_PICK_MODE, false)
             // 🔹 nouveau : lit l’extra pour afficher (ou non) les pastilles Library
             val showPins = intent.getBooleanExtra(EXTRA_SHOW_LIBRARY_PINS, false)
 
-            val fragment = MapFragment.newInstance(noteId, blockId, mode, showPins)
+            val fragment = MapFragment.newInstance(
+                noteId = noteId,
+                blockId = blockId,
+                mode = mode,
+                showLibraryPins = showPins,
+                pickMode = isPickMode
+            )
             supportFragmentManager
                 .beginTransaction()
                 .replace(R.id.map_container, fragment, MAP_FRAGMENT_TAG)
@@ -113,7 +120,9 @@ class MapActivity : AppCompatActivity() {
         const val EXTRA_NOTE_ID = "com.example.openeer.map.EXTRA_NOTE_ID"
         const val EXTRA_BLOCK_ID = "com.example.openeer.map.EXTRA_BLOCK_ID"
         const val EXTRA_MODE = "com.example.openeer.map.EXTRA_MODE"
-        const val EXTRA_IS_PICK_MODE = "com.example.openeer.map.EXTRA_IS_PICK_MODE"
+        const val EXTRA_PICK_MODE = "com.example.openeer.map.EXTRA_PICK_MODE"
+        @Deprecated("Use EXTRA_PICK_MODE")
+        const val EXTRA_IS_PICK_MODE = EXTRA_PICK_MODE
         // 🔹 nouveau : extra pour activer l’overlay des pastilles (vue Library)
         const val EXTRA_SHOW_LIBRARY_PINS = "com.example.openeer.map.EXTRA_SHOW_LIBRARY_PINS"
 
@@ -169,7 +178,7 @@ class MapActivity : AppCompatActivity() {
             noteId: Long? = null,
         ): Intent = Intent(context, MapActivity::class.java).apply {
             putExtra(EXTRA_MODE, MODE_PICK_LOCATION)
-            putExtra(EXTRA_IS_PICK_MODE, true)
+            putExtra(EXTRA_PICK_MODE, true)
             noteId?.takeIf { it > 0 }?.let { putExtra(EXTRA_NOTE_ID, it) }
             putExtra(EXTRA_SHOW_LIBRARY_PINS, false)
         }

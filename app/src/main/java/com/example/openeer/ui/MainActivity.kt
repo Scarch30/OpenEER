@@ -331,7 +331,6 @@ class MainActivity : AppCompatActivity() {
                                         place = place.label,
                                         accuracyM = place.accuracyM
                                     )
-                                    blocksRepo.appendLocation(newId, place.lat, place.lon, place.label)
                                 }
                             }
                             micCtl.beginPress(initialX = ev.x)
@@ -623,7 +622,6 @@ class MainActivity : AppCompatActivity() {
                     place = place.label,
                     accuracyM = place.accuracyM
                 )
-                blocksRepo.appendLocation(newId, place.lat, place.lon, place.label)
             }
         }
         return newId
