@@ -99,11 +99,9 @@ class AlarmAlertActivity : AppCompatActivity() {
         AlarmTonePlayer.start(this)
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent != null) {
-            setIntent(intent)
-        }
+        setIntent(intent)
     }
 
     override fun onDestroy() {

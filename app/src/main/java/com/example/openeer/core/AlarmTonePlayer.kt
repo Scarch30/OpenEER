@@ -42,19 +42,23 @@ object AlarmTonePlayer {
             vibrator = vib
             val pattern = longArrayOf(0, 600, 400)
             try {
-                if (vib != null) {
+                vib?.let { vibrator ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         val effect = VibrationEffect.createWaveform(pattern, 0)
-                        vib.vibrate(effect)
+                        vibrator.vibrate(effect)
                     } else {
-                        @Suppress("DEPRECATION")
-                        vib.vibrate(pattern, 0)
+                        vibrateLegacy(vibrator, pattern)
                     }
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "start(): vibration failed", t)
             }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun vibrateLegacy(vibrator: Vibrator, pattern: LongArray) {
+        vibrator.vibrate(pattern, 0)
     }
 
     fun stop() {
