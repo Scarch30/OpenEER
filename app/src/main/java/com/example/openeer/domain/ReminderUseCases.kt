@@ -6,12 +6,17 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.example.openeer.core.GeofenceDiag
 import com.example.openeer.core.LocationPerms
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.reminders.ReminderDao
 import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.receiver.ReminderReceiver
+import com.example.openeer.workers.ReminderPeriodicWorker
 import com.example.openeer.receiver.ReminderReceiver.Companion.ACTION_FIRE_ALARM
 import com.example.openeer.receiver.ReminderReceiver.Companion.ACTION_FIRE_GEOFENCE
 import com.example.openeer.receiver.ReminderReceiver.Companion.EXTRA_NOTE_ID
@@ -21,6 +26,7 @@ import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
 class ReminderUseCases(
     private val context: Context,
@@ -29,6 +35,7 @@ class ReminderUseCases(
 ) {
 
     private val reminderDao: ReminderDao = db.reminderDao()
+    private val workManager: WorkManager = WorkManager.getInstance(context)
 
     suspend fun scheduleAtEpoch(
         noteId: Long,
@@ -62,7 +69,11 @@ class ReminderUseCases(
 
         val reminderId = reminderDao.insert(reminder)
 
-        scheduleAlarm(reminderId, noteId, timeMillis)
+        if (usesWorkManager(repeatEveryMinutes)) {
+            schedulePeriodicWork(reminderId, noteId, timeMillis, repeatEveryMinutes!!)
+        } else {
+            scheduleAlarm(reminderId, noteId, timeMillis)
+        }
 
         Log.d(
             TAG,
@@ -149,7 +160,12 @@ class ReminderUseCases(
         )
         when (oldType) {
             TYPE_LOC_ONCE, TYPE_LOC_EVERY -> removeGeofenceInternal(reminderId, cancelInDb = false)
-            else -> cancelAlarm(reminderId, reminder.noteId)
+            else -> {
+                cancelAlarm(reminderId, reminder.noteId)
+                if (usesWorkManager(reminder.repeatEveryMinutes)) {
+                    cancelPeriodicWork(reminderId)
+                }
+            }
         }
 
         val updated = reminder.copy(
@@ -167,7 +183,11 @@ class ReminderUseCases(
             status = STATUS_ACTIVE
         )
         reminderDao.update(updated)
-        scheduleAlarm(reminderId, reminder.noteId, nextTriggerAt)
+        if (usesWorkManager(repeatEveryMinutes)) {
+            schedulePeriodicWork(reminderId, reminder.noteId, nextTriggerAt, repeatEveryMinutes!!)
+        } else {
+            scheduleAlarm(reminderId, reminder.noteId, nextTriggerAt)
+        }
         Log.d(TAG, "updateTimeReminder(): rescheduled reminderId=$reminderId note=${reminder.noteId}")
     }
 
@@ -202,6 +222,10 @@ class ReminderUseCases(
         when (oldType) {
             TYPE_TIME_ONE_SHOT, TYPE_TIME_REPEATING -> cancelAlarm(reminderId, reminder.noteId)
             else -> removeGeofenceInternal(reminderId, cancelInDb = false)
+        }
+
+        if (oldType == TYPE_TIME_REPEATING && usesWorkManager(reminder.repeatEveryMinutes)) {
+            cancelPeriodicWork(reminderId)
         }
 
         val armedAt = if (disarmedUntilExit) null else now
@@ -241,6 +265,9 @@ class ReminderUseCases(
         }
 
         cancelAlarm(reminderId, reminder.noteId)
+        if (usesWorkManager(reminder.repeatEveryMinutes)) {
+            cancelPeriodicWork(reminderId)
+        }
 
         if (reminder.status != STATUS_CANCELLED) {
             reminderDao.update(reminder.copy(status = STATUS_CANCELLED))
@@ -261,6 +288,9 @@ class ReminderUseCases(
                 TYPE_LOC_ONCE, TYPE_LOC_EVERY -> removeGeofenceInternal(reminder.id)
                 else -> {
                     cancelAlarm(reminder.id, noteId)
+                    if (usesWorkManager(reminder.repeatEveryMinutes)) {
+                        cancelPeriodicWork(reminder.id)
+                    }
                     if (reminder.status != STATUS_CANCELLED) {
                         reminderDao.update(reminder.copy(status = STATUS_CANCELLED))
                     }
@@ -282,11 +312,20 @@ class ReminderUseCases(
 
         val now = System.currentTimeMillis()
         val nextTriggerAt = now + minutes.toLong() * ONE_MINUTE_IN_MILLIS
+        val useWorkManager = usesWorkManager(reminder.repeatEveryMinutes)
 
         val updated = reminder.copy(nextTriggerAt = nextTriggerAt)
         reminderDao.update(updated)
 
         scheduleAlarm(reminderId, reminder.noteId, nextTriggerAt)
+
+        if (useWorkManager) {
+            Log.d(
+                TAG,
+                "[WM] snooze(): reminderId=$reminderId scheduled one-shot at $nextTriggerAt minutes=$minutes " +
+                    "(periodic work preserved)"
+            )
+        }
 
         Log.d(TAG, "Snoozed reminderId=$reminderId noteId=${reminder.noteId} to $nextTriggerAt")
     }
@@ -325,7 +364,15 @@ class ReminderUseCases(
                             "restoreAllOnAppStart(): repeating reminderId=${reminder.id} interval=${repeatMinutes}m already future=${reminder.nextTriggerAt}"
                         )
                     }
-                    scheduleAlarm(reminder.id, reminder.noteId, advancedTrigger)
+                    if (usesWorkManager(repeatMinutes)) {
+                        schedulePeriodicWork(reminder.id, reminder.noteId, advancedTrigger, repeatMinutes)
+                        Log.d(
+                            TAG,
+                            "[WM] restoreAllOnAppStart(): reminderId=${reminder.id} noteId=${reminder.noteId} next=$advancedTrigger interval=${repeatMinutes}m"
+                        )
+                    } else {
+                        scheduleAlarm(reminder.id, reminder.noteId, advancedTrigger)
+                    }
                     scheduledIds += reminder.id
                     Log.d(
                         TAG,
@@ -343,7 +390,16 @@ class ReminderUseCases(
             Log.d(TAG, "restoreAllOnAppStart(): upcomingCount=${upcomingReminders.size}")
             upcomingReminders.forEach { reminder ->
                 if (scheduledIds.add(reminder.id)) {
-                    scheduleAlarm(reminder.id, reminder.noteId, reminder.nextTriggerAt)
+                    val repeatMinutes = reminder.repeatEveryMinutes
+                    if (usesWorkManager(repeatMinutes)) {
+                        schedulePeriodicWork(reminder.id, reminder.noteId, reminder.nextTriggerAt, repeatMinutes!!)
+                        Log.d(
+                            TAG,
+                            "[WM] restoreAllOnAppStart(): reminderId=${reminder.id} noteId=${reminder.noteId} next=${reminder.nextTriggerAt} interval=${repeatMinutes}m"
+                        )
+                    } else {
+                        scheduleAlarm(reminder.id, reminder.noteId, reminder.nextTriggerAt)
+                    }
                     val repeatLabel = reminder.repeatEveryMinutes?.let { "${it}m" } ?: "once"
                     Log.d(
                         TAG,
@@ -372,14 +428,63 @@ class ReminderUseCases(
         }
     }
 
+    private fun usesWorkManager(repeatEveryMinutes: Int?): Boolean {
+        return repeatEveryMinutes != null && repeatEveryMinutes >= MIN_PERIODIC_INTERVAL_MINUTES
+    }
+
+    private fun schedulePeriodicWork(
+        reminderId: Long,
+        noteId: Long,
+        triggerAt: Long,
+        repeatEveryMinutes: Int
+    ) {
+        require(repeatEveryMinutes >= MIN_PERIODIC_INTERVAL_MINUTES) {
+            "repeatEveryMinutes must be >= $MIN_PERIODIC_INTERVAL_MINUTES for WorkManager"
+        }
+        val now = System.currentTimeMillis()
+        val delayMillis = (triggerAt - now).coerceAtLeast(0L)
+        val data = workDataOf(ReminderPeriodicWorker.KEY_REMINDER_ID to reminderId)
+        val request = PeriodicWorkRequestBuilder<ReminderPeriodicWorker>(
+            repeatEveryMinutes.toLong(),
+            TimeUnit.MINUTES
+        )
+            .setInputData(data)
+            .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
+            .build()
+        val name = ReminderPeriodicWorker.workName(reminderId)
+        Log.d(
+            TAG,
+            "[WM] schedule(): reminderId=$reminderId noteId=$noteId interval=${repeatEveryMinutes}m initialDelay=${delayMillis}ms"
+        )
+        workManager.enqueueUniquePeriodicWork(name, ExistingPeriodicWorkPolicy.REPLACE, request)
+    }
+
+    private fun cancelPeriodicWork(reminderId: Long) {
+        val name = ReminderPeriodicWorker.workName(reminderId)
+        Log.d(TAG, "[WM] cancel(): reminderId=$reminderId workName=$name")
+        workManager.cancelUniqueWork(name)
+    }
+
     private fun scheduleAlarm(reminderId: Long, noteId: Long, triggerAt: Long) {
         val pendingIntent = buildAlarmPendingIntent(context, reminderId, noteId)
         alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
     }
 
-    fun rescheduleAlarm(reminderId: Long, noteId: Long, triggerAt: Long) {
-        Log.d(TAG, "rescheduleAlarm(): reminderId=$reminderId noteId=$noteId triggerAt=$triggerAt")
-        scheduleAlarm(reminderId, noteId, triggerAt)
+    fun scheduleNextTimeReminder(
+        reminderId: Long,
+        noteId: Long,
+        triggerAt: Long,
+        repeatEveryMinutes: Int?
+    ) {
+        Log.d(
+            TAG,
+            "scheduleNextTimeReminder(): reminderId=$reminderId noteId=$noteId triggerAt=$triggerAt repeat=${repeatEveryMinutes}"
+        )
+        if (usesWorkManager(repeatEveryMinutes)) {
+            schedulePeriodicWork(reminderId, noteId, triggerAt, repeatEveryMinutes!!)
+        } else {
+            scheduleAlarm(reminderId, noteId, triggerAt)
+        }
     }
 
     private fun cancelAlarm(reminderId: Long, noteId: Long) {
@@ -519,6 +624,7 @@ class ReminderUseCases(
         private const val STATUS_ACTIVE = "ACTIVE"
         private const val STATUS_CANCELLED = "CANCELLED"
         private const val ONE_MINUTE_IN_MILLIS = 60_000L
+        private const val MIN_PERIODIC_INTERVAL_MINUTES = 15
         private const val DEFAULT_GEOFENCE_RADIUS_METERS = 100
         private const val DEFAULT_GEO_COOLDOWN_MINUTES = 30
 
