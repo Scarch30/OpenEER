@@ -188,7 +188,7 @@ class ReminderReceiver : BroadcastReceiver() {
                         val updated = reminder.copy(lastFiredAt = now, nextTriggerAt = nextTrigger)
                         reminderDao.update(updated)
                         ReminderUseCases(appContext, db, alarmManager)
-                            .rescheduleAlarm(reminderId, reminder.noteId, nextTrigger)
+                            .scheduleNextTimeReminder(reminderId, reminder.noteId, nextTrigger, repeatMinutes)
                         Log.d(
                             TAG,
                             "handleFireAlarm: rescheduled repeating reminderId=$reminderId interval=${repeatMinutes}m nextTriggerAt=$nextTrigger"
