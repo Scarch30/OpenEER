@@ -7,6 +7,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.databinding.ActivityDayNotesBinding
 import com.example.openeer.ui.NotesAdapter
+import com.example.openeer.ui.sheets.ReminderListSheet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,7 +34,15 @@ class LocationNotesActivity : AppCompatActivity() {
         val lat = intent.getDoubleExtra(EXTRA_LAT, 0.0)
         val lon = intent.getDoubleExtra(EXTRA_LON, 0.0)
 
-        adapter = NotesAdapter(onClick = {}, onLongClick = {})
+        adapter = NotesAdapter(
+            onClick = {},
+            onLongClick = {},
+            onReminderClick = { note ->
+                ReminderListSheet
+                    .newInstance(note.id)
+                    .show(supportFragmentManager, "reminder_list")
+            }
+        )
         b.recycler.layoutManager = LinearLayoutManager(this)
         b.recycler.adapter = adapter
 

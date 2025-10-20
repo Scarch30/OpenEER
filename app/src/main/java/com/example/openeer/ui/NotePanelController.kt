@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.ContextCompat
 import androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+import androidx.core.view.ViewCompat
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -38,6 +39,7 @@ import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.imports.MediaKind
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaCategory
+import com.example.openeer.ui.reminders.ReminderBadgeFormatter
 import com.example.openeer.ui.panel.media.MediaStripAdapter
 import com.example.openeer.ui.panel.media.MediaStripItem
 import com.example.openeer.ui.panel.blocks.BlockRenderers
@@ -166,6 +168,16 @@ class NotePanelController(
             }
         }
 
+        binding.noteReminderBadge.apply {
+            isVisible = false
+            setOnClickListener {
+                val noteId = openNoteId ?: return@setOnClickListener
+                ReminderListSheet
+                    .newInstance(noteId)
+                    .show(activity.supportFragmentManager, "reminder_list")
+            }
+        }
+
         activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 registerReminderReceiver()
@@ -191,13 +203,20 @@ class NotePanelController(
         binding.notePanel.isVisible = true
         binding.recycler.isGone = true
         binding.btnReminders.isVisible = false
+        binding.noteReminderBadge.isVisible = false
+        binding.noteReminderBadge.isEnabled = false
+        binding.noteReminderBadge.text = ""
+        binding.noteReminderBadge.contentDescription = null
+        ViewCompat.setTooltipText(binding.noteReminderBadge, null)
 
         onPileCountsChanged?.invoke(PileCounts())
         pileUiState.value = emptyList()
 
         // Reset visuel
         binding.txtBodyDetail.text = ""
+        binding.noteMetaFooter.text = ""
         binding.noteMetaFooter.isGone = true
+        binding.noteMetaFooterRow.isGone = true
         binding.childBlocksContainer.removeAllViews()
         binding.childBlocksContainer.isGone = true
         blockViews.clear()
@@ -718,13 +737,14 @@ class NotePanelController(
     private fun refreshReminderChip(noteId: Long) {
         activity.lifecycleScope.launch {
             val appCtx = activity.applicationContext
-            val (totalCount, activeCount) = withContext(Dispatchers.IO) {
+            val (totalCount, activeReminders) = withContext(Dispatchers.IO) {
                 val dao = AppDatabase.get(appCtx).reminderDao()
                 val reminders = dao.listForNoteOrdered(noteId)
-                val active = dao.getActiveByNoteId(noteId).size
+                val active = dao.getActiveByNoteId(noteId)
                 reminders.size to active
             }
             if (openNoteId != noteId) return@launch
+            val activeCount = activeReminders.size
             binding.btnReminders.isVisible = totalCount > 0
             if (totalCount > 0) {
                 binding.btnReminders.alpha = if (activeCount > 0) 1f else 0.6f
@@ -733,6 +753,23 @@ class NotePanelController(
                     activeCount
                 )
             }
+
+            val badgeState = ReminderBadgeFormatter.buildState(activity, activeReminders)
+            if (badgeState != null) {
+                binding.noteReminderBadge.isVisible = true
+                binding.noteReminderBadge.isEnabled = true
+                binding.noteReminderBadge.text = badgeState.iconText
+                binding.noteReminderBadge.contentDescription = badgeState.contentDescription
+                ViewCompat.setTooltipText(binding.noteReminderBadge, badgeState.tooltip)
+            } else {
+                binding.noteReminderBadge.isVisible = false
+                binding.noteReminderBadge.isEnabled = false
+                binding.noteReminderBadge.text = ""
+                binding.noteReminderBadge.contentDescription = null
+                ViewCompat.setTooltipText(binding.noteReminderBadge, null)
+            }
+            binding.noteMetaFooterRow.isVisible =
+                binding.noteMetaFooter.isVisible || binding.noteReminderBadge.isVisible
         }
     }
 
@@ -759,11 +796,14 @@ class NotePanelController(
 
         val meta = note.formatMeta()
         if (meta.isBlank()) {
+            binding.noteMetaFooter.text = ""
             binding.noteMetaFooter.isGone = true
         } else {
             binding.noteMetaFooter.isVisible = true
             binding.noteMetaFooter.text = meta
         }
+        binding.noteMetaFooterRow.isVisible =
+            binding.noteMetaFooter.isVisible || binding.noteReminderBadge.isVisible
     }
 
     private fun promptEditTitle() {

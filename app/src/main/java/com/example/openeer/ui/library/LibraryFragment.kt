@@ -27,6 +27,7 @@ import com.example.openeer.data.NoteRepository
 import com.example.openeer.databinding.FragmentLibraryBinding
 import com.example.openeer.ui.MainActivity
 import com.example.openeer.ui.NotesAdapter
+import com.example.openeer.ui.sheets.ReminderListSheet
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -84,7 +85,12 @@ class LibraryFragment : Fragment() {
 
         adapter = NotesAdapter(
             onClick = { note -> onItemClicked(note) },
-            onLongClick = { note -> onItemLongClicked(note) }
+            onLongClick = { note -> onItemLongClicked(note) },
+            onReminderClick = { note ->
+                ReminderListSheet
+                    .newInstance(note.id)
+                    .show(parentFragmentManager, "reminder_list")
+            }
         )
 
         b.recycler.layoutManager = LinearLayoutManager(requireContext())

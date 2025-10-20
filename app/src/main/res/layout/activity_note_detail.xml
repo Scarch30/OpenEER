@@ -87,16 +87,42 @@
         android:padding="16dp" />
 
     <!-- Métadonnées de la note -->
-    <TextView
-        android:id="@+id/noteMetaFooter"
+    <LinearLayout
+        android:id="@+id/noteMetaFooterRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
         android:paddingTop="4dp"
         android:paddingBottom="4dp"
-        android:textSize="13sp"
-        android:singleLine="true"
-        android:ellipsize="end"
-        android:visibility="gone" />
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/noteMetaFooter"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:singleLine="true"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/noteReminderBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minWidth="32dp"
+            android:gravity="center"
+            android:padding="4dp"
+            android:text="🕑"
+            android:textSize="16sp"
+            android:visibility="gone"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@null"
+            android:focusable="true"
+            android:clickable="true"
+            android:importantForAccessibility="yes" />
+    </LinearLayout>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnReminders"

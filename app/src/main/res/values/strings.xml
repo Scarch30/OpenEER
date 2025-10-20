@@ -66,6 +66,19 @@
     <string name="reminders_chip_label">📅 Rappels (%1$d)</string>
     <string name="reminders_title">Rappels de la note</string>
     <string name="reminders_empty_note">Aucun rappel pour cette note.</string>
+    <plurals name="reminder_badge_tooltip">
+        <item quantity="one">%d rappel actif</item>
+        <item quantity="other">%d rappels actifs</item>
+    </plurals>
+    <plurals name="reminder_badge_cd_time">
+        <item quantity="one">%d rappel temps actif</item>
+        <item quantity="other">%d rappels temps actifs</item>
+    </plurals>
+    <plurals name="reminder_badge_cd_place">
+        <item quantity="one">%d rappel lieu actif</item>
+        <item quantity="other">%d rappels lieu actifs</item>
+    </plurals>
+    <string name="reminder_badge_cd_mixed">%1$d rappels actifs (temps : %2$d, lieu : %3$d)</string>
     <string name="reminder_action_snooze_5">Snooze 5 min</string>
     <string name="reminder_action_snooze_60">Snooze 1 h</string>
     <string name="reminder_action_cancel">Annuler</string>

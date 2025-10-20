@@ -4,6 +4,7 @@ package com.example.openeer.ui
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.core.view.isVisible
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -11,13 +12,24 @@ import com.example.openeer.R
 import com.example.openeer.data.Note
 import com.example.openeer.databinding.ItemNoteBinding
 import com.example.openeer.ui.formatMeta
+import com.example.openeer.ui.reminders.ReminderBadgeFormatter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.launch
 
 class NotesAdapter(
     private val onClick: (Note) -> Unit,
-    private val onLongClick: (Note) -> Unit
+    private val onLongClick: (Note) -> Unit,
+    private val onReminderClick: (Note) -> Unit
 ) : ListAdapter<Note, NotesAdapter.VH>(DIFF) {
 
     init { setHasStableIds(true) }
+
+    private val badgeSupervisor = SupervisorJob()
+    private val badgeScope = CoroutineScope(badgeSupervisor + Dispatchers.Main.immediate)
 
     /** Montre/masque l’UI de sélection (check) */
     var showSelectionUi: Boolean = false
@@ -63,7 +75,9 @@ class NotesAdapter(
         }
     }
 
-    class VH(val b: ItemNoteBinding) : RecyclerView.ViewHolder(b.root)
+    class VH(val b: ItemNoteBinding) : RecyclerView.ViewHolder(b.root) {
+        var badgeJob: Job? = null
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val vh = VH(ItemNoteBinding.inflate(LayoutInflater.from(parent.context), parent, false))
@@ -78,12 +92,23 @@ class NotesAdapter(
             if (pos != RecyclerView.NO_POSITION) onLongClick(getItem(pos))
             true
         }
+        vh.b.iconReminder.setOnClickListener {
+            val pos = vh.bindingAdapterPosition
+            if (pos != RecyclerView.NO_POSITION) onReminderClick(getItem(pos))
+        }
         return vh
     }
 
     override fun onBindViewHolder(h: VH, pos: Int) {
         val n = getItem(pos)
         val ctx = h.b.root.context
+
+        h.badgeJob?.cancel()
+        h.b.iconReminder.isVisible = false
+        h.b.iconReminder.text = ""
+        h.b.iconReminder.isEnabled = false
+        h.b.iconReminder.contentDescription = null
+        ViewCompat.setTooltipText(h.b.iconReminder, null)
 
         h.b.titleOrBody.text =
             n.title?.takeIf { it.isNotBlank() }
@@ -95,7 +120,22 @@ class NotesAdapter(
         } else {
             meta
         }
-        h.b.iconReminder.isVisible = false
+        h.badgeJob = badgeScope.launch {
+            val state = ReminderBadgeFormatter.loadState(ctx, n.id)
+            if (state != null && h.bindingAdapterPosition != RecyclerView.NO_POSITION && getItem(h.bindingAdapterPosition).id == n.id) {
+                h.b.iconReminder.isVisible = true
+                h.b.iconReminder.isEnabled = true
+                h.b.iconReminder.text = state.iconText
+                h.b.iconReminder.contentDescription = state.contentDescription
+                ViewCompat.setTooltipText(h.b.iconReminder, state.tooltip)
+            } else {
+                h.b.iconReminder.isVisible = false
+                h.b.iconReminder.isEnabled = false
+                h.b.iconReminder.text = ""
+                h.b.iconReminder.contentDescription = null
+                ViewCompat.setTooltipText(h.b.iconReminder, null)
+            }
+        }
 
         val isSelected = n.id in selectedIds
 
@@ -107,5 +147,16 @@ class NotesAdapter(
 
         // ✅ check visuel suivant l’état ActionMode + sélection
         h.b.checkOverlay.isVisible = showSelectionUi && isSelected
+    }
+
+    override fun onViewRecycled(holder: VH) {
+        super.onViewRecycled(holder)
+        holder.badgeJob?.cancel()
+        holder.badgeJob = null
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView)
+        badgeSupervisor.cancelChildren()
     }
 }

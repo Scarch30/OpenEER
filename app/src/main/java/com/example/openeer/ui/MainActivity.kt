@@ -43,6 +43,7 @@ import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.ChildTextEditorSheet
+import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
 import com.example.openeer.ui.util.toast
@@ -245,6 +246,11 @@ class MainActivity : AppCompatActivity() {
                     adapter.showSelectionUi = true // 👈 affiche les cases dès l’entrée en ActionMode
                 }
                 toggleSelection(note.id)
+            },
+            onReminderClick = { note ->
+                ReminderListSheet
+                    .newInstance(note.id)
+                    .show(supportFragmentManager, "reminder_list")
             }
         )
 
