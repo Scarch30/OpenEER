@@ -47,10 +47,14 @@ import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
 import com.example.openeer.ui.util.toast
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.util.Log
@@ -117,7 +121,10 @@ class MainActivity : AppCompatActivity() {
     // === fin sélection ===
 
     // ⚠️ latestNotes = liste **filtrée** (sans notes fusionnées)
+    private var baseNotes: List<Note> = emptyList()
     private var latestNotes: List<Note> = emptyList()
+    private val pendingDeletionIds = mutableSetOf<Long>()
+    private val pendingDeletions = mutableMapOf<Long, PendingDeletion>()
     private var lastSelectedNoteId: Long? = null
 
     // ⚓️ Gel/dégel de la sélection pendant un refresh provoqué
@@ -261,17 +268,21 @@ class MainActivity : AppCompatActivity() {
             vm.notes.collectLatest { notes ->
                 // ⛔️ MASQUER les notes fusionnées (isMerged = true)
                 val visible = notes.filterNot { it.isMerged }
+                baseNotes = visible
+                val visibleIds = visible.map { it.id }.toSet()
+                pendingDeletionIds.retainAll(visibleIds)
+                val filtered = visible.filterNot { pendingDeletionIds.contains(it.id) }
 
-                latestNotes = visible
+                latestNotes = filtered
 
                 // On restaure d’abord à partir d’un éventuel gel
                 val restoredIdFromFreeze = frozenSelectionId
                 val currentId = restoredIdFromFreeze ?: notePanel.openNoteId
-                val index = currentId?.let { id -> visible.indexOfFirst { it.id == id } } ?: -1
+                val index = currentId?.let { id -> filtered.indexOfFirst { it.id == id } } ?: -1
 
-                adapter.submitList(visible) {
+                adapter.submitList(filtered) {
                     // Restaure la sélection APRÈS le diff
-                    maintainSelection(currentId, visible, index)
+                    maintainSelection(currentId, filtered, index)
                     // Dégèle si un gel était actif
                     if (restoredIdFromFreeze != null) clearSelectionFreeze()
                 }
@@ -542,11 +553,31 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
         runCatching { unregisterReceiver(openNoteReceiver) }
     }
+
+    override fun onDestroy() {
+        pendingDeletions.values.forEach {
+            it.job.cancel()
+            it.snackbar.dismiss()
+        }
+        pendingDeletions.clear()
+        pendingDeletionIds.clear()
+        super.onDestroy()
+    }
     // ---------- Ouvrir une note ----------
     private fun onNoteClicked(note: Note) {
         // Sécurise l’overlay avant de changer de note
         runCatching { editorBody.commitInlineEdit(notePanel.openNoteId) }
         notePanel.open(note.id)
+    }
+
+    private fun refreshVisibleNotes() {
+        val filtered = baseNotes.filterNot { pendingDeletionIds.contains(it.id) }
+        latestNotes = filtered
+        val currentId = notePanel.openNoteId
+        val index = currentId?.let { id -> filtered.indexOfFirst { it.id == id } } ?: -1
+        adapter.submitList(filtered) {
+            maintainSelection(currentId, filtered, index)
+        }
     }
 
     private fun maintainSelection(
@@ -608,6 +639,100 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Annuler") { _, _ -> clearMainSelection() }
             .show()
+    }
+
+    private fun promptDeleteSelectedNote() {
+        val noteId = selectedIds.firstOrNull() ?: return
+        if (pendingDeletions.containsKey(noteId)) {
+            Snackbar.make(b.root, getString(R.string.library_delete_pending), Snackbar.LENGTH_SHORT).show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setMessage(R.string.library_delete_primary_message)
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.library_delete_primary_positive) { _, _ ->
+                showDeleteCascadeConfirmation(noteId)
+            }
+            .show()
+    }
+
+    private fun showDeleteCascadeConfirmation(noteId: Long) {
+        AlertDialog.Builder(this)
+            .setMessage(R.string.library_delete_secondary_message)
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.library_delete_secondary_positive) { _, _ ->
+                lifecycleScope.launch { scheduleNoteDeletion(noteId) }
+            }
+            .show()
+    }
+
+    private suspend fun scheduleNoteDeletion(noteId: Long) {
+        val cascade = runCatching { repo.collectCascade(noteId) }
+            .onFailure {
+                Snackbar.make(b.root, getString(R.string.library_delete_failed), Snackbar.LENGTH_SHORT).show()
+            }
+            .getOrNull() ?: return
+
+        if (cascade.isEmpty()) {
+            Snackbar.make(b.root, getString(R.string.library_delete_failed), Snackbar.LENGTH_SHORT).show()
+            return
+        }
+
+        if (pendingDeletions.containsKey(noteId)) {
+            Snackbar.make(b.root, getString(R.string.library_delete_pending), Snackbar.LENGTH_SHORT).show()
+            return
+        }
+
+        startPendingDeletion(noteId, cascade)
+    }
+
+    private fun startPendingDeletion(rootId: Long, cascade: Set<Long>) {
+        clearMainSelection()
+        val openId = notePanel.openNoteId
+        if (openId != null && cascade.contains(openId)) {
+            notePanel.close()
+        }
+
+        pendingDeletionIds.addAll(cascade)
+        refreshVisibleNotes()
+
+        val snackbar = Snackbar.make(b.root, getString(R.string.library_delete_snackbar), Snackbar.LENGTH_INDEFINITE)
+        snackbar.duration = 5000
+        snackbar.setAction(R.string.action_undo) { undoPendingDeletion(rootId) }
+
+        val job = lifecycleScope.launch {
+            try {
+                delay(5000)
+                repo.deleteNoteCascade(rootId, cascade)
+                withContext(Dispatchers.Main.immediate) {
+                    pendingDeletions.remove(rootId)?.snackbar?.dismiss()
+                    pendingDeletionIds.removeAll(cascade)
+                    refreshVisibleNotes()
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                withContext(Dispatchers.Main.immediate) {
+                    pendingDeletions.remove(rootId)?.snackbar?.dismiss()
+                    pendingDeletionIds.removeAll(cascade)
+                    refreshVisibleNotes()
+                    Snackbar.make(b.root, getString(R.string.library_delete_failed), Snackbar.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        pendingDeletions[rootId] = PendingDeletion(cascade, job, snackbar)
+        snackbar.show()
+    }
+
+    private fun undoPendingDeletion(rootId: Long) {
+        val pending = pendingDeletions.remove(rootId) ?: return
+        pending.job.cancel()
+        pending.snackbar.dismiss()
+        pendingDeletionIds.removeAll(pending.ids)
+        refreshVisibleNotes()
+        Snackbar.make(b.root, getString(R.string.library_delete_undo_success), Snackbar.LENGTH_SHORT).show()
     }
 
     private suspend fun ensureOpenNote(): Long {
@@ -743,12 +868,14 @@ class MainActivity : AppCompatActivity() {
         private val MENU_MERGE = 1
         private val MENU_UNMERGE = 2
         private val MENU_RENAME = 3
+        private val MENU_DELETE = 4
 
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
             adapter.showSelectionUi = true // 👈 active l’UI de sélection (cases/coches + overlay)
             menu.add(0, MENU_MERGE, 0, "Fusionner")
             menu.add(0, MENU_UNMERGE, 1, "Défusionner…")
             menu.add(0, MENU_RENAME, 2, "Renommer")
+            menu.add(0, MENU_DELETE, 3, getString(R.string.library_action_delete))
             mode.title = "${selectedIds.size} sélectionnée(s)"
             return true
         }
@@ -759,6 +886,7 @@ class MainActivity : AppCompatActivity() {
             menu.findItem(MENU_MERGE)?.isEnabled = many
             menu.findItem(MENU_UNMERGE)?.isEnabled = one
             menu.findItem(MENU_RENAME)?.isEnabled = one
+            menu.findItem(MENU_DELETE)?.isEnabled = one
             return true
         }
 
@@ -791,6 +919,10 @@ class MainActivity : AppCompatActivity() {
                 MENU_RENAME -> {
                     val only = selectedIds.first()
                     promptRename(only)
+                    return true
+                }
+                MENU_DELETE -> {
+                    promptDeleteSelectedNote()
                     return true
                 }
             }
@@ -846,6 +978,12 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
     // ===== fin sélection / ActionMode =====
+
+    private data class PendingDeletion(
+        val ids: Set<Long>,
+        val job: Job,
+        val snackbar: Snackbar,
+    )
 }
 
 class NotesVm(private val repo: NoteRepository) : ViewModel() {
