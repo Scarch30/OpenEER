@@ -727,10 +727,16 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             val radius = currentRadius()
             val locationDescription = buildLocationDescription(lat, lon, radius)
             val every = everySwitch.isChecked
+            val transitionLabel = if (geoTriggerOnExit) "EXIT" else "ENTER"
+            val coordsLabel = String.format(Locale.US, "%.5f,%.5f", lat, lon)
             runCatching {
                 withContext(Dispatchers.IO) {
                     val current = editingReminder
                     if (current == null) {
+                        Log.i(
+                            TAG,
+                            "[GEOFENCE] $transitionLabel programmé (note=$noteId latLon=$coordsLabel every=$every radius=$radius)"
+                        )
                         reminderUseCases.scheduleGeofence(
                             noteId = noteId,
                             lat = lat,
@@ -743,6 +749,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                             startingInside = startingInsideGeofence
                         )
                     } else {
+                        Log.i(
+                            TAG,
+                            "[GEOFENCE] $transitionLabel mis à jour (reminder=${current.id} note=${current.noteId} latLon=$coordsLabel every=$every radius=$radius)"
+                        )
                         reminderUseCases.updateGeofenceReminder(
                             reminderId = current.id,
                             lat = lat,

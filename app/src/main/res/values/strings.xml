@@ -51,11 +51,12 @@
     <string name="reminder_geo_cooldown_error">Indiquez un délai valide (≥ 0).</string>
     <string name="reminder_geo_locating">Recherche de votre position…</string>
     <string name="reminder_geo_location_unavailable">Impossible de récupérer votre position actuelle.</string>
-    <string name="reminder_geo_trigger_title">Déclencher</string>
-    <string name="reminder_geo_trigger_enter">À l’arrivée</string>
-    <string name="reminder_geo_trigger_exit">Au départ</string>
-    <string name="reminder_geo_trigger_enter_short">Arrivée</string>
-    <string name="reminder_geo_trigger_exit_short">Départ</string>
+    <string name="reminder_geo_trigger_title">Type de rappel</string>
+    <string name="reminder_geo_trigger_enter">Rappel d’arrivée (ENTER)</string>
+    <string name="reminder_geo_trigger_exit">Rappel de départ (EXIT)</string>
+    <string name="reminder_geo_trigger_enter_short">Arrivée (ENTER)</string>
+    <string name="reminder_geo_trigger_exit_short">Départ (EXIT)</string>
+    <string name="reminder_geo_trigger_help">Arrivée = à l’entrée de la zone · Départ = à la sortie.</string>
     <string name="reminder_plan">Planifier</string>
     <string name="reminder_save">Enregistrer</string>
     <string name="reminder_geo_desc_fmt">📍 %1$s · ~%2$dm</string>
