@@ -311,6 +311,12 @@ class ReminderListSheet : BottomSheetDialogFragment() {
                         entity.radius?.takeIf { it > 0 }?.let { radius ->
                             builder.append(" · ~").append(radius).append("m")
                         }
+                        val triggerRes = if (entity.triggerOnExit) {
+                            R.string.reminder_geo_trigger_exit_short
+                        } else {
+                            R.string.reminder_geo_trigger_enter_short
+                        }
+                        builder.append(" • ").append(ctx.getString(triggerRes))
                     } else {
                         builder.append("⏰ ")
                         val triggerDate = Date(entity.nextTriggerAt)

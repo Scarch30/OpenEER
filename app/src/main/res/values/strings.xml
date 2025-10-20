@@ -49,6 +49,11 @@
     <string name="reminder_geo_radius">Rayon (m)</string>
     <string name="reminder_geo_locating">Recherche de votre position…</string>
     <string name="reminder_geo_location_unavailable">Impossible de récupérer votre position actuelle.</string>
+    <string name="reminder_geo_trigger_title">Déclencher</string>
+    <string name="reminder_geo_trigger_enter">À l’arrivée</string>
+    <string name="reminder_geo_trigger_exit">Au départ</string>
+    <string name="reminder_geo_trigger_enter_short">Arrivée</string>
+    <string name="reminder_geo_trigger_exit_short">Départ</string>
     <string name="reminder_plan">Planifier</string>
     <string name="reminder_geo_desc_fmt">📍 %1$s · ~%2$dm</string>
     <string name="note_menu_create_reminder">Créer un rappel</string>

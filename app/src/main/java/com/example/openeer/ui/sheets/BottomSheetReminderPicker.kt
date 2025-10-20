@@ -113,6 +113,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private lateinit var locationPreview: TextView
     private lateinit var planTimeButton: MaterialButton
     private lateinit var everySwitch: MaterialSwitch
+    private lateinit var geoTriggerToggle: MaterialButtonToggleGroup
     private lateinit var textWhenSummary: TextView
     private lateinit var radioRepeat: RadioGroup
     private lateinit var spinnerRepeatPreset: AppCompatSpinner
@@ -128,7 +129,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private var selectedDateTimeMillis: Long? = null
     private var repeatEveryMinutes: Int? = null
     private var repeatSelectionValid: Boolean = true
-    private var locationRequiresExitArming = false
+    private var startingInsideGeofence = false
+    private var geoTriggerOnExit = false
 
     private var backgroundPermissionDialog: AlertDialog? = null
     private var pendingGeoAction: (() -> Unit)? = null
@@ -145,7 +147,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         selectedLat = lat
         selectedLon = lon
         selectedLabel = data.getStringExtra(MapFragment.RESULT_PICK_LOCATION_LABEL)
-        locationRequiresExitArming = false
+        startingInsideGeofence = false
         updateLocationPreview()
     }
 
@@ -166,6 +168,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         locationPreview = view.findViewById(R.id.textLocationPreview)
         planTimeButton = view.findViewById(R.id.btnPlanTime)
         everySwitch = view.findViewById(R.id.switchEvery)
+        geoTriggerToggle = view.findViewById(R.id.toggleGeoTrigger)
         textWhenSummary = view.findViewById(R.id.textWhenSummary)
         radioRepeat = view.findViewById(R.id.radioRepeat)
         spinnerRepeatPreset = view.findViewById(R.id.spinnerRepeatPreset)
@@ -182,6 +185,12 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             updateSections(checkedId)
         }
         toggleGroup.check(R.id.btnModeTime)
+
+        geoTriggerToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            geoTriggerOnExit = checkedId == R.id.btnGeoTriggerExit
+        }
+        geoTriggerToggle.check(R.id.btnGeoTriggerEnter)
 
         setupRepeatControls()
         updateWhenSummary()
@@ -296,7 +305,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 val place = getOneShotPlace(appContext)
                 if (!isAdded) return@launch
                 if (place == null) {
-                    locationRequiresExitArming = false
+                    startingInsideGeofence = false
                     locationPreview.isVisible = false
                     locationPreview.text = null
                     Toast.makeText(
@@ -310,12 +319,12 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 selectedLat = place.lat
                 selectedLon = place.lon
                 selectedLabel = place.label
-                locationRequiresExitArming = true
+                startingInsideGeofence = true
                 updateLocationPreview()
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to obtain current location", t)
                 if (isAdded) {
-                    locationRequiresExitArming = false
+                    startingInsideGeofence = false
                     locationPreview.isVisible = false
                     locationPreview.text = null
                     Toast.makeText(
@@ -346,7 +355,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                     selectedLat = lat
                     selectedLon = lon
                     selectedLabel = note.placeLabel
-                    locationRequiresExitArming = false
+                    startingInsideGeofence = false
                     updateLocationPreview()
                 }
             }
@@ -603,7 +612,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                         radiusMeters = radius,
                         every = every,
                         blockId = blockId,
-                        disarmedUntilExit = locationRequiresExitArming
+                        triggerOnExit = geoTriggerOnExit,
+                        startingInside = startingInsideGeofence
                     )
                 }
                 withContext(Dispatchers.IO) {
@@ -718,14 +728,24 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         return parsed?.takeIf { it > 0 } ?: DEFAULT_RADIUS_METERS
     }
 
+    private fun geoTriggerLabelLong(): String {
+        val resId = if (geoTriggerOnExit) {
+            R.string.reminder_geo_trigger_exit
+        } else {
+            R.string.reminder_geo_trigger_enter
+        }
+        return getString(resId)
+    }
+
     private fun buildLocationDescription(lat: Double, lon: Double, radius: Int): String {
         val label = selectedLabel?.takeIf { it.isNotBlank() }
-        return if (label != null) {
+        val base = if (label != null) {
             getString(R.string.reminder_geo_desc_fmt, label, radius)
         } else {
             val coords = String.format(Locale.US, "%.5f, %.5f", lat, lon)
             "📍 $coords · ~${radius}m"
         }
+        return "$base • ${geoTriggerLabelLong()}"
     }
 
     private fun buildReminderBody(label: String?, whenPart: String, repeatPart: String? = null): String {
