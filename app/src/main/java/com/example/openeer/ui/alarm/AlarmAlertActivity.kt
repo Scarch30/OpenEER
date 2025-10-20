@@ -1,7 +1,9 @@
 package com.example.openeer.ui.alarm
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
 import android.text.format.DateFormat
@@ -20,6 +22,21 @@ class AlarmAlertActivity : AppCompatActivity() {
     private var reminderId: Long = -1L
     private var noteId: Long = -1L
     private var completed = false
+    private var alarmDismissedReceiverRegistered = false
+
+    private val alarmDismissedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ReminderReceiver.ACTION_ALARM_DISMISSED) return
+            val dismissedReminderId = intent.getLongExtra(ReminderReceiver.EXTRA_REMINDER_ID, -1L)
+            if (dismissedReminderId != reminderId || dismissedReminderId <= 0) return
+            completed = true
+            AlarmTonePlayer.stop()
+            NotificationManagerCompat.from(this@AlarmAlertActivity).cancel(reminderId.toInt())
+            if (!isFinishing) {
+                finish()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,6 +114,31 @@ class AlarmAlertActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         AlarmTonePlayer.start(this)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!alarmDismissedReceiverRegistered) {
+            val filter = IntentFilter(ReminderReceiver.ACTION_ALARM_DISMISSED)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(alarmDismissedReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(alarmDismissedReceiver, filter)
+            }
+            alarmDismissedReceiverRegistered = true
+        }
+    }
+
+    override fun onStop() {
+        if (alarmDismissedReceiverRegistered) {
+            try {
+                unregisterReceiver(alarmDismissedReceiver)
+            } finally {
+                alarmDismissedReceiverRegistered = false
+            }
+        }
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {

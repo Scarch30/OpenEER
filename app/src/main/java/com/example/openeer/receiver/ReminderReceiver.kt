@@ -34,6 +34,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_SNOOZE_60: String = "com.example.openeer.REMINDER_ACTION_SNOOZE_60"
         const val ACTION_MARK_DONE: String = "com.example.openeer.REMINDER_ACTION_MARK_DONE"
         const val ACTION_STOP_ALARM: String = "com.example.openeer.REMINDER_ACTION_STOP_ALARM"
+        const val ACTION_ALARM_DISMISSED: String = "com.example.openeer.REMINDER_EVENT_ALARM_DISMISSED"
 
         const val EXTRA_NOTE_ID: String = "extra_note_id"
         const val EXTRA_REMINDER_ID: String = "extra_reminder_id"
@@ -232,10 +233,14 @@ class ReminderReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "Snooze $minutes min for reminderId=$reminderId")
 
+        val appContext = context.applicationContext
+        AlarmTonePlayer.stop()
+        NotificationManagerCompat.from(appContext).cancel(reminderId.toInt())
+        broadcastAlarmDismissed(appContext, reminderId)
+
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val appContext = context.applicationContext
                 val db = AppDatabase.getInstance(appContext)
                 val reminderDao = db.reminderDao()
                 val reminder = reminderDao.getById(reminderId)
@@ -248,8 +253,6 @@ class ReminderReceiver : BroadcastReceiver() {
                 val useCases = ReminderUseCases(appContext, db, alarmManager)
                 useCases.snooze(reminderId, minutes)
                 ReminderListSheet.notifyChangedBroadcast(appContext, reminder.noteId)
-                NotificationManagerCompat.from(appContext).cancel(reminderId.toInt())
-                AlarmTonePlayer.stop()
             } catch (t: Throwable) {
                 Log.e(TAG, "Error snoozing reminderId=$reminderId", t)
             } finally {
@@ -267,10 +270,14 @@ class ReminderReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "Mark done for reminderId=$reminderId")
 
+        val appContext = context.applicationContext
+        AlarmTonePlayer.stop()
+        NotificationManagerCompat.from(appContext).cancel(reminderId.toInt())
+        broadcastAlarmDismissed(appContext, reminderId)
+
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val appContext = context.applicationContext
                 val db = AppDatabase.getInstance(appContext)
                 val reminderDao = db.reminderDao()
                 val reminder = reminderDao.getById(reminderId)
@@ -286,8 +293,6 @@ class ReminderReceiver : BroadcastReceiver() {
                 useCases.cancel(reminderId)
                 reminderDao.markDone(reminderId, System.currentTimeMillis())
 
-                NotificationManagerCompat.from(appContext).cancel(reminderId.toInt())
-                AlarmTonePlayer.stop()
                 ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             } catch (t: Throwable) {
                 Log.e(TAG, "Error marking reminderId=$reminderId as done", t)
@@ -295,6 +300,14 @@ class ReminderReceiver : BroadcastReceiver() {
                 pendingResult.finish()
             }
         }
+    }
+
+    private fun broadcastAlarmDismissed(context: Context, reminderId: Long) {
+        val intent = Intent(ACTION_ALARM_DISMISSED).apply {
+            setPackage(context.packageName)
+            putExtra(EXTRA_REMINDER_ID, reminderId)
+        }
+        context.sendBroadcast(intent)
     }
 
     private fun handleGeofence(context: Context, reminderId: Long?, noteId: Long?) {
