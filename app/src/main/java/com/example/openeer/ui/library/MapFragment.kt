@@ -684,6 +684,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 handleManualMapTap(latLng)
                 return@addOnMapClickListener true
             }
+            if (isPickMode) {
+                handleMapSelectionTap(latLng)
+                return@addOnMapClickListener true
+            }
             val screenPt = map?.projection?.toScreenLocation(latLng) ?: return@addOnMapClickListener false
             val features = map?.queryRenderedFeatures(screenPt, MapStyleIds.LYR_NOTES).orEmpty()
             val f = features.firstOrNull() ?: return@addOnMapClickListener false
@@ -709,8 +713,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         map?.addOnMapLongClickListener { latLng ->
             if (isManualRouteMode) {
                 handleManualMapLongClick(latLng)
-            } else {
-                handleMapLongClick(latLng)
+            } else if (!isPickMode) {
+                handleMapSelectionTap(latLng)
             }
         }
     }
