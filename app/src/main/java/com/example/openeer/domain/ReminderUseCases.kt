@@ -34,7 +34,6 @@ class ReminderUseCases(
         noteId: Long,
         timeMillis: Long,
         label: String? = null,
-        _blockId: Long? = null,
         repeatEveryMinutes: Int? = null
     ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
@@ -79,7 +78,6 @@ class ReminderUseCases(
         radiusMeters: Int = DEFAULT_GEOFENCE_RADIUS_METERS,
         every: Boolean = false,
         label: String? = null,
-        _blockId: Long? = null,
         cooldownMinutes: Int? = DEFAULT_GEO_COOLDOWN_MINUTES,
         triggerOnExit: Boolean = false,
         startingInside: Boolean = false

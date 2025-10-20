@@ -113,6 +113,7 @@ class MapActivity : AppCompatActivity() {
         const val EXTRA_NOTE_ID = "com.example.openeer.map.EXTRA_NOTE_ID"
         const val EXTRA_BLOCK_ID = "com.example.openeer.map.EXTRA_BLOCK_ID"
         const val EXTRA_MODE = "com.example.openeer.map.EXTRA_MODE"
+        const val EXTRA_IS_PICK_MODE = "com.example.openeer.map.EXTRA_IS_PICK_MODE"
         // 🔹 nouveau : extra pour activer l’overlay des pastilles (vue Library)
         const val EXTRA_SHOW_LIBRARY_PINS = "com.example.openeer.map.EXTRA_SHOW_LIBRARY_PINS"
 
@@ -168,6 +169,7 @@ class MapActivity : AppCompatActivity() {
             noteId: Long? = null,
         ): Intent = Intent(context, MapActivity::class.java).apply {
             putExtra(EXTRA_MODE, MODE_PICK_LOCATION)
+            putExtra(EXTRA_IS_PICK_MODE, true)
             noteId?.takeIf { it > 0 }?.let { putExtra(EXTRA_NOTE_ID, it) }
             putExtra(EXTRA_SHOW_LIBRARY_PINS, false)
         }
