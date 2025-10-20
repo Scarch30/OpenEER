@@ -57,6 +57,10 @@ internal fun MapFragment.openAppSettings() {
 }
 
 internal fun MapFragment.onAddHereClicked() {
+    if (isPickMode) {
+        MapSnapDiag.trace { "HERE click ignored in pick mode" }
+        return
+    }
     val ctx = requireContext()
     val tick = MapSnapDiag.Ticker()
     MapSnapDiag.trace { "HERE click: start" }
@@ -267,6 +271,7 @@ private suspend fun MapFragment.reverseGeocodeWithTimeout(
 
 internal suspend fun MapFragment.appendLocation(place: Place): LocationAddResult? =
     withContext(Dispatchers.IO) {
+        if (isPickMode) return@withContext null
         runCatching {
             var noteId = targetNoteId
             var prevLat: Double? = null

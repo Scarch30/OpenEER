@@ -32,6 +32,7 @@ private const val SNAPSHOT_TIMEOUT_MS = 4000L // 4 secondes max
 private const val HERE_TARGET_ZOOM = 16.0    // zoom cible un peu reculé pour stabiliser les labels
 
 internal fun MapFragment.captureLocationPreview(noteId: Long, blockId: Long, lat: Double, lon: Double) {
+    if (isPickMode) return
     if (noteId <= 0) return
     val lifecycle = viewLifecycleOwner.lifecycle
     if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) return
@@ -96,6 +97,10 @@ internal fun MapFragment.captureRoutePreview(
     result: RoutePersistResult,
     onComplete: (() -> Unit)? = null
 ) {
+    if (isPickMode) {
+        onComplete?.invoke()
+        return
+    }
     val noteId = result.noteId
     if (noteId <= 0) {
         onComplete?.invoke(); return
@@ -187,6 +192,7 @@ internal fun MapFragment.captureRoutePreview(
  * Sauvegarde sécurisée du bitmap (écriture atomique + suppression ancienne version) + instrumentation.
  */
 internal fun MapFragment.persistBlockPreview(noteId: Long, blockId: Long, type: BlockType, bitmap: Bitmap) {
+    if (isPickMode) return
     val appContext = context?.applicationContext ?: return
     viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
         val t = MapSnapDiag.Ticker()

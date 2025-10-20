@@ -443,31 +443,33 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
         val showLocationActions = shouldShowLocationActions
         b.locationActions.isVisible = showLocationActions
-        b.btnAddHere.isEnabled = false
-        b.btnAddHere.setOnClickListener { onAddHereClicked() }
-        b.btnRecordRoute.isEnabled = false
-        b.btnRecordRoute.setOnClickListener { onRouteButtonClicked() }
-        b.manualRouteHint.isClickable = false
-        b.manualRouteHint.isLongClickable = false
-        b.btnUndoManualRoute.isVisible = false
-        b.btnUndoManualRoute.setOnClickListener { onManualRouteUndoClicked() }
-        b.btnCancelManualRoute.isVisible = false
-        b.btnCancelManualRoute.setOnClickListener { onManualRouteCancelClicked() }
-        refreshRouteButtonState()
+        if (showLocationActions) {
+            b.btnAddHere.isEnabled = false
+            b.btnAddHere.setOnClickListener { onAddHereClicked() }
+            b.btnRecordRoute.isEnabled = false
+            b.btnRecordRoute.setOnClickListener { onRouteButtonClicked() }
+            b.manualRouteHint.isClickable = false
+            b.manualRouteHint.isLongClickable = false
+            b.btnUndoManualRoute.isVisible = false
+            b.btnUndoManualRoute.setOnClickListener { onManualRouteUndoClicked() }
+            b.btnCancelManualRoute.isVisible = false
+            b.btnCancelManualRoute.setOnClickListener { onManualRouteCancelClicked() }
+            refreshRouteButtonState()
 
-        parentFragmentManager.setFragmentResultListener(RESULT_MANUAL_ROUTE, viewLifecycleOwner) { _, bundle ->
-            val lat = bundle.getDouble(RESULT_MANUAL_ROUTE_LAT, Double.NaN)
-            val lon = bundle.getDouble(RESULT_MANUAL_ROUTE_LON, Double.NaN)
-            if (lat.isNaN() || lon.isNaN()) return@setFragmentResultListener
-            val label = bundle.getString(RESULT_MANUAL_ROUTE_LABEL)
-            // Pré-positionne le seed pour le mode manuel puis démarre sans arguments
-            selectionLatLng = LatLng(lat, lon)
-            manualAnchorLabel = label
-            startManualRouteDrawing()
+            parentFragmentManager.setFragmentResultListener(RESULT_MANUAL_ROUTE, viewLifecycleOwner) { _, bundle ->
+                val lat = bundle.getDouble(RESULT_MANUAL_ROUTE_LAT, Double.NaN)
+                val lon = bundle.getDouble(RESULT_MANUAL_ROUTE_LON, Double.NaN)
+                if (lat.isNaN() || lon.isNaN()) return@setFragmentResultListener
+                val label = bundle.getString(RESULT_MANUAL_ROUTE_LABEL)
+                // Pré-positionne le seed pour le mode manuel puis démarre sans arguments
+                selectionLatLng = LatLng(lat, lon)
+                manualAnchorLabel = label
+                startManualRouteDrawing()
+            }
+
+            // 🔗 Branche la logique Route (service + receivers + libellé bouton)
+            setupRouteUiBindings()
         }
-
-        // 🔗 Branche la logique Route (service + receivers + libellé bouton)
-        setupRouteUiBindings()
     }
 
     private suspend fun fetchSuggestions(query: String) {
