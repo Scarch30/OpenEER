@@ -67,9 +67,18 @@ internal fun MapFragment.removeCustomPin(blockId: Long) {
 
 internal fun MapFragment.handleMapSelectionTap(latLng: LatLng): Boolean {
     if (isManualRouteMode) return false
-    val manager = symbolManager ?: return false
     selectionJob?.cancel()
     selectionJob = null
+
+    if (isPickMode) {
+        val place = Place(latLng.latitude, latLng.longitude, null, null)
+        selectionLatLng = latLng
+        selectionPlace = place
+        deliverPickedLocation(place)
+        return true
+    }
+
+    val manager = symbolManager ?: return false
     dismissSelectionSheet()
 
     selectionLatLng = latLng
@@ -117,13 +126,17 @@ internal fun MapFragment.showSelectionFromSearch(place: Place) {
         mapInstance.animateCamera(cameraUpdate)
     }
 
-    if (!isPickMode) {
-        if (selectionDialog != null) {
-            dismissSelectionSheet()
-        } else {
-            handleSelectionDismissed()
-        }
+    if (isPickMode) {
+        selectionLatLng = latLng
+        selectionPlace = place
+        deliverPickedLocation(place)
         return
+    }
+
+    if (selectionDialog != null) {
+        dismissSelectionSheet()
+    } else {
+        handleSelectionDismissed()
     }
 
     val manager = symbolManager ?: return
