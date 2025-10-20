@@ -61,6 +61,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         private const val TAG = "ReminderPicker"
         private const val DEFAULT_RADIUS_METERS = 100
         private const val DEFAULT_COOLDOWN_MINUTES = 30
+        private const val PREFS_NAME = "reminder_picker"
+        private const val PREF_KEY_DELIVERY = "pref_delivery_mode"
 
         @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
         internal const val IMMEDIATE_REPEAT_OFFSET_MILLIS = 1_000L
@@ -125,6 +127,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     }
 
     private lateinit var toggleGroup: MaterialButtonToggleGroup
+    private lateinit var deliveryToggle: MaterialButtonToggleGroup
     private lateinit var timeSection: View
     private lateinit var geoSection: View
     private lateinit var labelInput: TextInputLayout
@@ -152,6 +155,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     private var repeatSelectionValid: Boolean = true
     private var startingInsideGeofence = false
     private var geoTriggerOnExit = false
+    private var selectedDelivery: String = ReminderEntity.DELIVERY_NOTIFICATION
+    private var suppressDeliveryListener = false
     private var editingReminder: ReminderEntity? = null
 
     private var backgroundPermissionDialog: AlertDialog? = null
@@ -190,6 +195,28 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         super.onViewCreated(view, savedInstanceState)
 
         toggleGroup = view.findViewById(R.id.toggleMode)
+        deliveryToggle = view.findViewById(R.id.toggleDelivery)
+        suppressDeliveryListener = true
+        val initialDelivery = if (isEditing) {
+            ReminderEntity.DELIVERY_NOTIFICATION
+        } else {
+            loadPreferredDelivery()
+        }
+        selectedDelivery = initialDelivery
+        deliveryToggle.check(
+            if (initialDelivery == ReminderEntity.DELIVERY_ALARM) R.id.btnDeliveryAlarm
+            else R.id.btnDeliveryNotification
+        )
+        suppressDeliveryListener = false
+        deliveryToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked || suppressDeliveryListener) return@addOnButtonCheckedListener
+            selectedDelivery = if (checkedId == R.id.btnDeliveryAlarm) {
+                ReminderEntity.DELIVERY_ALARM
+            } else {
+                ReminderEntity.DELIVERY_NOTIFICATION
+            }
+            storePreferredDelivery(selectedDelivery)
+        }
         timeSection = view.findViewById(R.id.sectionTime)
         geoSection = view.findViewById(R.id.sectionGeo)
         labelInput = view.findViewById(R.id.inputLabel)
@@ -430,6 +457,13 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             }
             editingReminder = reminder
             noteIdValue = reminder.noteId
+            suppressDeliveryListener = true
+            selectedDelivery = reminder.delivery
+            deliveryToggle.check(
+                if (reminder.delivery == ReminderEntity.DELIVERY_ALARM) R.id.btnDeliveryAlarm
+                else R.id.btnDeliveryNotification
+            )
+            suppressDeliveryListener = false
             labelInput.editText?.setText(reminder.label)
             when (reminder.type) {
                 ReminderEntity.TYPE_TIME_ONE_SHOT, ReminderEntity.TYPE_TIME_REPEATING -> {
@@ -581,6 +615,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             Log.w(TAG, "Aborting scheduleTimeReminder: repeat selection invalid")
             return
         }
+        if (!isEditing) {
+            storePreferredDelivery(selectedDelivery)
+        }
+
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
             val label = currentLabel()
@@ -602,14 +640,16 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                             noteId = noteId,
                             timeMillis = timeMillis,
                             label = label,
-                            repeatEveryMinutes = repeatEveryMinutes
+                            repeatEveryMinutes = repeatEveryMinutes,
+                            delivery = selectedDelivery
                         )
                     } else {
                         reminderUseCases.updateTimeReminder(
                             reminderId = current.id,
                             nextTriggerAt = timeMillis,
                             label = label,
-                            repeatEveryMinutes = repeatEveryMinutes
+                            repeatEveryMinutes = repeatEveryMinutes,
+                            delivery = selectedDelivery
                         )
                     }
                 }
@@ -721,6 +761,9 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         if (cooldownInput.error != null) {
             return
         }
+        if (!isEditing) {
+            storePreferredDelivery(selectedDelivery)
+        }
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
             val label = currentLabel()
@@ -746,7 +789,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                             label = label,
                             cooldownMinutes = cooldownMinutes,
                             triggerOnExit = geoTriggerOnExit,
-                            startingInside = startingInsideGeofence
+                            startingInside = startingInsideGeofence,
+                            delivery = selectedDelivery
                         )
                     } else {
                         Log.i(
@@ -761,7 +805,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                             every = every,
                             disarmedUntilExit = geoTriggerOnExit,
                             cooldownMinutes = cooldownMinutes,
-                            label = label
+                            label = label,
+                            delivery = selectedDelivery
                         )
                     }
                 }
@@ -849,6 +894,21 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         LocationPerms.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
+    private fun loadPreferredDelivery(): String {
+        val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val stored = prefs.getString(PREF_KEY_DELIVERY, ReminderEntity.DELIVERY_NOTIFICATION)
+        return if (stored == ReminderEntity.DELIVERY_ALARM) {
+            ReminderEntity.DELIVERY_ALARM
+        } else {
+            ReminderEntity.DELIVERY_NOTIFICATION
+        }
+    }
+
+    private fun storePreferredDelivery(value: String) {
+        val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(PREF_KEY_DELIVERY, value).apply()
     }
 
     private fun currentLabel(): String? {

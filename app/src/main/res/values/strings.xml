@@ -2,6 +2,8 @@
     <string name="app_name">OpenEER</string>
     <string name="notif_channel_reminders">Rappels OpenEER</string>
     <string name="notif_channel_reminders_desc">Notifications de rappel</string>
+    <string name="notif_channel_alarms">Alarmes OpenEER</string>
+    <string name="notif_channel_alarms_desc">Alertes plein écran avec sonnerie</string>
 
     <string name="notif_title_reminder">Rappel OpenEER</string>
     <string name="notif_text_note_title">Note : %1$s</string>
@@ -9,10 +11,14 @@
     <string name="notif_action_snooze_5">Snooze 5 min</string>
     <string name="notif_action_snooze_60">Snooze 1 h</string>
     <string name="notif_action_mark_done">Marquer fait</string>
+    <string name="notif_action_stop_alarm">Arrêter</string>
     <string name="notif_error_missing_ids">Rappel introuvable</string>
 
     <string name="reminder_picker_title">Planifier un rappel</string>
     <string name="reminder_label_hint">Que doit-on vous rappeler ?</string>
+    <string name="reminder_delivery_label">Mode de rappel</string>
+    <string name="reminder_delivery_notification">Notification (discrète)</string>
+    <string name="reminder_delivery_alarm">Alarme (plein écran + sonnerie)</string>
     <string name="reminder_mode_time">Temps</string>
     <string name="reminder_mode_place">Lieu</string>
     <string name="reminder_in_10m">Dans 10 minutes</string>
@@ -85,6 +91,10 @@
     <string name="reminder_action_cancel">Annuler</string>
     <string name="reminder_action_pause">Mettre en pause</string>
     <string name="reminder_action_resume">Reprendre</string>
+    <string name="alarm_stop">Arrêter</string>
+    <string name="alarm_snooze_5">Snooze 5 min</string>
+    <string name="alarm_snooze_10">Snooze 10 min</string>
+    <string name="alarm_snooze_60">Snooze 1 h</string>
     <string name="map_menu_create_reminder_time">Créer un rappel (temps)</string>
     <string name="map_menu_create_reminder_geo_once">Quand je repasse ici</string>
     <string name="map_menu_create_reminder_geo_every">À chaque fois que je repasse ici</string>
