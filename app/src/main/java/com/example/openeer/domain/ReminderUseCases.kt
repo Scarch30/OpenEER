@@ -44,7 +44,8 @@ class ReminderUseCases(
         noteId: Long,
         timeMillis: Long,
         label: String? = null,
-        repeatEveryMinutes: Int? = null
+        repeatEveryMinutes: Int? = null,
+        delivery: String = ReminderEntity.DELIVERY_NOTIFICATION
     ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         if (timeMillis <= now) {
@@ -67,7 +68,8 @@ class ReminderUseCases(
             type = type,
             nextTriggerAt = timeMillis,
             status = STATUS_ACTIVE,
-            repeatEveryMinutes = repeatEveryMinutes
+            repeatEveryMinutes = repeatEveryMinutes,
+            delivery = delivery
         )
 
         val reminderId = reminderDao.insert(reminder)
@@ -94,7 +96,8 @@ class ReminderUseCases(
         label: String? = null,
         cooldownMinutes: Int? = DEFAULT_GEO_COOLDOWN_MINUTES,
         triggerOnExit: Boolean = false,
-        startingInside: Boolean = false
+        startingInside: Boolean = false,
+        delivery: String = ReminderEntity.DELIVERY_NOTIFICATION
     ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         Log.d(
@@ -121,6 +124,7 @@ class ReminderUseCases(
             cooldownMinutes = cooldownMinutes,
             triggerOnExit = exit,
             disarmedUntilExit = exit,
+            delivery = delivery,
             armedAt = armedAt
         )
 
@@ -139,6 +143,7 @@ class ReminderUseCases(
         nextTriggerAt: Long,
         label: String?,
         repeatEveryMinutes: Int?,
+        delivery: String? = null,
     ) = withContext(Dispatchers.IO) {
         val reminder = reminderDao.getById(reminderId)
         if (reminder == null) {
@@ -183,7 +188,8 @@ class ReminderUseCases(
             disarmedUntilExit = false,
             armedAt = null,
             repeatEveryMinutes = repeatEveryMinutes,
-            status = STATUS_ACTIVE
+            status = STATUS_ACTIVE,
+            delivery = delivery ?: reminder.delivery,
         )
         reminderDao.update(updated)
         if (usesWorkManager(repeatEveryMinutes)) {
@@ -203,6 +209,7 @@ class ReminderUseCases(
         disarmedUntilExit: Boolean,
         cooldownMinutes: Int?,
         label: String?,
+        delivery: String? = null,
     ) = withContext(Dispatchers.IO) {
         require(radius > 0) { "radius must be > 0" }
         if (cooldownMinutes != null) {
@@ -244,7 +251,8 @@ class ReminderUseCases(
             disarmedUntilExit = disarmedUntilExit,
             armedAt = armedAt,
             repeatEveryMinutes = null,
-            status = STATUS_ACTIVE
+            status = STATUS_ACTIVE,
+            delivery = delivery ?: reminder.delivery,
         )
         reminderDao.update(updated)
         addGeofenceForExisting(updated)

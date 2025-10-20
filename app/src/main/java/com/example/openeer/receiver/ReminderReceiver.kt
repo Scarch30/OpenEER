@@ -8,6 +8,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationManagerCompat
 import com.example.openeer.R
+import com.example.openeer.core.AlarmTonePlayer
 import com.example.openeer.core.GeofenceDiag
 import com.example.openeer.core.ReminderChannels
 import com.example.openeer.core.ReminderNotifier
@@ -29,8 +30,10 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_FIRE_ALARM: String = "com.example.openeer.REMINDER_FIRE_ALARM"
         const val ACTION_FIRE_GEOFENCE: String = "com.example.openeer.REMINDER_FIRE_GEOFENCE"
         const val ACTION_SNOOZE_5: String = "com.example.openeer.REMINDER_ACTION_SNOOZE_5"
+        const val ACTION_SNOOZE_10: String = "com.example.openeer.REMINDER_ACTION_SNOOZE_10"
         const val ACTION_SNOOZE_60: String = "com.example.openeer.REMINDER_ACTION_SNOOZE_60"
         const val ACTION_MARK_DONE: String = "com.example.openeer.REMINDER_ACTION_MARK_DONE"
+        const val ACTION_STOP_ALARM: String = "com.example.openeer.REMINDER_ACTION_STOP_ALARM"
 
         const val EXTRA_NOTE_ID: String = "extra_note_id"
         const val EXTRA_REMINDER_ID: String = "extra_reminder_id"
@@ -64,8 +67,9 @@ class ReminderReceiver : BroadcastReceiver() {
         when (action) {
             ACTION_FIRE_ALARM -> handleFireAlarm(context, reminderId, noteId)
             ACTION_SNOOZE_5 -> handleSnooze(context, reminderId, 5)
+            ACTION_SNOOZE_10 -> handleSnooze(context, reminderId, 10)
             ACTION_SNOOZE_60 -> handleSnooze(context, reminderId, 60)
-            ACTION_MARK_DONE -> handleMarkDone(context, reminderId)
+            ACTION_MARK_DONE, ACTION_STOP_ALARM -> handleMarkDone(context, reminderId)
             ACTION_FIRE_GEOFENCE -> {
                 val ev = GeofenceDiag.dumpEvent("onReceive()", intent)
                 if (ev == null) {
@@ -158,22 +162,23 @@ class ReminderReceiver : BroadcastReceiver() {
                     ?.trim()
                     ?.take(160)
                 val reminder = reminderDao.getById(reminderId)
-                reminder?.let { logReminderDump("handleFireAlarm", it) }
-                if (reminder?.status != ReminderEntity.STATUS_ACTIVE) {
-                    Log.d(
-                        TAG,
-                        "handleFireAlarm: reminderId=$reminderId ignored status=${reminder?.status}"
-                    )
+                if (reminder == null) {
+                    Log.w(TAG, "handleFireAlarm: reminderId=$reminderId not found")
                     return@launch
                 }
-                val repeatMinutes = reminder?.repeatEveryMinutes
+                logReminderDump("handleFireAlarm", reminder)
+                if (reminder.status != ReminderEntity.STATUS_ACTIVE) {
+                    Log.d(TAG, "handleFireAlarm: reminderId=$reminderId ignored status=${reminder.status}")
+                    return@launch
+                }
+                val repeatMinutes = reminder.repeatEveryMinutes
                 val intervalLabel = repeatMinutes?.let { "${it}m" } ?: "once"
                 val now = System.currentTimeMillis()
                 Log.d(
                     TAG,
-                    "handleFireAlarm: firing reminderId=$reminderId noteId=$noteId typeInterval=$intervalLabel now=$now scheduled=${reminder?.nextTriggerAt}"
+                    "handleFireAlarm: firing reminderId=$reminderId noteId=$noteId typeInterval=$intervalLabel now=$now scheduled=${reminder.nextTriggerAt} delivery=${reminder.delivery}"
                 )
-                val label = reminder?.label?.takeIf { it.isNotBlank() }
+                val label = reminder.label?.takeIf { it.isNotBlank() }
 
                 ReminderNotifier.showReminder(
                     appContext,
@@ -182,35 +187,33 @@ class ReminderReceiver : BroadcastReceiver() {
                     label,
                     note?.title,
                     preview,
+                    reminder.delivery,
+                    now,
                 )
 
-                if (reminder != null) {
-                    val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-                    if (repeatMinutes != null && repeatMinutes > 0) {
-                        val nextTrigger = ReminderUseCases.computeNextRepeatingTrigger(
-                            now,
-                            reminder.nextTriggerAt,
-                            repeatMinutes
-                        )
-                        val updated = reminder.copy(lastFiredAt = now, nextTriggerAt = nextTrigger)
-                        reminderDao.update(updated)
-                        ReminderUseCases(appContext, db, alarmManager)
-                            .scheduleNextTimeReminder(reminderId, reminder.noteId, nextTrigger, repeatMinutes)
-                        Log.d(
-                            TAG,
-                            "handleFireAlarm: rescheduled repeating reminderId=$reminderId interval=${repeatMinutes}m nextTriggerAt=$nextTrigger"
-                        )
-                        ReminderListSheet.notifyChangedBroadcast(appContext, reminder.noteId)
-                    } else {
-                        reminderDao.update(reminder.copy(lastFiredAt = now))
-                        Log.d(
-                            TAG,
-                            "handleFireAlarm: one-shot reminderId=$reminderId marked lastFiredAt=$now (no reschedule)"
-                        )
-                        ReminderListSheet.notifyChangedBroadcast(appContext, reminder.noteId)
-                    }
+                val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                if (repeatMinutes != null && repeatMinutes > 0) {
+                    val nextTrigger = ReminderUseCases.computeNextRepeatingTrigger(
+                        now,
+                        reminder.nextTriggerAt,
+                        repeatMinutes
+                    )
+                    val updated = reminder.copy(lastFiredAt = now, nextTriggerAt = nextTrigger)
+                    reminderDao.update(updated)
+                    ReminderUseCases(appContext, db, alarmManager)
+                        .scheduleNextTimeReminder(reminderId, reminder.noteId, nextTrigger, repeatMinutes)
+                    Log.d(
+                        TAG,
+                        "handleFireAlarm: rescheduled repeating reminderId=$reminderId interval=${repeatMinutes}m nextTriggerAt=$nextTrigger"
+                    )
+                    ReminderListSheet.notifyChangedBroadcast(appContext, reminder.noteId)
                 } else {
-                    Log.w(TAG, "handleFireAlarm: reminderId=$reminderId not found in DB, skipping reschedule")
+                    reminderDao.update(reminder.copy(lastFiredAt = now))
+                    Log.d(
+                        TAG,
+                        "handleFireAlarm: one-shot reminderId=$reminderId marked lastFiredAt=$now (no reschedule)"
+                    )
+                    ReminderListSheet.notifyChangedBroadcast(appContext, reminder.noteId)
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Error displaying reminderId=$reminderId", t)
@@ -245,6 +248,8 @@ class ReminderReceiver : BroadcastReceiver() {
                 val useCases = ReminderUseCases(appContext, db, alarmManager)
                 useCases.snooze(reminderId, minutes)
                 ReminderListSheet.notifyChangedBroadcast(appContext, reminder.noteId)
+                NotificationManagerCompat.from(appContext).cancel(reminderId.toInt())
+                AlarmTonePlayer.stop()
             } catch (t: Throwable) {
                 Log.e(TAG, "Error snoozing reminderId=$reminderId", t)
             } finally {
@@ -282,6 +287,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 reminderDao.markDone(reminderId, System.currentTimeMillis())
 
                 NotificationManagerCompat.from(appContext).cancel(reminderId.toInt())
+                AlarmTonePlayer.stop()
                 ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             } catch (t: Throwable) {
                 Log.e(TAG, "Error marking reminderId=$reminderId as done", t)
@@ -432,6 +438,8 @@ class ReminderReceiver : BroadcastReceiver() {
             notificationLabel,
             note?.title,
             preview,
+            reminder.delivery,
+            now,
         )
 
         Log.d(TAG, "handleGeofence: rescheduling reminderId=$reminderId -> lastFiredAt/nextTriggerAt=$now (disarming)")
@@ -452,7 +460,7 @@ class ReminderReceiver : BroadcastReceiver() {
     private fun logReminderDump(source: String, reminder: ReminderEntity) {
         Log.d(
             TAG,
-            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} cooldown=${reminder.cooldownMinutes} armed=${reminder.armedAt} triggerOnExit=${reminder.triggerOnExit} disarmedUntilExit=${reminder.disarmedUntilExit} block=${reminder.blockId} label=${reminder.label}"
+            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} delivery=${reminder.delivery} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} cooldown=${reminder.cooldownMinutes} armed=${reminder.armedAt} triggerOnExit=${reminder.triggerOnExit} disarmedUntilExit=${reminder.disarmedUntilExit} block=${reminder.blockId} label=${reminder.label}"
         )
     }
 }

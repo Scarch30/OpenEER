@@ -85,6 +85,13 @@
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
 
         <activity
+            android:name=".ui.alarm.AlarmAlertActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OpenEER.AlarmAlert"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true" />
+
+        <activity
             android:name=".ui.KeyboardCaptureActivity"
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar"

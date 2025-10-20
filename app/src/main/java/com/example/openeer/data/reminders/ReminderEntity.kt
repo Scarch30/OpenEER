@@ -44,6 +44,7 @@ data class ReminderEntity(
     val repeatEveryMinutes: Int? = null,
     val triggerOnExit: Boolean = false,
     val disarmedUntilExit: Boolean = false,
+    val delivery: String = DELIVERY_NOTIFICATION,
     val armedAt: Long? = null
 ) {
 
@@ -63,5 +64,8 @@ data class ReminderEntity(
         const val STATUS_CANCELLED = "CANCELLED"
         const val STATUS_DONE = "DONE"
         const val STATUS_PAUSED = "PAUSED"
+
+        const val DELIVERY_NOTIFICATION = "NOTIFICATION"
+        const val DELIVERY_ALARM = "ALARM"
     }
 }
