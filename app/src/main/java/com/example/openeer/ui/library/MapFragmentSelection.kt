@@ -65,7 +65,7 @@ internal fun MapFragment.removeCustomPin(blockId: Long) {
     }
 }
 
-internal fun MapFragment.handleMapLongClick(latLng: LatLng): Boolean {
+internal fun MapFragment.handleMapSelectionTap(latLng: LatLng): Boolean {
     if (isManualRouteMode) return false
     val manager = symbolManager ?: return false
     selectionJob?.cancel()
