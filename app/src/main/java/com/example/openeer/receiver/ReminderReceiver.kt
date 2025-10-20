@@ -164,22 +164,15 @@ class ReminderReceiver : BroadcastReceiver() {
                     TAG,
                     "handleFireAlarm: firing reminderId=$reminderId noteId=$noteId typeInterval=$intervalLabel now=$now scheduled=${reminder?.nextTriggerAt}"
                 )
-                val overrideText = reminder?.blockId?.let { blockId ->
-                    db.blockDao().getById(blockId)?.text
-                        ?.lineSequence()
-                        ?.firstOrNull()
-                        ?.removePrefix("⏰")
-                        ?.trim()
-                        ?.takeIf { it.isNotEmpty() }
-                }
+                val label = reminder?.label?.takeIf { it.isNotBlank() }
 
                 ReminderNotifier.showReminder(
                     appContext,
                     noteId,
                     reminderId,
+                    label,
                     note?.title,
                     preview,
-                    overrideText
                 )
 
                 if (reminder != null) {
@@ -392,23 +385,16 @@ class ReminderReceiver : BroadcastReceiver() {
             ?.firstOrNull { it.isNotBlank() }
             ?.trim()
             ?.take(160)
-        val overrideText = reminder.blockId?.let { blockId ->
-            db.blockDao().getById(blockId)?.text
-                ?.lineSequence()
-                ?.firstOrNull()
-                ?.removePrefix("⏰")
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-        }
+        val label = reminder.label?.takeIf { it.isNotBlank() }
 
         Log.d(TAG, "handleGeofence: showing notification for reminderId=$reminderId noteId=$noteId")
         ReminderNotifier.showReminder(
             appContext,
             noteId,
             reminderId,
+            label,
             note?.title,
             preview,
-            overrideText
         )
 
         Log.d(TAG, "handleGeofence: rescheduling reminderId=$reminderId -> lastFiredAt/nextTriggerAt=$now (disarming)")
@@ -429,7 +415,7 @@ class ReminderReceiver : BroadcastReceiver() {
     private fun logReminderDump(source: String, reminder: ReminderEntity) {
         Log.d(
             TAG,
-            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} cooldown=${reminder.cooldownMinutes} armed=${reminder.armedAt} triggerOnExit=${reminder.triggerOnExit} block=${reminder.blockId}"
+            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} cooldown=${reminder.cooldownMinutes} armed=${reminder.armedAt} triggerOnExit=${reminder.triggerOnExit} block=${reminder.blockId} label=${reminder.label}"
         )
     }
 }

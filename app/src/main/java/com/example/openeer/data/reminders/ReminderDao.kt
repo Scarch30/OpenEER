@@ -25,9 +25,6 @@ interface ReminderDao {
     @Query("SELECT * FROM reminders WHERE noteId = :noteId ORDER BY status DESC, nextTriggerAt ASC")
     suspend fun listForNoteOrdered(noteId: Long): List<ReminderEntity>
 
-    @Query("SELECT COUNT(*) FROM reminders WHERE noteId = :noteId AND status = 'ACTIVE'")
-    suspend fun countActiveForNote(noteId: Long): Int
-
     @Query("SELECT * FROM reminders WHERE status = 'ACTIVE' AND nextTriggerAt <= :now")
     suspend fun getDue(now: Long): List<ReminderEntity>
 
@@ -37,16 +34,13 @@ interface ReminderDao {
     @Query("UPDATE reminders SET status='DONE', lastFiredAt = :firedAt WHERE id = :id")
     suspend fun markDone(id: Long, firedAt: Long)
 
-    @Query("UPDATE reminders SET blockId = :blockId WHERE id = :id")
-    suspend fun attachBlock(id: Long, blockId: Long)
-
-    @Query("SELECT * FROM reminders WHERE blockId = :blockId LIMIT 1")
-    suspend fun byBlockId(blockId: Long): ReminderEntity?
-
     @Query(
         "SELECT * FROM reminders WHERE status = 'ACTIVE' AND type IN ('TIME_ONE_SHOT', 'TIME_REPEATING') AND nextTriggerAt >= :now"
     )
     suspend fun getUpcomingTimeReminders(now: Long): List<ReminderEntity>
+
+    @Query("SELECT * FROM reminders WHERE noteId = :noteId AND status = 'ACTIVE'")
+    suspend fun getActiveByNoteId(noteId: Long): List<ReminderEntity>
 
     @Query("UPDATE reminders SET status='CANCELLED' WHERE noteId = :noteId")
     suspend fun cancelAllForNote(noteId: Long)

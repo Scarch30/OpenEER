@@ -32,7 +32,6 @@ import com.example.openeer.R
 import com.example.openeer.core.LocationPerms
 import com.example.openeer.core.getOneShotPlace
 import com.example.openeer.data.AppDatabase
-import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.domain.ReminderUseCases
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapFragment
@@ -457,12 +456,6 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
-            val db = obtainDatabase(appContext)
-            val blocksRepo = BlocksRepository(
-                blockDao = db.blockDao(),
-                noteDao = db.noteDao(),
-                linkDao = db.blockLinkDao()
-            )
             val label = currentLabel()
             val timeFmt = DateFormat.getTimeFormat(appContext)
             val dateFmt = DateFormat.getDateFormat(appContext)
@@ -474,23 +467,20 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             }
             val repeatText = formatRepeatDescription(repeatEveryMinutes)
             val whenWithRepeat = repeatText?.let { "$whenText • $it" } ?: whenText
-            val body = buildReminderBody(label, whenText, repeatText)
-            var createdBlockId: Long? = null
             runCatching {
-                val blockId = withContext(Dispatchers.IO) { blocksRepo.appendText(noteId, body) }
-                createdBlockId = blockId
-                val reminderId = withContext(Dispatchers.IO) {
-                    reminderUseCases.scheduleAtEpoch(noteId, timeMillis, blockId, repeatEveryMinutes)
-                }
                 withContext(Dispatchers.IO) {
-                    db.reminderDao().attachBlock(reminderId, blockId)
+                    reminderUseCases.scheduleAtEpoch(
+                        noteId = noteId,
+                        timeMillis = timeMillis,
+                        label = label,
+                        repeatEveryMinutes = repeatEveryMinutes
+                    )
                 }
                 ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             }.onSuccess {
                 notifySuccess(whenWithRepeat, repeatEveryMinutes != null)
                 dismiss()
             }.onFailure { error ->
-                cleanupCreatedBlock(createdBlockId)
                 handleFailure(error)
             }
         }
@@ -588,36 +578,22 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
-            val db = obtainDatabase(appContext)
-            val blocksRepo = BlocksRepository(
-                blockDao = db.blockDao(),
-                noteDao = db.noteDao(),
-                linkDao = db.blockLinkDao()
-            )
             val label = currentLabel()
             val radius = currentRadius()
             val locationDescription = buildLocationDescription(lat, lon, radius)
             val every = everySwitch.isChecked
-            val repeatPart = if (every) getString(R.string.reminder_geo_every) else null
-            val body = buildReminderBody(label, locationDescription, repeatPart)
-            var createdBlockId: Long? = null
             runCatching {
-                val blockId = withContext(Dispatchers.IO) { blocksRepo.appendText(noteId, body) }
-                createdBlockId = blockId
-                val reminderId = withContext(Dispatchers.IO) {
+                withContext(Dispatchers.IO) {
                     reminderUseCases.scheduleGeofence(
                         noteId = noteId,
                         lat = lat,
                         lon = lon,
                         radiusMeters = radius,
                         every = every,
-                        blockId = blockId,
+                        label = label,
                         triggerOnExit = geoTriggerOnExit,
                         startingInside = startingInsideGeofence
                     )
-                }
-                withContext(Dispatchers.IO) {
-                    db.reminderDao().attachBlock(reminderId, blockId)
                 }
                 ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             }.onSuccess {
@@ -629,7 +605,6 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 notifySuccess(successSummary, every)
                 dismiss()
             }.onFailure { error ->
-                cleanupCreatedBlock(createdBlockId)
                 handleFailure(error)
             }
         }
@@ -706,18 +681,6 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         LocationPerms.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
-    private fun cleanupCreatedBlock(blockId: Long?) {
-        if (blockId == null) return
-        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            val appContext = context?.applicationContext ?: return@launch
-            val db = obtainDatabase(appContext)
-            val entity = db.blockDao().getById(blockId)
-            if (entity != null) {
-                db.blockDao().delete(entity)
-            }
-        }
-    }
-
     private fun currentLabel(): String? {
         return labelInput.editText?.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }
     }
@@ -746,21 +709,6 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             "📍 $coords · ~${radius}m"
         }
         return "$base • ${geoTriggerLabelLong()}"
-    }
-
-    private fun buildReminderBody(label: String?, whenPart: String, repeatPart: String? = null): String {
-        return buildString {
-            append("⏰ ")
-            if (!label.isNullOrBlank()) {
-                append(label.trim())
-                append(" — ")
-            }
-            append(whenPart)
-            if (!repeatPart.isNullOrBlank()) {
-                append(" • ")
-                append(repeatPart)
-            }
-        }
     }
 
     private fun isSameDay(t: Long): Boolean {

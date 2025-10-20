@@ -458,22 +458,24 @@ class NotePanelController(
         // 🛡 Garde-fou : si entre temps on a changé de note, on ne touche pas à l’UI
         val nid = openNoteId ?: return
 
+        val visibleBlocks = blocks.filterNot(::isLegacyReminderBlock)
+
         val counts = PileCounts(
-            photos = blocks.count { it.type == BlockType.PHOTO || it.type == BlockType.VIDEO },
-            audios = blocks.count { it.type == BlockType.AUDIO },
-            textes = blocks.count { it.type == BlockType.TEXT },
-            files = blocks.count { it.type == BlockType.FILE },
-            locations = blocks.count { it.type == BlockType.LOCATION },
+            photos = visibleBlocks.count { it.type == BlockType.PHOTO || it.type == BlockType.VIDEO },
+            audios = visibleBlocks.count { it.type == BlockType.AUDIO },
+            textes = visibleBlocks.count { it.type == BlockType.TEXT },
+            files = visibleBlocks.count { it.type == BlockType.FILE },
+            locations = visibleBlocks.count { it.type == BlockType.LOCATION },
         )
         onPileCountsChanged?.invoke(counts)
 
-        updateMediaStrip(blocks)
+        updateMediaStrip(visibleBlocks)
 
         val container = binding.childBlocksContainer
         container.removeAllViews()
         blockViews.clear()
 
-        if (blocks.isEmpty()) {
+        if (visibleBlocks.isEmpty()) {
             container.isGone = true
             return
         }
@@ -481,7 +483,7 @@ class NotePanelController(
         val margin = (8 * container.resources.displayMetrics.density).toInt()
         var hasRenderable = false
 
-        blocks.forEach { block ->
+        visibleBlocks.forEach { block ->
             val view = when (block.type) {
                 BlockType.TEXT -> if (block.groupId == null) {
                     BlockRenderers.createTextBlockView(container.context, block, margin, activity)
@@ -646,6 +648,12 @@ class NotePanelController(
         binding.mediaStrip.isGone = piles.isEmpty()
     }
 
+    private fun isLegacyReminderBlock(block: BlockEntity): Boolean {
+        if (block.type != BlockType.TEXT) return false
+        val content = block.text?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        return content.startsWith("⏰")
+    }
+
 
     private fun createTextBlockView(block: BlockEntity, margin: Int): View {
         val ctx = binding.root.context
@@ -713,7 +721,7 @@ class NotePanelController(
             val (totalCount, activeCount) = withContext(Dispatchers.IO) {
                 val dao = AppDatabase.get(appCtx).reminderDao()
                 val reminders = dao.listForNoteOrdered(noteId)
-                val active = dao.countActiveForNote(noteId)
+                val active = dao.getActiveByNoteId(noteId).size
                 reminders.size to active
             }
             if (openNoteId != noteId) return@launch

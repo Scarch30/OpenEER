@@ -33,7 +33,8 @@ class ReminderUseCases(
     suspend fun scheduleAtEpoch(
         noteId: Long,
         timeMillis: Long,
-        blockId: Long? = null,
+        label: String? = null,
+        _blockId: Long? = null,
         repeatEveryMinutes: Int? = null
     ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
@@ -46,12 +47,14 @@ class ReminderUseCases(
         val intervalLabel = repeatEveryMinutes?.let { "${it}m" } ?: "once"
         Log.d(
             TAG,
-            "scheduleAtEpoch(): preparing type=$type interval=$intervalLabel noteId=$noteId blockId=$blockId triggerAt=$timeMillis"
+            "scheduleAtEpoch(): preparing type=$type interval=$intervalLabel noteId=$noteId label=${label?.take(32)} triggerAt=$timeMillis"
         )
+
+        val sanitizedLabel = label?.trim()?.takeIf { it.isNotEmpty() }
 
         val reminder = ReminderEntity(
             noteId = noteId,
-            blockId = blockId,
+            label = sanitizedLabel,
             type = type,
             nextTriggerAt = timeMillis,
             status = STATUS_ACTIVE,
@@ -75,7 +78,8 @@ class ReminderUseCases(
         lon: Double,
         radiusMeters: Int = DEFAULT_GEOFENCE_RADIUS_METERS,
         every: Boolean = false,
-        blockId: Long? = null,
+        label: String? = null,
+        _blockId: Long? = null,
         cooldownMinutes: Int? = DEFAULT_GEO_COOLDOWN_MINUTES,
         triggerOnExit: Boolean = false,
         startingInside: Boolean = false
@@ -83,7 +87,7 @@ class ReminderUseCases(
         val now = System.currentTimeMillis()
         Log.d(
             TAG,
-            "scheduleGeofence(): note=$noteId every=$every lat=$lat lon=$lon radius=$radiusMeters cooldown=$cooldownMinutes block=$blockId triggerOnExit=$triggerOnExit startingInside=$startingInside"
+            "scheduleGeofence(): note=$noteId every=$every lat=$lat lon=$lon radius=$radiusMeters cooldown=$cooldownMinutes label=${label?.take(32)} triggerOnExit=$triggerOnExit startingInside=$startingInside"
         )
         val armedAt = when {
             triggerOnExit && startingInside -> now
@@ -91,9 +95,10 @@ class ReminderUseCases(
             startingInside -> null
             else -> now
         }
+        val sanitizedLabel = label?.trim()?.takeIf { it.isNotEmpty() }
         val reminder = ReminderEntity(
             noteId = noteId,
-            blockId = blockId,
+            label = sanitizedLabel,
             type = if (every) TYPE_LOC_EVERY else TYPE_LOC_ONCE,
             nextTriggerAt = now,
             lat = lat,
