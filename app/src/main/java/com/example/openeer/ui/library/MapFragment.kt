@@ -711,10 +711,16 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
 
         map?.addOnMapLongClickListener { latLng ->
-            if (isManualRouteMode) {
-                handleManualMapLongClick(latLng)
-            } else if (!isPickMode) {
-                handleMapSelectionTap(latLng)
+            when {
+                isManualRouteMode -> {
+                    handleManualMapLongClick(latLng)
+                    true
+                }
+                !isPickMode -> {
+                    handleMapSelectionTap(latLng)
+                    true
+                }
+                else -> false
             }
         }
     }
