@@ -59,5 +59,9 @@ data class ReminderEntity(
         const val TYPE_TIME_REPEATING = "TIME_REPEATING"
         const val TYPE_LOC_ONCE = "LOC_ONCE"
         const val TYPE_LOC_EVERY = "LOC_EVERY"
+        const val STATUS_ACTIVE = "ACTIVE"
+        const val STATUS_CANCELLED = "CANCELLED"
+        const val STATUS_DONE = "DONE"
+        const val STATUS_PAUSED = "PAUSED"
     }
 }

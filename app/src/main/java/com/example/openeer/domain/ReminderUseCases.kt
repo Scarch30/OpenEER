@@ -15,6 +15,9 @@ import com.example.openeer.core.LocationPerms
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.reminders.ReminderDao
 import com.example.openeer.data.reminders.ReminderEntity
+import com.example.openeer.data.reminders.ReminderEntity.Companion.STATUS_ACTIVE
+import com.example.openeer.data.reminders.ReminderEntity.Companion.STATUS_CANCELLED
+import com.example.openeer.data.reminders.ReminderEntity.Companion.STATUS_PAUSED
 import com.example.openeer.receiver.ReminderReceiver
 import com.example.openeer.workers.ReminderPeriodicWorker
 import com.example.openeer.receiver.ReminderReceiver.Companion.ACTION_FIRE_ALARM
@@ -250,6 +253,86 @@ class ReminderUseCases(
 
     suspend fun removeGeofence(reminderId: Long) = withContext(Dispatchers.IO) {
         removeGeofenceInternal(reminderId)
+    }
+
+    suspend fun pause(reminderId: Long) = withContext(Dispatchers.IO) {
+        val reminder = reminderDao.getById(reminderId)
+        if (reminder == null) {
+            Log.w(TAG, "pause: reminderId=$reminderId not found")
+            return@withContext
+        }
+
+        if (reminder.status != STATUS_ACTIVE) {
+            Log.d(
+                TAG,
+                "pause: reminderId=$reminderId noteId=${reminder.noteId} status=${reminder.status} -> ignore"
+            )
+            return@withContext
+        }
+
+        when (reminder.type) {
+            TYPE_LOC_ONCE, TYPE_LOC_EVERY -> removeGeofenceInternal(reminderId, cancelInDb = false)
+            else -> {
+                cancelAlarm(reminderId, reminder.noteId)
+                if (usesWorkManager(reminder.repeatEveryMinutes)) {
+                    cancelPeriodicWork(reminderId)
+                }
+            }
+        }
+
+        reminderDao.pause(reminderId)
+        Log.d(TAG, "pause: reminderId=$reminderId noteId=${reminder.noteId} paused")
+    }
+
+    suspend fun resume(reminderId: Long) = withContext(Dispatchers.IO) {
+        val reminder = reminderDao.getById(reminderId)
+        if (reminder == null) {
+            Log.w(TAG, "resume: reminderId=$reminderId not found")
+            return@withContext
+        }
+
+        if (reminder.status != STATUS_PAUSED) {
+            Log.d(
+                TAG,
+                "resume: reminderId=$reminderId noteId=${reminder.noteId} status=${reminder.status} -> ignore"
+            )
+            return@withContext
+        }
+
+        when (reminder.type) {
+            TYPE_LOC_ONCE, TYPE_LOC_EVERY -> {
+                addGeofenceForExisting(reminder)
+            }
+            else -> {
+                val now = System.currentTimeMillis()
+                val repeatMinutes = reminder.repeatEveryMinutes
+                var triggerAt = reminder.nextTriggerAt
+
+                if (repeatMinutes != null && repeatMinutes > 0) {
+                    if (triggerAt <= now) {
+                        val advanced = computeNextRepeatingTrigger(now, triggerAt, repeatMinutes)
+                        if (advanced != triggerAt) {
+                            reminderDao.update(reminder.copy(nextTriggerAt = advanced))
+                            triggerAt = advanced
+                        }
+                    }
+                    if (usesWorkManager(repeatMinutes)) {
+                        schedulePeriodicWork(reminderId, reminder.noteId, triggerAt, repeatMinutes)
+                    } else {
+                        scheduleAlarm(reminderId, reminder.noteId, triggerAt)
+                    }
+                } else {
+                    if (triggerAt <= now) {
+                        triggerAt = now + ONE_MINUTE_IN_MILLIS
+                        reminderDao.update(reminder.copy(nextTriggerAt = triggerAt))
+                    }
+                    scheduleAlarm(reminderId, reminder.noteId, triggerAt)
+                }
+            }
+        }
+
+        reminderDao.resume(reminderId)
+        Log.d(TAG, "resume: reminderId=$reminderId noteId=${reminder.noteId} resumed")
     }
 
     suspend fun cancel(reminderId: Long) = withContext(Dispatchers.IO) {
@@ -621,8 +704,6 @@ class ReminderUseCases(
         private const val TYPE_TIME_REPEATING = "TIME_REPEATING"
         private const val TYPE_LOC_ONCE = "LOC_ONCE"
         private const val TYPE_LOC_EVERY = "LOC_EVERY"
-        private const val STATUS_ACTIVE = "ACTIVE"
-        private const val STATUS_CANCELLED = "CANCELLED"
         private const val ONE_MINUTE_IN_MILLIS = 60_000L
         private const val MIN_PERIODIC_INTERVAL_MINUTES = 15
         private const val DEFAULT_GEOFENCE_RADIUS_METERS = 100
