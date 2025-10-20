@@ -77,13 +77,20 @@ class ReminderUseCases(
         every: Boolean = false,
         blockId: Long? = null,
         cooldownMinutes: Int? = DEFAULT_GEO_COOLDOWN_MINUTES,
-        disarmedUntilExit: Boolean = false
+        triggerOnExit: Boolean = false,
+        startingInside: Boolean = false
     ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         Log.d(
             TAG,
-            "scheduleGeofence(): note=$noteId every=$every lat=$lat lon=$lon radius=$radiusMeters cooldown=$cooldownMinutes block=$blockId disarmedUntilExit=$disarmedUntilExit"
+            "scheduleGeofence(): note=$noteId every=$every lat=$lat lon=$lon radius=$radiusMeters cooldown=$cooldownMinutes block=$blockId triggerOnExit=$triggerOnExit startingInside=$startingInside"
         )
+        val armedAt = when {
+            triggerOnExit && startingInside -> now
+            triggerOnExit -> null
+            startingInside -> null
+            else -> now
+        }
         val reminder = ReminderEntity(
             noteId = noteId,
             blockId = blockId,
@@ -94,7 +101,8 @@ class ReminderUseCases(
             radius = radiusMeters,
             status = STATUS_ACTIVE,
             cooldownMinutes = cooldownMinutes,
-            armedAt = if (disarmedUntilExit) null else now
+            triggerOnExit = triggerOnExit,
+            armedAt = armedAt
         )
 
         val reminderId = reminderDao.insert(reminder)
@@ -337,9 +345,10 @@ class ReminderUseCases(
             .build()
 
         val pi = buildGeofencePendingIntent(reminder.id, reminder.noteId)
+        val triggerLabel = if (reminder.triggerOnExit) "EXIT" else "ENTER"
         Log.d(
             TAG,
-            "addGeofence(): id=${reminder.id} note=${reminder.noteId} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} transitions=ENTER|EXIT initialTrigger=0"
+            "addGeofence(): id=${reminder.id} note=${reminder.noteId} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} transitions=ENTER|EXIT fireOn=$triggerLabel initialTrigger=0"
         )
         GeofenceDiag.logProviders(context)
         GeofenceDiag.logPerms(context)

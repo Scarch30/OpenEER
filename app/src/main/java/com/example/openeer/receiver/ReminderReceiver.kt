@@ -336,24 +336,39 @@ class ReminderReceiver : BroadcastReceiver() {
 
         val noteId = initialNoteId ?: reminder.noteId
 
-        if (transition == Geofence.GEOFENCE_TRANSITION_EXIT) {
+        val triggersOnExit = reminder.triggerOnExit
+        val shouldArm = when (transition) {
+            Geofence.GEOFENCE_TRANSITION_EXIT -> !triggersOnExit
+            Geofence.GEOFENCE_TRANSITION_ENTER -> triggersOnExit
+            else -> false
+        }
+        if (shouldArm) {
             val now = System.currentTimeMillis()
             reminderDao.update(reminder.copy(armedAt = now))
+            val armLabel = if (triggersOnExit) "ENTER" else "EXIT"
             Log.d(
                 TAG,
-                "handleGeofence: EXIT armedAt updated to $now for reminderId=$reminderId"
+                "handleGeofence: $armLabel armedAt updated to $now for reminderId=$reminderId (triggerOnExit=$triggersOnExit)"
             )
             ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
             return
         }
 
-        if (transition != Geofence.GEOFENCE_TRANSITION_ENTER) {
+        val shouldFire = when (transition) {
+            Geofence.GEOFENCE_TRANSITION_ENTER -> !triggersOnExit
+            Geofence.GEOFENCE_TRANSITION_EXIT -> triggersOnExit
+            else -> false
+        }
+        if (!shouldFire) {
             Log.w(TAG, "handleGeofence: unsupported transition=$transition for reminderId=$reminderId")
             return
         }
 
         if (reminder.armedAt == null) {
-            Log.d(TAG, "handleGeofence: ENTER ignored because reminder not armed yet (id=$reminderId)")
+            Log.d(
+                TAG,
+                "handleGeofence: transition=$transition ignored because reminder not armed yet (id=$reminderId triggerOnExit=$triggersOnExit)"
+            )
             return
         }
 
@@ -398,6 +413,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "handleGeofence: rescheduling reminderId=$reminderId -> lastFiredAt/nextTriggerAt=$now (disarming)")
         reminderDao.update(reminder.copy(lastFiredAt = now, nextTriggerAt = now, armedAt = null))
+        ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
 
         if (reminder.type == TYPE_LOC_ONCE) {
             Log.d(
@@ -413,7 +429,7 @@ class ReminderReceiver : BroadcastReceiver() {
     private fun logReminderDump(source: String, reminder: ReminderEntity) {
         Log.d(
             TAG,
-            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} cooldown=${reminder.cooldownMinutes} armed=${reminder.armedAt} block=${reminder.blockId}"
+            "DB dump reminder ($source): id=${reminder.id} note=${reminder.noteId} type=${reminder.type} status=${reminder.status} next=${reminder.nextTriggerAt} lat=${reminder.lat} lon=${reminder.lon} radius=${reminder.radius} repeat=${reminder.repeatEveryMinutes} cooldown=${reminder.cooldownMinutes} armed=${reminder.armedAt} triggerOnExit=${reminder.triggerOnExit} block=${reminder.blockId}"
         )
     }
 }

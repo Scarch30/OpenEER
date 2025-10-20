@@ -41,5 +41,6 @@ data class ReminderEntity(
     val status: String,
     val cooldownMinutes: Int? = null,
     val repeatEveryMinutes: Int? = null,
+    val triggerOnExit: Boolean = false,
     val armedAt: Long? = null
 )

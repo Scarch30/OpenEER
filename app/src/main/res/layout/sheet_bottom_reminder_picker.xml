@@ -231,6 +231,38 @@
                 android:text="@string/reminder_geo_every" />
 
             <TextView
+                android:id="@+id/textGeoTriggerTitle"
+                style="@style/TextAppearance.Material3.TitleSmall"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/reminder_geo_trigger_title" />
+
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/toggleGeoTrigger"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:singleSelection="true">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnGeoTriggerEnter"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/reminder_geo_trigger_enter" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnGeoTriggerExit"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/reminder_geo_trigger_exit" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+
+            <TextView
                 android:id="@+id/textLocationPreview"
                 style="@style/TextAppearance.Material3.BodyMedium"
                 android:layout_width="match_parent"
