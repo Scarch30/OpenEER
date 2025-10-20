@@ -11,6 +11,7 @@ import com.example.openeer.data.merge.computeBlockHash
 import com.example.openeer.data.merge.toSnapshot
 import com.example.openeer.domain.ReminderUseCases
 import com.google.gson.Gson
+import androidx.room.withTransaction
 import kotlin.collections.ArrayDeque
 import kotlin.collections.LinkedHashSet
 import kotlin.collections.buildList
@@ -69,7 +70,7 @@ class NoteRepository(
                     }
             }
 
-            database.runInTransaction {
+            database.withTransaction {
                 if (ids.isNotEmpty()) {
                     noteDao.deleteMergeMaps(ids.toList())
                     ids.forEach { noteDao.deleteById(it) }
