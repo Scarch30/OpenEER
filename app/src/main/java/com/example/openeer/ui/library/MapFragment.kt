@@ -951,6 +951,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         }
 
         Log.d(TAG, "GeoFlow → permissions OK, scheduling geofence…")
+        val coordsLabel = String.format(Locale.US, "%.5f,%.5f", lat, lon)
+        Log.i(
+            TAG,
+            "[GEOFENCE] ENTER programmé (note=$noteId latLon=$coordsLabel every=$every radius=$radius)"
+        )
         viewLifecycleOwner.lifecycleScope.launch {
             val db = AppDatabase.getInstance(requireContext())
             val alarm = requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
