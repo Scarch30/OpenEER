@@ -21,7 +21,7 @@ class VoiceCommandRouter(
             trimmed.isEmpty() -> VoiceRouteDecision.NOTE
             !reminderClassifier.hasTrigger(trimmed) -> VoiceRouteDecision.NOTE
             LocalTimeIntentParser.parseReminder(trimmed) != null -> VoiceRouteDecision.REMINDER_TIME
-            tryParsePlace(trimmed) -> VoiceRouteDecision.REMINDER_PLACE
+            LocalPlaceIntentParser.parse(trimmed) != null -> VoiceRouteDecision.REMINDER_PLACE
             else -> VoiceRouteDecision.INCOMPLETE
         }
         logDecision(decision, trimmed)
@@ -33,19 +33,6 @@ class VoiceCommandRouter(
         Log.d("VoiceCommandRouter", "decision=${decision.logToken} text=\"$sanitizedText\"")
     }
 
-    private fun tryParsePlace(text: String): Boolean {
-        val parser = LocalPlaceIntentParserHolder.invoker ?: return false
-        return runCatching { parser.invoke(text) }.getOrNull() != null
-    }
-
-    private object LocalPlaceIntentParserHolder {
-        val invoker: ((String) -> Any?)? = runCatching {
-            val clazz = Class.forName("com.example.openeer.voice.LocalPlaceIntentParser")
-            val instance = runCatching { clazz.getDeclaredField("INSTANCE").get(null) }.getOrNull()
-            val method = clazz.getDeclaredMethod("parsePlace", String::class.java)
-            return@runCatching { text: String -> method.invoke(instance, text) }
-        }.getOrNull()
-    }
 }
 
 enum class VoiceRouteDecision(val logToken: String) {

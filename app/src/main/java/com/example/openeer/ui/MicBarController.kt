@@ -270,7 +270,8 @@ class MicBarController(
                                         noteId = nid,
                                         audioBlockId = newBlockId,
                                         refinedText = refinedText,
-                                        audioPath = wavPath
+                                        audioPath = wavPath,
+                                        decision = decision
                                     )
                                 }
 
@@ -340,35 +341,49 @@ class MicBarController(
         noteId: Long,
         audioBlockId: Long,
         refinedText: String,
-        audioPath: String
+        audioPath: String,
+        decision: VoiceRouteDecision
     ) {
-        withContext(Dispatchers.Main) {
-            provisionalBodyBuffer.clear()
-        }
-
-        rangesByBlock.remove(audioBlockId)
-        val textBlockId = textBlockIdByAudio.remove(audioBlockId)
-        groupIdByAudio.remove(audioBlockId)
-
-        withContext(Dispatchers.IO) {
-            textBlockId?.let { blocksRepo.deleteBlock(it) }
-            blocksRepo.deleteBlock(audioBlockId)
-            runCatching {
-                if (audioPath.isNotBlank()) {
-                    val file = File(audioPath)
-                    if (file.exists()) file.delete()
-                }
+        val result = runCatching {
+            when (decision) {
+                VoiceRouteDecision.REMINDER_TIME -> reminderExecutor.createFromVoice(noteId, refinedText)
+                VoiceRouteDecision.REMINDER_PLACE -> reminderExecutor.createPlaceReminderFromVoice(noteId, refinedText)
+                else -> throw IllegalArgumentException("Unsupported decision $decision")
             }
         }
 
-        val result = runCatching {
-            reminderExecutor.createFromVoice(noteId, refinedText)
-        }
-
         result.onSuccess { reminderId ->
+            withContext(Dispatchers.Main) {
+                provisionalBodyBuffer.clear()
+            }
+
+            rangesByBlock.remove(audioBlockId)
+            val textBlockId = textBlockIdByAudio.remove(audioBlockId)
+            groupIdByAudio.remove(audioBlockId)
+
+            withContext(Dispatchers.IO) {
+                textBlockId?.let { blocksRepo.deleteBlock(it) }
+                blocksRepo.deleteBlock(audioBlockId)
+                runCatching {
+                    if (audioPath.isNotBlank()) {
+                        val file = File(audioPath)
+                        if (file.exists()) file.delete()
+                    }
+                }
+            }
+
             Log.d("MicCtl", "Reminder créé via voix: id=$reminderId pour note=$noteId")
         }.onFailure { error ->
-            Log.e("MicCtl", "Échec de création du rappel pour note=$noteId", error)
+            if (error is ReminderExecutor.IncompleteException) {
+                Log.d("MicCtl", "Rappel lieu incomplet pour note=$noteId, fallback note", error)
+                handleNoteDecision(noteId, audioBlockId, refinedText)
+                withContext(Dispatchers.Main) {
+                    showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                }
+            } else {
+                Log.e("MicCtl", "Échec de création du rappel pour note=$noteId", error)
+                handleNoteDecision(noteId, audioBlockId, refinedText)
+            }
         }
     }
 
