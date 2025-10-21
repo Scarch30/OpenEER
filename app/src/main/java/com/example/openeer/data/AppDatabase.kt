@@ -13,6 +13,8 @@ import com.example.openeer.data.block.BlockLinkDao
 import com.example.openeer.data.block.BlockLinkEntity
 import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.db.Converters
+import com.example.openeer.data.favorites.FavoriteDao
+import com.example.openeer.data.favorites.FavoriteEntity
 import com.example.openeer.data.location.NoteLocationEntity
 import com.example.openeer.data.reminders.ReminderDao
 import com.example.openeer.data.reminders.ReminderEntity
@@ -38,9 +40,10 @@ import com.example.openeer.data.tag.TagEntity
         SearchIndexFts::class,
         // 🔗 Liens entre blocs (AUDIO ↔ TEXTE, etc.)
         BlockLinkEntity::class,
-        ReminderEntity::class
+        ReminderEntity::class,
+        FavoriteEntity::class
     ],
-    version = 18, // 🔼 bump : ajout delivery sur ReminderEntity
+    version = 19, // 🔼 bump : ajout favoris
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -57,6 +60,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun audioDao(): AudioDao
     abstract fun blockReadDao(): BlockReadDao
     abstract fun reminderDao(): ReminderDao
+
+    abstract fun favoriteDao(): FavoriteDao
 
     // 🔗 Nouveau DAO pour les liens de blocs
     abstract fun blockLinkDao(): BlockLinkDao
@@ -402,6 +407,30 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS favorites (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `key` TEXT NOT NULL,
+                            displayName TEXT NOT NULL,
+                            aliasesJson TEXT NOT NULL DEFAULT '[]',
+                            lat REAL NOT NULL,
+                            lon REAL NOT NULL,
+                            defaultRadiusMeters INTEGER NOT NULL DEFAULT 100,
+                            defaultCooldownMinutes INTEGER NOT NULL DEFAULT 30,
+                            defaultEveryTime INTEGER NOT NULL DEFAULT 0,
+                            createdAt INTEGER NOT NULL,
+                            updatedAt INTEGER NOT NULL
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_favorites_key ON favorites(`key`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_favorites_createdAt ON favorites(createdAt)")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -426,7 +455,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_14_15,
                         MIGRATION_15_16,
                         MIGRATION_16_17,
-                        MIGRATION_17_18
+                        MIGRATION_17_18,
+                        MIGRATION_18_19
                     )
                     .build()
                     .also { INSTANCE = it }
