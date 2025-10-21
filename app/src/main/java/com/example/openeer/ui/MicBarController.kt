@@ -23,6 +23,7 @@ import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
 import com.example.openeer.voice.VoiceCommandRouter
+import com.example.openeer.voice.VoiceRouteDecision
 import kotlinx.coroutines.*
 import java.io.File
 import kotlin.math.abs
@@ -228,29 +229,70 @@ class MicBarController(
                         val decision = voiceCommandRouter.route(refinedText)
                         Log.d("VoiceRoute", "Bloc #$newBlockId → décision $decision pour \"$refinedText\"")
 
-                        withContext(Dispatchers.IO) {
-                            // a) mettre à jour le texte du bloc AUDIO
-                            blocksRepo.updateAudioTranscription(newBlockId, refinedText)
+                        if (!FeatureFlags.voiceCommandsEnabled) {
+                            withContext(Dispatchers.IO) {
+                                // a) mettre à jour le texte du bloc AUDIO
+                                blocksRepo.updateAudioTranscription(newBlockId, refinedText)
 
-                            // b) mettre à jour (ou créer) le bloc TEXTE enfant
-                            val maybeTextId = textBlockIdByAudio[newBlockId]
-                            if (maybeTextId != null) {
-                                blocksRepo.updateText(maybeTextId, refinedText)
-                            } else {
-                                // si Vosk était vide, on crée maintenant le bloc texte
-                                val useGid = groupIdByAudio[newBlockId] ?: generateGroupId()
-                                val createdId = blocksRepo.appendTranscription(
-                                    noteId = nid,
-                                    text = refinedText,
-                                    groupId = useGid
-                                )
-                                textBlockIdByAudio[newBlockId] = createdId
+                                // b) mettre à jour (ou créer) le bloc TEXTE enfant
+                                val maybeTextId = textBlockIdByAudio[newBlockId]
+                                if (maybeTextId != null) {
+                                    blocksRepo.updateText(maybeTextId, refinedText)
+                                } else {
+                                    // si Vosk était vide, on crée maintenant le bloc texte
+                                    val useGid = groupIdByAudio[newBlockId] ?: generateGroupId()
+                                    val createdId = blocksRepo.appendTranscription(
+                                        noteId = nid,
+                                        text = refinedText,
+                                        groupId = useGid
+                                    )
+                                    textBlockIdByAudio[newBlockId] = createdId
+                                }
                             }
-                        }
 
-                        // 5) Remplacement dans le body (UI)
-                        withContext(Dispatchers.Main) {
-                            replaceProvisionalWithRefined(newBlockId, refinedText)
+                            // 5) Remplacement dans le body (UI)
+                            withContext(Dispatchers.Main) {
+                                replaceProvisionalWithRefined(newBlockId, refinedText)
+                            }
+                        } else {
+                            when (decision) {
+                                VoiceRouteDecision.NOTE -> {
+                                    withContext(Dispatchers.IO) {
+                                        // a) mettre à jour le texte du bloc AUDIO
+                                        blocksRepo.updateAudioTranscription(newBlockId, refinedText)
+
+                                        // b) mettre à jour (ou créer) le bloc TEXTE enfant
+                                        val maybeTextId = textBlockIdByAudio[newBlockId]
+                                        if (maybeTextId != null) {
+                                            blocksRepo.updateText(maybeTextId, refinedText)
+                                        } else {
+                                            val useGid = groupIdByAudio[newBlockId] ?: generateGroupId()
+                                            val createdId = blocksRepo.appendTranscription(
+                                                noteId = nid,
+                                                text = refinedText,
+                                                groupId = useGid
+                                            )
+                                            textBlockIdByAudio[newBlockId] = createdId
+                                        }
+                                    }
+
+                                    withContext(Dispatchers.Main) {
+                                        replaceProvisionalWithRefined(newBlockId, refinedText)
+                                        val finalBodyText = binding.txtBodyDetail.text?.toString().orEmpty()
+                                        val bodyToPersist = if (finalBodyText.isNotEmpty()) {
+                                            finalBodyText
+                                        } else {
+                                            refinedText
+                                        }
+                                        provisionalBodyBuffer.commitToNote(nid, bodyToPersist)
+                                    }
+                                }
+
+                                VoiceRouteDecision.REMINDER,
+                                VoiceRouteDecision.INCOMPLETE -> {
+                                    // Chemin reminder : la persistance sera gérée par les prompts suivants.
+                                }
+                            }
                         }
                         Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$newBlockId")
                     }
