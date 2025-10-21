@@ -22,6 +22,7 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
+import com.example.openeer.voice.VoiceCommandRouter
 import kotlinx.coroutines.*
 import java.io.File
 import kotlin.math.abs
@@ -52,6 +53,7 @@ class MicBarController(
     private var lastWasHandsFree = false
 
     private val provisionalBodyBuffer = ProvisionalBodyBuffer()
+    private val voiceCommandRouter = VoiceCommandRouter()
 
     /**
      * Mapping bloc audio -> range du texte Vosk dans la note (indices sur le body).
@@ -223,6 +225,8 @@ class MicBarController(
                         // Sécurise : s'assurer que le modèle est chargé (au cas où le warm-up n'a pas abouti)
                         runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
                         val refinedText = WhisperService.transcribeWav(File(wavPath))
+                        val decision = voiceCommandRouter.route(refinedText)
+                        Log.d("VoiceRoute", "Bloc #$newBlockId → décision $decision pour \"$refinedText\"")
 
                         withContext(Dispatchers.IO) {
                             // a) mettre à jour le texte du bloc AUDIO
