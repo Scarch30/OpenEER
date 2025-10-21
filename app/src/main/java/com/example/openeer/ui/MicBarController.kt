@@ -15,6 +15,7 @@ import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.audio.PcmRecorder
+import com.example.openeer.core.FeatureFlags
 import com.example.openeer.core.RecordingState
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
@@ -49,6 +50,8 @@ class MicBarController(
     // Transcription live
     private var live: LiveTranscriber? = null
     private var lastWasHandsFree = false
+
+    private val provisionalBodyBuffer = ProvisionalBodyBuffer()
 
     /**
      * Mapping bloc audio -> range du texte Vosk dans la note (indices sur le body).
@@ -274,29 +277,7 @@ class MicBarController(
      * Retourne la plage [start, endExclusive).
      */
     private fun appendProvisionalToBody(text: String, addNewline: Boolean): IntRange? {
-        if (text.isBlank()) return null
-        val toAppend = if (addNewline) text + "\n" else text
-
-        val current = binding.txtBodyDetail.text?.toString().orEmpty()
-        val start = current.length
-        val endExclusive = start + toAppend.length
-
-        // UI: spans
-        val sb = ensureSpannable(current)
-        sb.append(toAppend)
-        // setSpan utilise end exclusif → ok
-        sb.setSpan(StyleSpan(Typeface.ITALIC), start, endExclusive, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        sb.setSpan(ForegroundColorSpan(Color.parseColor("#9AA0A6")), start, endExclusive, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        binding.txtBodyDetail.text = sb
-
-        // Persist (plain)
-        activity.lifecycleScope.launch(Dispatchers.IO) {
-            val nid = getOpenNoteId() ?: return@launch
-            repo.setBody(nid, sb.toString())
-        }
-
-        // On encode [start, endExclusive) dans IntRange(start, endExclusive)
-        return IntRange(start, endExclusive)
+        return provisionalBodyBuffer.append(text, addNewline)
     }
 
     /**
@@ -310,8 +291,7 @@ class MicBarController(
         if (refined.isEmpty()) return
 
         val range = rangesByBlock.remove(blockId)
-        val curText = binding.txtBodyDetail.text
-        val sb = if (curText is SpannableStringBuilder) curText else SpannableStringBuilder(curText ?: "")
+        val sb = provisionalBodyBuffer.ensureSpannable()
 
         if (range == null || range.first > sb.length) {
             // fallback sûr : on ajoute à la fin en gras
@@ -321,10 +301,7 @@ class MicBarController(
             sb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             sb.setSpan(ForegroundColorSpan(Color.BLACK), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             binding.txtBodyDetail.text = sb
-            activity.lifecycleScope.launch(Dispatchers.IO) {
-                val nid = getOpenNoteId() ?: return@launch
-                repo.setBody(nid, sb.toString())
-            }
+            maybeCommitBody(sb)
             return
         }
 
@@ -345,12 +322,7 @@ class MicBarController(
         sb.setSpan(ForegroundColorSpan(Color.BLACK), safeStart, newEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
 
         binding.txtBodyDetail.text = sb
-
-        // Persiste (plain)
-        activity.lifecycleScope.launch(Dispatchers.IO) {
-            val nid = getOpenNoteId() ?: return@launch
-            repo.setBody(nid, sb.toString())
-        }
+        maybeCommitBody(sb)
 
         // Ajuster les ranges restants après remplacement (décalage éventuel)
         val oldLen = (safeEndExclusive - safeStart)
@@ -368,12 +340,53 @@ class MicBarController(
         }
     }
 
-    private fun ensureSpannable(currentPlain: String): SpannableStringBuilder {
-        val cur = binding.txtBodyDetail.text
-        return when (cur) {
-            is SpannableStringBuilder -> cur
-            null -> SpannableStringBuilder(currentPlain)
-            else -> SpannableStringBuilder(cur)
+    private fun maybeCommitBody(sb: SpannableStringBuilder) {
+        if (!FeatureFlags.voiceCommandsEnabled) {
+            val nid = getOpenNoteId() ?: return
+            provisionalBodyBuffer.commitToNote(nid, sb.toString())
+        }
+    }
+
+    private inner class ProvisionalBodyBuffer {
+        fun append(text: String, addNewline: Boolean): IntRange? {
+            if (text.isBlank()) return null
+            val toAppend = if (addNewline) text + "\n" else text
+
+            val current = binding.txtBodyDetail.text?.toString().orEmpty()
+            val start = current.length
+            val endExclusive = start + toAppend.length
+
+            val sb = ensureSpannable(current)
+            sb.append(toAppend)
+            sb.setSpan(StyleSpan(Typeface.ITALIC), start, endExclusive, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            sb.setSpan(
+                ForegroundColorSpan(Color.parseColor("#9AA0A6")),
+                start,
+                endExclusive,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            binding.txtBodyDetail.text = sb
+
+            return IntRange(start, endExclusive)
+        }
+
+        fun ensureSpannable(currentPlain: String? = null): SpannableStringBuilder {
+            val cur = binding.txtBodyDetail.text
+            return when (cur) {
+                is SpannableStringBuilder -> cur
+                null -> SpannableStringBuilder(currentPlain.orEmpty())
+                else -> SpannableStringBuilder(cur)
+            }
+        }
+
+        fun clear() {
+            binding.txtBodyDetail.text = null
+        }
+
+        fun commitToNote(noteId: Long, text: String) {
+            activity.lifecycleScope.launch(Dispatchers.IO) {
+                repo.setBody(noteId, text)
+            }
         }
     }
 }
