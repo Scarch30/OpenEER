@@ -43,7 +43,7 @@ class VoiceCommandRouter(
             val clazz = Class.forName("com.example.openeer.voice.LocalPlaceIntentParser")
             val instance = runCatching { clazz.getDeclaredField("INSTANCE").get(null) }.getOrNull()
             val method = clazz.getDeclaredMethod("parsePlace", String::class.java)
-            { text: String -> method.invoke(instance, text) }
+            return@runCatching { text: String -> method.invoke(instance, text) }
         }.getOrNull()
     }
 }
