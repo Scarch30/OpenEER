@@ -11,7 +11,14 @@ class VoiceCommandRouterTest {
     fun `reminder intent with date and time`() {
         val sentence = "Rappelle-moi demain à 9h d'appeler Paul"
         val decision = router.route(sentence)
-        assertEquals(VoiceRouteDecision.REMINDER, decision)
+        assertEquals(VoiceRouteDecision.REMINDER_TIME, decision)
+    }
+
+    @Test
+    fun `relative reminder with trigger`() {
+        val sentence = "Rappelle-moi dans cinq minutes de boire de l'eau"
+        val decision = router.route(sentence)
+        assertEquals(VoiceRouteDecision.REMINDER_TIME, decision)
     }
 
     @Test
