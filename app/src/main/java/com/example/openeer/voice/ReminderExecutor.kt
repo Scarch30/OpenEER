@@ -63,7 +63,7 @@ class ReminderExecutor(
         val parseResult = LocalPlaceIntentParser.parse(text)
             ?: throw IncompleteException("No place intent parsed")
 
-        val (lat, lon, label, startingInside) = when (val query = parseResult.query) {
+        val (lat, lon, placeLabel, startingInside) = when (val query = parseResult.query) {
             is LocalPlaceIntentParser.PlaceQuery.CurrentLocation -> {
                 val location = currentLocationResolver()
                 ResolvedPlace(location.latitude, location.longitude, null, true)
@@ -84,7 +84,7 @@ class ReminderExecutor(
             lon = lon,
             radiusMeters = parseResult.radiusMeters,
             every = parseResult.everyTime,
-            label = label,
+            label = parseResult.label,
             cooldownMinutes = parseResult.cooldownMinutes,
             triggerOnExit = triggerOnExit,
             startingInside = startingInside
@@ -92,7 +92,7 @@ class ReminderExecutor(
         ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
         Log.d(
             TAG,
-            "createPlaceReminderFromVoice(): reminderId=$reminderId noteId=$noteId transition=${parseResult.transition} radius=${parseResult.radiusMeters} cooldown=${parseResult.cooldownMinutes} every=${parseResult.everyTime}"
+            "createPlaceReminderFromVoice(): reminderId=$reminderId noteId=$noteId transition=${parseResult.transition} radius=${parseResult.radiusMeters} cooldown=${parseResult.cooldownMinutes} every=${parseResult.everyTime} label='${parseResult.label}' placeLabel='${placeLabel}'"
         )
         return reminderId
     }

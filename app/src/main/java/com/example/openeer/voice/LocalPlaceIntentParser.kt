@@ -11,7 +11,8 @@ object LocalPlaceIntentParser {
         val query: PlaceQuery,
         val radiusMeters: Int = 100,
         val cooldownMinutes: Int = 30,
-        val everyTime: Boolean = false
+        val everyTime: Boolean = false,
+        val label: String,
     )
 
     sealed class PlaceQuery {
@@ -44,6 +45,23 @@ object LocalPlaceIntentParser {
         "(?i)(?:\\b(?:à|a|au|aux|chez|dans|sur|vers|pour|près\\s+de|pres\\s+de|à\\s+proximité\\s+de|a\\s+proximite\\s+de|proche\\s+de|à\\s+côté\\s+de|a\\s+cote\\s+de|de|du|des|de\\s+la|de\\s+l['’])\\b\\s*)(.+)"
     )
 
+    private val TRIGGER_PATTERNS = listOf(
+        Regex("(?i)\\brappelle[- ]?moi\\b"),
+        Regex("(?i)\\brappelle[- ]?nous\\b"),
+        Regex("(?i)\\bfais[- ]?moi\\s+penser\\b"),
+        Regex("(?i)\\bfais[- ]?nous\\s+penser\\b"),
+        Regex("(?i)\\bpense\\s+(?:à|a)\\b"),
+        Regex("(?i)\\bpense\\s+au\\b"),
+        Regex("(?i)\\bpense\\s+aux\\b"),
+        Regex("(?i)\\bpeux[-\\s]?tu\\s+me\\s+rappeler\\b"),
+    )
+
+    private val STOP_WORDS = listOf(
+        "de", "d'", "d’", "le", "la", "les", "l'", "l’", "du", "des", "au", "aux",
+        "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses",
+        "notre", "nos", "votre", "vos", "un", "une",
+    )
+
     fun parse(text: String): PlaceParseResult? {
         if (text.isBlank()) return null
         val sanitized = text.replace('’', '\'')
@@ -69,12 +87,18 @@ object LocalPlaceIntentParser {
 
         val query = extractQuery(working) ?: return null
 
+        val label = extractLabel(
+            original = sanitized,
+            query = query,
+        ) ?: return null
+
         return PlaceParseResult(
             transition = transitionMatch.transition,
             query = query,
             radiusMeters = radiusMeters,
             cooldownMinutes = cooldownMinutes ?: 30,
-            everyTime = everyTime
+            everyTime = everyTime,
+            label = label,
         )
     }
 
@@ -127,6 +151,79 @@ object LocalPlaceIntentParser {
         }
         builder.append(text, lastIndex, text.length)
         return builder.toString()
+    }
+
+    private fun extractLabel(
+        original: String,
+        query: PlaceQuery,
+    ): String? {
+        var working = original
+
+        TRIGGER_PATTERNS.forEach { pattern ->
+            working = pattern.replace(working, " ")
+        }
+
+        (ENTER_PATTERNS + EXIT_PATTERNS).forEach { pattern ->
+            working = pattern.replace(working, " ")
+        }
+
+        working = RADIUS_PATTERN.replace(working, " ")
+        working = COOLDOWN_PATTERN.replace(working, " ")
+        working = COOLDOWN_ALT_PATTERN.replace(working, " ")
+        working = EVERY_TIME_PATTERN.replace(working, " ")
+
+        working = when (query) {
+            is PlaceQuery.CurrentLocation -> CURRENT_LOCATION_PATTERN.replace(working, " ")
+            is PlaceQuery.FreeText -> removeFreeTextLocation(working, query.text)
+        }
+
+        working = working.replace("\\s+".toRegex(), " ")
+        working = working.replace(Regex("^\\s*(d['’]|de|à)\\s+", RegexOption.IGNORE_CASE), "")
+        val trimmed = working.trim().trim(',', ';', '.')
+        val cleaned = trimLeadingStopWords(trimmed)
+        val compacted = cleaned.replace("\\s+".toRegex(), " ").trim().trim(',', ';', '.')
+        return compacted.takeIf { it.isNotEmpty() }
+    }
+
+    private fun removeFreeTextLocation(text: String, location: String): String {
+        if (location.isBlank()) return text
+        val escapedLocation = Regex.escape(location)
+        val connector = "(?:\\b(?:à|a|au|aux|chez|dans|sur|vers|pour|près\\s+de|pres\\s+de|à\\s+proximité\\s+de|a\\s+proximite\\s+de|proche\\s+de|à\\s+côté\\s+de|a\\s+cote\\s+de|de|du|des|de\\s+la|de\\s+l['’])\\b\\s*)?"
+        val punctuation = "(?:[\\s,;.!?]+)?"
+        val pattern = Regex("(?i)$connector$escapedLocation$punctuation")
+        var working = pattern.replace(text) { " " }
+        val barePattern = Regex("(?i)$escapedLocation$punctuation")
+        working = barePattern.replace(working) { " " }
+        return working
+    }
+
+    private fun trimLeadingStopWords(label: String): String {
+        var result = label.trim()
+        while (true) {
+            val trimmed = result.trimStart()
+            if (trimmed.isEmpty()) return ""
+            val lower = trimmed.lowercase(Locale.FRENCH)
+            var removed = false
+            for (stop in STOP_WORDS) {
+                val normalizedStop = stop.replace('’', '\'')
+                if (lower.startsWith("$normalizedStop ")) {
+                    result = trimmed.substring(stop.length + 1)
+                    removed = true
+                    break
+                }
+                if (lower.startsWith("$normalizedStop'")) {
+                    result = trimmed.substring(stop.length + 1)
+                    removed = true
+                    break
+                }
+                if (lower == normalizedStop) {
+                    return ""
+                }
+            }
+            if (!removed) {
+                return trimmed.trim()
+            }
+        }
     }
 }
 
