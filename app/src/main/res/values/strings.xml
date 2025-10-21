@@ -198,6 +198,7 @@
     <string name="recenter">Recentrer</string>
     <string name="map_title">Carte</string>
     <string name="map_action_here">📍 Ici</string>
+    <string name="map_favorite_here_button">⭐ Ici → Favori</string>
     <string name="map_location_added">Lieu ajouté</string>
     <string name="map_location_unavailable">Localisation indisponible</string>
     <string name="map_location_permission_needed">Permission localisation requise</string>
@@ -233,9 +234,10 @@
         <item quantity="other">Itinéraire manuel : %d points</item>
     </plurals>
     <string name="map_pick_title">Point sélectionné</string>
-    <string name="map_pick_save">Enregistrer 📍</string>
-    <string name="map_pick_save_cd">Sauvegarder l’itinéraire</string>
-    <string name="map_pick_route">Démarrer itinéraire depuis ce point</string>
+    <string name="map_selection_add_favorite">➕ Ajouter un Favori ici</string>
+    <string name="map_pick_save">📍 Créer emplacement</string>
+    <string name="map_pick_save_cd">Créer un emplacement</string>
+    <string name="map_pick_route">🧭 Itinéraire…</string>
     <string name="map_pick_open_maps">Ouvrir dans Google Maps</string>
     <string name="map_pick_open_maps_cd">Ouvrir dans Google Maps</string>
     <string name="map_pick_loading">Recherche de l’adresse…</string>
@@ -247,6 +249,12 @@
     <string name="pile_label_locations">Lieux</string>
     <string name="map_route_start_cd">Démarrer un itinéraire</string>
     <string name="map_preview_ready">Aperçu ajouté à la note</string>
+    <string name="map_favorite_dialog_title">Nom du favori</string>
+    <string name="map_favorite_name_hint">Titre du favori</string>
+    <string name="map_favorite_dialog_positive">Enregistrer</string>
+    <string name="map_favorite_creation_started">Favori en cours de création…</string>
+    <string name="map_favorite_here_permission_denied">Autorisation GPS requise</string>
+    <string name="map_favorite_here_location_unavailable">Position actuelle introuvable</string>
     <string name="route_debug_toggle_title">Overlay debug itinéraire</string>
     <string name="route_debug_toggle_message">Disponible uniquement en build DEBUG. Active l’overlay de diagnostic pour ajuster les seuils à la volée.</string>
     <string name="route_debug_toggle_switch">Activer l’overlay debug</string>

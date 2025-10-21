@@ -117,6 +117,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         get() = !isPickMode && !showLibraryPins
 
     internal var awaitingHerePermission = false
+    internal var awaitingFavoritePermission = false
     internal var lastHereLocation: RecentHere? = null
     internal var hintDismissRunnable: Runnable? = null
     internal var hasRequestedLocationPermission = false
@@ -177,6 +178,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     // Permission localisation
     internal val REQ_LOC = 1001
     internal val REQ_ROUTE = 1002
+    internal val REQ_FAVORITE = 1003
 
     companion object {
         private const val MANUAL_ROUTE_MAX_POINTS = 120
@@ -451,6 +453,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         b.btnZoomIn.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomIn()) }
         b.btnZoomOut.setOnClickListener { map?.animateCamera(CameraUpdateFactory.zoomOut()) }
         b.btnRecenter.setOnClickListener { recenterToUserOrAll() }
+        b.btnFavoriteHere.setOnClickListener { onFavoriteHereClicked() }
+        b.btnFavoriteHere.isVisible = !isPickMode
         recordingRouteLine = MapPolylines.clearRecordingLine(polylineManager, recordingRouteLine)
         val showLocationActions = shouldShowLocationActions
         b.locationActions.isVisible = showLocationActions
@@ -665,6 +669,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 b.btnAddHere.isEnabled = false
                 b.btnRecordRoute.isEnabled = false
             }
+            b.btnFavoriteHere.isVisible = !isPickMode
+            b.btnFavoriteHere.isEnabled = true
 
             if (initialMode == MapActivity.MODE_BROWSE) {
                 // Centrage direct (pas d'animation) pour qu'un snapshot immédiat capture *exactement* ce qui est visible
@@ -701,26 +707,36 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                 handleMapSelectionTap(latLng)
                 return@addOnMapClickListener true
             }
-            val screenPt = map?.projection?.toScreenLocation(latLng) ?: return@addOnMapClickListener false
-            val features = map?.queryRenderedFeatures(screenPt, MapStyleIds.LYR_NOTES).orEmpty()
-            val f = features.firstOrNull() ?: return@addOnMapClickListener false
 
-            val lat = f.getNumberProperty("lat")?.toDouble() ?: return@addOnMapClickListener false
-            val lon = f.getNumberProperty("lon")?.toDouble() ?: return@addOnMapClickListener false
-            val title = f.getStringProperty("title") ?: "Lieu"
-            val count = f.getNumberProperty("count")?.toInt() ?: 1
+            val screenPt = map?.projection?.toScreenLocation(latLng)
+            val features = screenPt?.let { screen ->
+                map?.queryRenderedFeatures(screen, MapStyleIds.LYR_NOTES).orEmpty()
+            }.orEmpty()
+            val clusterFeature = features.firstOrNull()
+            if (clusterFeature != null) {
+                val lat = clusterFeature.getNumberProperty("lat")?.toDouble()
+                val lon = clusterFeature.getNumberProperty("lon")?.toDouble()
+                val title = clusterFeature.getStringProperty("title") ?: "Lieu"
+                val count = clusterFeature.getNumberProperty("count")?.toInt() ?: 1
 
-            // Zoom doux
-            val currentZoom = map?.cameraPosition?.zoom ?: 5.0
-            val targetZoom = max(currentZoom, 13.5)
-            map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), targetZoom))
+                if (lat != null && lon != null) {
+                    val currentZoom = map?.cameraPosition?.zoom ?: 5.0
+                    val targetZoom = max(currentZoom, 13.5)
+                    map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), targetZoom))
 
-            showHint("$title — $count note(s)")
+                    showHint("$title — $count note(s)")
 
-            // Ouvre systématiquement le bottom sheet (même si count > 1)
-            NotesBottomSheet.newInstance(lat, lon, title)
-                .show(parentFragmentManager, "notes_sheet")
-            true
+                    NotesBottomSheet.newInstance(lat, lon, title)
+                        .show(parentFragmentManager, "notes_sheet")
+                    return@addOnMapClickListener true
+                }
+            }
+
+            if (handleMapSelectionTap(latLng)) {
+                return@addOnMapClickListener true
+            }
+
+            false
         }
 
         map?.addOnMapLongClickListener { latLng ->
@@ -1009,6 +1025,18 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             if (granted) startRouteRecording() else {
                 val shouldShowRationale = permissions.any { shouldShowRequestPermissionRationale(it) }
                 if (shouldShowRationale) showHint(getString(R.string.map_location_permission_needed)) else showLocationDisabledHint()
+            }
+            return
+        }
+        if (requestCode == REQ_FAVORITE) {
+            val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
+            awaitingFavoritePermission = false
+            if (granted) {
+                onFavoriteHerePermissionGranted()
+            } else {
+                context?.let {
+                    Toast.makeText(it, getString(R.string.map_favorite_here_permission_denied), Toast.LENGTH_SHORT).show()
+                }
             }
             return
         }

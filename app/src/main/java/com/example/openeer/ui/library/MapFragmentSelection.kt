@@ -177,9 +177,11 @@ internal fun MapFragment.showSelectionSheet(initialLabel: String, latLng: LatLng
     binding.btnRoute.isEnabled = !isPickMode
     binding.btnOpenMaps.isEnabled = true
     binding.btnRoute.isVisible = !isPickMode
+    binding.btnAddFavorite.isVisible = !isPickMode
     if (isPickMode) {
         binding.btnSave.text = getString(R.string.reminder_plan)
     }
+    binding.btnAddFavorite.setOnClickListener { onAddFavoriteAtSelectionClicked() }
     binding.btnSave.setOnClickListener { onSaveSelectedLocationClicked() }
     binding.btnRoute.setOnClickListener { onStartRouteFromSelectionClicked() }
     binding.btnOpenMaps.setOnClickListener { onOpenInGoogleMapsClicked() }

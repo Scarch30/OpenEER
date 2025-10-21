@@ -156,4 +156,15 @@
         android:id="@+id/routeDebugOverlay"
         layout="@layout/view_route_debug_overlay" />
 
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/btnFavoriteHere"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_margin="16dp"
+        android:text="@string/map_favorite_here_button"
+        android:textAllCaps="false"
+        android:visibility="gone"
+        app:iconPadding="12dp" />
+
 </FrameLayout>
