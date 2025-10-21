@@ -22,6 +22,7 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
+import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceCommandRouter
 import com.example.openeer.voice.VoiceRouteDecision
 import kotlinx.coroutines.*
@@ -55,6 +56,7 @@ class MicBarController(
 
     private val provisionalBodyBuffer = ProvisionalBodyBuffer()
     private val voiceCommandRouter = VoiceCommandRouter()
+    private val reminderExecutor = ReminderExecutor(activity.applicationContext)
 
     /**
      * Mapping bloc audio -> range du texte Vosk dans la note (indices sur le body).
@@ -288,9 +290,17 @@ class MicBarController(
                                     }
                                 }
 
-                                VoiceRouteDecision.REMINDER,
+                                VoiceRouteDecision.REMINDER -> {
+                                    handleReminderDecision(
+                                        noteId = nid,
+                                        audioBlockId = newBlockId,
+                                        refinedText = refinedText,
+                                        audioPath = wavPath
+                                    )
+                                }
+
                                 VoiceRouteDecision.INCOMPLETE -> {
-                                    // Chemin reminder : la persistance sera gérée par les prompts suivants.
+                                    // Chemin reminder incomplet : la persistance sera gérée par les prompts suivants.
                                 }
                             }
                         }
@@ -309,6 +319,42 @@ class MicBarController(
                 Log.e("MicCtl", "Erreur dans stopSegment", e)
                 live = null
             }
+        }
+    }
+
+    private suspend fun handleReminderDecision(
+        noteId: Long,
+        audioBlockId: Long,
+        refinedText: String,
+        audioPath: String
+    ) {
+        withContext(Dispatchers.Main) {
+            provisionalBodyBuffer.clear()
+        }
+
+        rangesByBlock.remove(audioBlockId)
+        val textBlockId = textBlockIdByAudio.remove(audioBlockId)
+        groupIdByAudio.remove(audioBlockId)
+
+        withContext(Dispatchers.IO) {
+            textBlockId?.let { blocksRepo.deleteBlock(it) }
+            blocksRepo.deleteBlock(audioBlockId)
+            runCatching {
+                if (audioPath.isNotBlank()) {
+                    val file = File(audioPath)
+                    if (file.exists()) file.delete()
+                }
+            }
+        }
+
+        val result = runCatching {
+            reminderExecutor.createFromVoice(noteId, refinedText)
+        }
+
+        result.onSuccess { reminderId ->
+            Log.d("MicCtl", "Reminder créé via voix: id=$reminderId pour note=$noteId")
+        }.onFailure { error ->
+            Log.e("MicCtl", "Échec de création du rappel pour note=$noteId", error)
         }
     }
 
