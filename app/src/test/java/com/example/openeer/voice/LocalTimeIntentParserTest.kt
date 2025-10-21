@@ -25,6 +25,71 @@ class LocalTimeIntentParserTest {
     }
 
     @Test
+    fun `parse dans cinq minutes`() {
+        val now = ZonedDateTime.of(2023, 10, 20, 10, 0, 0, 0, zone)
+        val result = LocalTimeIntentParser.parseReminder(
+            "Rappelle-moi dans cinq minutes d’envoyer le colis",
+            now.toInstant().toEpochMilli()
+        )
+        assertNotNull(result)
+        val expected = now.plusMinutes(5).toInstant().toEpochMilli()
+        assertEquals(expected, result!!.triggerAtMillis)
+        assertEquals("envoyer le colis", result.label)
+    }
+
+    @Test
+    fun `parse dans deux heures`() {
+        val now = ZonedDateTime.of(2023, 10, 20, 9, 30, 0, 0, zone)
+        val result = LocalTimeIntentParser.parseReminder(
+            "Rappelle-moi dans deux heures de vérifier le frigo",
+            now.toInstant().toEpochMilli()
+        )
+        assertNotNull(result)
+        val expected = now.plusHours(2).toInstant().toEpochMilli()
+        assertEquals(expected, result!!.triggerAtMillis)
+        assertEquals("vérifier le frigo", result.label)
+    }
+
+    @Test
+    fun `parse dans vingt-cinq minutes`() {
+        val now = ZonedDateTime.of(2023, 10, 20, 11, 0, 0, 0, zone)
+        val result = LocalTimeIntentParser.parseReminder(
+            "Rappelle-moi dans vingt-cinq minutes de sortir le gâteau",
+            now.toInstant().toEpochMilli()
+        )
+        assertNotNull(result)
+        val expected = now.plusMinutes(25).toInstant().toEpochMilli()
+        assertEquals(expected, result!!.triggerAtMillis)
+        assertEquals("sortir le gâteau", result.label)
+    }
+
+    @Test
+    fun `parse dans un quart d’heure`() {
+        val now = ZonedDateTime.of(2023, 10, 20, 14, 0, 0, 0, zone)
+        val result = LocalTimeIntentParser.parseReminder(
+            "Rappelle-moi dans un quart d’heure de rappeler Julie",
+            now.toInstant().toEpochMilli()
+        )
+        assertNotNull(result)
+        val expected = now.plusMinutes(15).toInstant().toEpochMilli()
+        assertEquals(expected, result!!.triggerAtMillis)
+        assertEquals("rappeler Julie", result.label)
+    }
+
+    @Test
+    fun `parse dans une demi-heure`() {
+        val now = ZonedDateTime.of(2023, 10, 20, 16, 0, 0, 0, zone)
+        val result = LocalTimeIntentParser.parseReminder(
+            "Rappelle-moi dans une demi-heure de sortir le chien",
+            now.toInstant().toEpochMilli()
+        )
+        assertNotNull(result)
+        val expected = now.plusMinutes(30).toInstant().toEpochMilli()
+        assertEquals(expected, result!!.triggerAtMillis)
+        assertEquals("sortir le chien", result.label)
+    }
+
+    @Test
     fun `parse dans 2 heures`() {
         val now = ZonedDateTime.of(2023, 10, 20, 9, 30, 0, 0, zone)
         val result = LocalTimeIntentParser.parseReminder(
