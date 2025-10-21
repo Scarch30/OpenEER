@@ -177,12 +177,13 @@ object LocalTimeIntentParser {
                 date = candidate
             } else {
                 val currentYm = YearMonth.from(now)
+                val nowDate = now.toLocalDate()
                 var candidate = runCatching { LocalDate.of(currentYm.year, currentYm.month, day) }.getOrNull()
-                if (candidate == null || !candidate.isAfter(now.toLocalDate())) {
+                if (candidate?.isAfter(nowDate) != true) {
                     var ym = currentYm.plusMonths(1)
                     repeat(12) {
                         val nextCandidate = runCatching { LocalDate.of(ym.year, ym.month, day) }.getOrNull()
-                        if (nextCandidate != null && nextCandidate.isAfter(now.toLocalDate())) {
+                        if (nextCandidate != null && nextCandidate.isAfter(nowDate)) {
                             candidate = nextCandidate
                             return@repeat
                         }
@@ -202,12 +203,13 @@ object LocalTimeIntentParser {
                 return date to specified
             }
             val currentYm = YearMonth.from(now)
+            val nowDate = now.toLocalDate()
             var candidate = runCatching { LocalDate.of(currentYm.year, currentYm.month, day) }.getOrNull()
-            if (candidate == null || !candidate.isAfter(now.toLocalDate())) {
+            if (candidate?.isAfter(nowDate) != true) {
                 var ym = currentYm.plusMonths(1)
                 repeat(12) {
                     val nextCandidate = runCatching { LocalDate.of(ym.year, ym.month, day) }.getOrNull()
-                    if (nextCandidate != null && nextCandidate.isAfter(now.toLocalDate())) {
+                    if (nextCandidate != null && nextCandidate.isAfter(nowDate)) {
                         candidate = nextCandidate
                         return@repeat
                     }
