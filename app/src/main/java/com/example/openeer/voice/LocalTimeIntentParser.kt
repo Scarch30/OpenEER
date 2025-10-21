@@ -18,6 +18,8 @@ object LocalTimeIntentParser {
     private val RELATIVE_DAYS = Regex("dans\\s+(\\d+)\\s+jour(?:s)?", RegexOption.IGNORE_CASE)
     private val TIME_H_PATTERN = Regex("\\bà\\s*(\\d{1,2})h(\\d{2})?\\b", RegexOption.IGNORE_CASE)
     private val TIME_COLON_PATTERN = Regex("\\bà\\s*(\\d{1,2}):(\\d{2})\\b", RegexOption.IGNORE_CASE)
+    private val MIDI_PATTERN = Regex("\\bà\\s*midi\\b", RegexOption.IGNORE_CASE)
+    private val MINUIT_PATTERN = Regex("\\bà\\s*minuit\\b", RegexOption.IGNORE_CASE)
     private val DATE_NUMERIC_PATTERN = Regex("\\ble\\s*(\\d{1,2})(?:/(\\d{1,2}))?\\b", RegexOption.IGNORE_CASE)
     private val DATE_MONTH_PATTERN = Regex(
         "\\ble\\s*(\\d{1,2})\\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\\b",
@@ -28,6 +30,8 @@ object LocalTimeIntentParser {
         "\\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\\b",
         RegexOption.IGNORE_CASE
     )
+    private val DEMAIN_PATTERN = Regex("\\bdemain\\b", RegexOption.IGNORE_CASE)
+    private val APRES_DEMAIN_PATTERN = Regex("\\bapr(?:è|e)s-?demain\\b", RegexOption.IGNORE_CASE)
     private val CONNECTOR_PATTERNS = listOf(
         Regex(".*\\bd['’]\\s*(.+)", RegexOption.IGNORE_CASE),
         Regex(".*\\bde\\s+(.+)", RegexOption.IGNORE_CASE),
@@ -61,155 +65,190 @@ object LocalTimeIntentParser {
         val label: String
     )
 
+    private data class TemporalCandidate(
+        val triggerAt: ZonedDateTime,
+        val ranges: List<IntRange>,
+        val specificity: Int
+    )
+
+    private data class DateMatch(
+        val date: LocalDate,
+        val range: IntRange,
+        val specified: Boolean,
+        val precision: Int
+    )
+
+    private data class TimeMatch(
+        val time: LocalTime,
+        val range: IntRange,
+        val precision: Int
+    )
+
     fun parseReminder(text: String, nowMillis: Long = System.currentTimeMillis()): TimeParseResult? {
         val sanitizedText = text.replace('’', '\'')
         val lower = sanitizedText.lowercase(Locale.FRENCH)
         val now = Instant.ofEpochMilli(nowMillis).atZone(ZONE_PARIS)
 
-        val relativeResult = parseRelative(lower, now)
-        if (relativeResult != null) {
-            val label = extractLabel(sanitizedText).takeIf { !it.isNullOrBlank() } ?: return null
-            return TimeParseResult(relativeResult.toInstant().toEpochMilli(), label)
-        }
+        val candidates = mutableListOf<TemporalCandidate>()
+        candidates += parseRelativeCandidates(lower, now)
+        candidates += parseAbsoluteCandidates(lower, now)
 
-        val (date, dateSpecified) = parseDate(lower, now)
-        var time: LocalTime? = parseTime(lower)
-        var timeSpecified = time != null
+        val candidate = candidates
+            .distinctBy { it.triggerAt to it.ranges }
+            .minWithOrNull(compareBy<TemporalCandidate> { it.triggerAt }.thenByDescending { it.specificity })
+            ?: return null
 
-        if (!timeSpecified) {
-            val momentTime = MOMENT_TIMES.entries.firstOrNull { lower.contains(it.key) }?.value
-            if (momentTime != null) {
-                time = momentTime
-                timeSpecified = true
-            }
-        }
+        val withoutTemporalSegments = removeTemporalSegments(sanitizedText, candidate.ranges)
+        val cleanedText = cleanResidualSeparators(withoutTemporalSegments)
+        val label = extractLabel(cleanedText).takeIf { !it.isNullOrBlank() } ?: return null
 
-        if (!timeSpecified && dateSpecified) {
-            time = LocalTime.of(9, 0)
-        }
-
-        if (time == null) {
-            return null
-        }
-
-        var targetDateTime = ZonedDateTime.of(date, time, ZONE_PARIS)
-        if (!dateSpecified && targetDateTime <= now) {
-            targetDateTime = targetDateTime.plusDays(1)
-        }
-
-        val label = extractLabel(sanitizedText).takeIf { !it.isNullOrBlank() } ?: return null
-        return TimeParseResult(targetDateTime.toInstant().toEpochMilli(), label)
+        return TimeParseResult(candidate.triggerAt.toInstant().toEpochMilli(), label)
     }
 
-    private fun parseRelative(lower: String, now: ZonedDateTime): ZonedDateTime? {
-        val minutes = RELATIVE_MINUTES.find(lower)?.groupValues?.getOrNull(1)?.toLongOrNull()
-        if (minutes != null) {
-            return now.plusMinutes(minutes)
+    private fun parseRelativeCandidates(lower: String, now: ZonedDateTime): List<TemporalCandidate> {
+        val candidates = mutableListOf<TemporalCandidate>()
+
+        RELATIVE_MINUTES.findAll(lower).forEach { match ->
+            val value = match.groupValues[1].toLongOrNull() ?: return@forEach
+            val triggerAt = now.plusMinutes(value)
+            candidates += TemporalCandidate(triggerAt, listOf(match.range), 500)
         }
-        val hours = RELATIVE_HOURS.find(lower)?.groupValues?.getOrNull(1)?.toLongOrNull()
-        if (hours != null) {
-            return now.plusHours(hours)
+
+        RELATIVE_HOURS.findAll(lower).forEach { match ->
+            val value = match.groupValues[1].toLongOrNull() ?: return@forEach
+            val triggerAt = now.plusHours(value)
+            candidates += TemporalCandidate(triggerAt, listOf(match.range), 400)
         }
-        val days = RELATIVE_DAYS.find(lower)?.groupValues?.getOrNull(1)?.toLongOrNull()
-        if (days != null) {
-            return now.plusDays(days)
+
+        RELATIVE_DAYS.findAll(lower).forEach { match ->
+            val value = match.groupValues[1].toLongOrNull() ?: return@forEach
+            val triggerAt = now.plusDays(value)
+            candidates += TemporalCandidate(triggerAt, listOf(match.range), 300)
         }
-        return null
+
+        return candidates
     }
 
-    private fun parseDate(lower: String, now: ZonedDateTime): Pair<LocalDate, Boolean> {
-        var date = now.toLocalDate()
-        var specified = false
+    private fun parseAbsoluteCandidates(lower: String, now: ZonedDateTime): List<TemporalCandidate> {
+        val candidates = mutableListOf<TemporalCandidate>()
+        val dateMatches = findDateMatches(lower, now)
+        val timeMatches = findTimeMatches(lower)
+        val nowDate = now.toLocalDate()
 
-        when {
-            lower.contains("après-demain") || lower.contains("apres-demain") -> {
-                date = date.plusDays(2)
-                specified = true
+        if (timeMatches.isNotEmpty()) {
+            if (dateMatches.isNotEmpty()) {
+                for (dateMatch in dateMatches) {
+                    for (timeMatch in timeMatches) {
+                        var triggerAt = ZonedDateTime.of(dateMatch.date, timeMatch.time, ZONE_PARIS)
+                        if (!dateMatch.specified && triggerAt <= now) {
+                            triggerAt = triggerAt.plusDays(1)
+                        }
+                        val ranges = listOf(dateMatch.range, timeMatch.range)
+                        val specificity = dateMatch.precision * 100 + timeMatch.precision * 10 + 1
+                        candidates += TemporalCandidate(triggerAt, ranges, specificity)
+                    }
+                }
+            } else {
+                for (timeMatch in timeMatches) {
+                    var triggerAt = ZonedDateTime.of(nowDate, timeMatch.time, ZONE_PARIS)
+                    if (triggerAt <= now) {
+                        triggerAt = triggerAt.plusDays(1)
+                    }
+                    val specificity = timeMatch.precision * 10
+                    candidates += TemporalCandidate(triggerAt, listOf(timeMatch.range), specificity)
+                }
             }
-            lower.contains("demain") -> {
-                date = date.plusDays(1)
-                specified = true
+        } else if (dateMatches.isNotEmpty()) {
+            for (dateMatch in dateMatches) {
+                val time = LocalTime.of(9, 0)
+                var triggerAt = ZonedDateTime.of(dateMatch.date, time, ZONE_PARIS)
+                if (!dateMatch.specified && triggerAt <= now) {
+                    triggerAt = triggerAt.plusDays(1)
+                }
+                val specificity = dateMatch.precision * 100
+                candidates += TemporalCandidate(triggerAt, listOf(dateMatch.range), specificity)
             }
         }
 
-        val dowMatch = DAY_OF_WEEK_PATTERN.find(lower)
-        if (dowMatch != null) {
-            val targetDay = dayOfWeekFromString(dowMatch.groupValues[1])
+        return candidates
+    }
+
+    private fun findDateMatches(lower: String, now: ZonedDateTime): List<DateMatch> {
+        val results = mutableListOf<DateMatch>()
+        val nowDate = now.toLocalDate()
+
+        APRES_DEMAIN_PATTERN.findAll(lower).forEach { match ->
+            results += DateMatch(nowDate.plusDays(2), match.range, true, 1)
+        }
+        DEMAIN_PATTERN.findAll(lower).forEach { match ->
+            results += DateMatch(nowDate.plusDays(1), match.range, true, 1)
+        }
+
+        DAY_OF_WEEK_PATTERN.findAll(lower).forEach { match ->
+            val targetDay = dayOfWeekFromString(match.groupValues[1])
             val currentDow = now.dayOfWeek
             var delta = (targetDay.value - currentDow.value + 7) % 7
             if (delta == 0) delta = 7
-            date = now.toLocalDate().plusDays(delta.toLong())
-            specified = true
+            results += DateMatch(nowDate.plusDays(delta.toLong()), match.range, true, 2)
         }
 
-        val monthMatch = DATE_MONTH_PATTERN.find(lower)
-        if (monthMatch != null) {
-            val day = monthMatch.groupValues[1].toInt()
-            if (day !in 1..31) {
-                return date to specified
-            }
-            val month = monthFromString(monthMatch.groupValues[2])
-            var candidate = runCatching { LocalDate.of(now.year, month, day) }.getOrNull() ?: return date to specified
-            if (!candidate.isAfter(now.toLocalDate())) {
+        DATE_MONTH_PATTERN.findAll(lower).forEach { match ->
+            val day = match.groupValues[1].toIntOrNull() ?: return@forEach
+            if (day !in 1..31) return@forEach
+            val month = monthFromString(match.groupValues[2])
+            var candidate = runCatching { LocalDate.of(now.year, month, day) }.getOrNull() ?: return@forEach
+            if (!candidate.isAfter(nowDate)) {
                 candidate = candidate.plusYears(1)
             }
-            date = candidate
-            specified = true
-            return date to specified
+            results += DateMatch(candidate, match.range, true, 3)
         }
 
-        val numericMatch = DATE_NUMERIC_PATTERN.find(lower)
-        if (numericMatch != null) {
-            val day = numericMatch.groupValues[1].toInt()
-            if (day !in 1..31) {
-                return date to specified
-            }
-            val monthPart = numericMatch.groupValues.getOrNull(2)
+        DATE_NUMERIC_PATTERN.findAll(lower).forEach { match ->
+            val day = match.groupValues[1].toIntOrNull() ?: return@forEach
+            if (day !in 1..31) return@forEach
+            val monthPart = match.groupValues.getOrNull(2)
             if (!monthPart.isNullOrEmpty()) {
-                val month = monthPart.toInt()
-                if (month !in 1..12) {
-                    return date to specified
-                }
-                var candidate = runCatching { LocalDate.of(now.year, month, day) }.getOrNull() ?: return date to specified
-                if (!candidate.isAfter(now.toLocalDate())) {
+                val month = monthPart.toIntOrNull() ?: return@forEach
+                if (month !in 1..12) return@forEach
+                var candidate = runCatching { LocalDate.of(now.year, month, day) }.getOrNull() ?: return@forEach
+                if (!candidate.isAfter(nowDate)) {
                     candidate = candidate.plusYears(1)
                 }
-                date = candidate
+                results += DateMatch(candidate, match.range, true, 3)
             } else {
                 val currentYm = YearMonth.from(now)
-                val nowDate = now.toLocalDate()
+                val nowDateLocal = nowDate
                 var candidate = runCatching { LocalDate.of(currentYm.year, currentYm.month, day) }.getOrNull()
-                if (candidate?.isAfter(nowDate) != true) {
+                if (candidate?.isAfter(nowDateLocal) != true) {
                     var ym = currentYm.plusMonths(1)
                     repeat(12) {
                         val nextCandidate = runCatching { LocalDate.of(ym.year, ym.month, day) }.getOrNull()
-                        if (nextCandidate != null && nextCandidate.isAfter(nowDate)) {
+                        if (nextCandidate != null && nextCandidate.isAfter(nowDateLocal)) {
                             candidate = nextCandidate
                             return@repeat
                         }
                         ym = ym.plusMonths(1)
                     }
                 }
-                candidate?.let { date = it }
+                candidate?.let {
+                    results += DateMatch(it, match.range, true, 2)
+                }
             }
-            specified = true
-            return date to specified
         }
 
-        val dayOnlyMatch = DATE_DAY_ONLY_PATTERN.find(lower)
-        if (!specified && dayOnlyMatch != null) {
-            val day = dayOnlyMatch.groupValues[1].toInt()
-            if (day !in 1..31) {
-                return date to specified
-            }
+        DATE_DAY_ONLY_PATTERN.findAll(lower).forEach { match ->
+            val alreadyHandled = results.any { it.range == match.range }
+            if (alreadyHandled) return@forEach
+            val day = match.groupValues[1].toIntOrNull() ?: return@forEach
+            if (day !in 1..31) return@forEach
             val currentYm = YearMonth.from(now)
-            val nowDate = now.toLocalDate()
+            val nowDateLocal = nowDate
             var candidate = runCatching { LocalDate.of(currentYm.year, currentYm.month, day) }.getOrNull()
-            if (candidate?.isAfter(nowDate) != true) {
+            if (candidate?.isAfter(nowDateLocal) != true) {
                 var ym = currentYm.plusMonths(1)
                 repeat(12) {
                     val nextCandidate = runCatching { LocalDate.of(ym.year, ym.month, day) }.getOrNull()
-                    if (nextCandidate != null && nextCandidate.isAfter(nowDate)) {
+                    if (nextCandidate != null && nextCandidate.isAfter(nowDateLocal)) {
                         candidate = nextCandidate
                         return@repeat
                     }
@@ -217,36 +256,85 @@ object LocalTimeIntentParser {
                 }
             }
             candidate?.let {
-                date = it
-                specified = true
+                results += DateMatch(it, match.range, true, 2)
             }
         }
 
-        return date to specified
+        return results
     }
 
-    private fun parseTime(lower: String): LocalTime? {
-        val midi = Regex("\\bà\\s*midi\\b", RegexOption.IGNORE_CASE)
-        val minuit = Regex("\\bà\\s*minuit\\b", RegexOption.IGNORE_CASE)
-        if (midi.containsMatchIn(lower)) {
-            return LocalTime.of(12, 0)
+    private fun findTimeMatches(lower: String): List<TimeMatch> {
+        val results = mutableListOf<TimeMatch>()
+
+        MIDI_PATTERN.findAll(lower).forEach { match ->
+            results += TimeMatch(LocalTime.of(12, 0), match.range, 2)
         }
-        if (minuit.containsMatchIn(lower)) {
-            return LocalTime.MIDNIGHT
+        MINUIT_PATTERN.findAll(lower).forEach { match ->
+            results += TimeMatch(LocalTime.MIDNIGHT, match.range, 2)
         }
-        val hMatch = TIME_H_PATTERN.find(lower)
-        if (hMatch != null) {
-            val hour = hMatch.groupValues[1].toInt()
-            val minutes = hMatch.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }?.toInt() ?: 0
-            return LocalTime.of(hour % 24, minutes)
+
+        TIME_H_PATTERN.findAll(lower).forEach { match ->
+            val hour = match.groupValues[1].toIntOrNull() ?: return@forEach
+            val minutesStr = match.groupValues.getOrNull(2)
+            val minutes = minutesStr?.takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0
+            val time = LocalTime.of(hour % 24, minutes)
+            val precision = if (!minutesStr.isNullOrEmpty()) 3 else 2
+            results += TimeMatch(time, match.range, precision)
         }
-        val colonMatch = TIME_COLON_PATTERN.find(lower)
-        if (colonMatch != null) {
-            val hour = colonMatch.groupValues[1].toInt()
-            val minutes = colonMatch.groupValues[2].toInt()
-            return LocalTime.of(hour % 24, minutes)
+
+        TIME_COLON_PATTERN.findAll(lower).forEach { match ->
+            val hour = match.groupValues[1].toIntOrNull() ?: return@forEach
+            val minutes = match.groupValues[2].toIntOrNull() ?: return@forEach
+            results += TimeMatch(LocalTime.of(hour % 24, minutes), match.range, 3)
         }
-        return null
+
+        MOMENT_TIMES.forEach { (phrase, time) ->
+            val regex = Regex("\\b${Regex.escape(phrase)}\\b", RegexOption.IGNORE_CASE)
+            regex.findAll(lower).forEach { match ->
+                results += TimeMatch(time, match.range, 1)
+            }
+        }
+
+        return results
+    }
+
+    private fun removeTemporalSegments(text: String, ranges: List<IntRange>): String {
+        if (ranges.isEmpty()) return text
+        val builder = StringBuilder(text)
+        val merged = mergeRanges(ranges)
+        for (range in merged.asReversed()) {
+            val start = range.first.coerceAtLeast(0)
+            val endExclusive = (range.last + 1).coerceAtMost(builder.length)
+            if (start < endExclusive) {
+                builder.delete(start, endExclusive)
+            }
+        }
+        return builder.toString()
+    }
+
+    private fun mergeRanges(ranges: List<IntRange>): List<IntRange> {
+        if (ranges.isEmpty()) return emptyList()
+        val sorted = ranges.sortedBy { it.first }
+        val merged = mutableListOf<IntRange>()
+        var current = sorted.first()
+        for (range in sorted.drop(1)) {
+            current = if (range.first <= current.last + 1) {
+                current.first..maxOf(current.last, range.last)
+            } else {
+                merged += current
+                range
+            }
+        }
+        merged += current
+        return merged
+    }
+
+    private fun cleanResidualSeparators(text: String): String {
+        var result = text.replace(Regex("\\s+"), " ")
+        result = result.replace(Regex("\\s+,"), ",")
+        result = result.replace(Regex(",\\s*"), ", ")
+        result = result.replace(Regex("\\b(d['’]|de|à)\\s*(?=($|,))", RegexOption.IGNORE_CASE), " ")
+        return result.trim()
     }
 
     private fun extractLabel(text: String): String? {
