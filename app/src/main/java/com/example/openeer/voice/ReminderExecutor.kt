@@ -99,6 +99,12 @@ class ReminderExecutor(
 
     class IncompleteException(message: String? = null) : Exception(message)
 
+    data class GeocodedPlace(
+        val latitude: Double,
+        val longitude: Double,
+        val label: String?,
+    )
+
     private data class ResolvedPlace(
         val latitude: Double,
         val longitude: Double,
@@ -110,12 +116,6 @@ class ReminderExecutor(
         private const val TAG = "ReminderExecutor"
     }
 }
-
-private data class GeocodedPlace(
-    val latitude: Double,
-    val longitude: Double,
-    val label: String?,
-)
 
 private fun resolveCurrentLocation(appContext: Context): Location {
     val lm = appContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -139,7 +139,10 @@ private fun resolveCurrentLocation(appContext: Context): Location {
     return location ?: throw ReminderExecutor.IncompleteException("No last known location")
 }
 
-private suspend fun geocode(appContext: Context, query: String): GeocodedPlace? {
+private suspend fun geocode(
+    appContext: Context,
+    query: String,
+): ReminderExecutor.GeocodedPlace? {
     if (!Geocoder.isPresent()) return null
     val geocoder = Geocoder(appContext, Locale.getDefault())
     return withContext(Dispatchers.IO) {
@@ -151,7 +154,7 @@ private suspend fun geocode(appContext: Context, query: String): GeocodedPlace? 
                 geocoder.getFromLocationName(query, 1)
             }
             results?.firstOrNull()?.let { address ->
-                GeocodedPlace(
+                ReminderExecutor.GeocodedPlace(
                     latitude = address.latitude,
                     longitude = address.longitude,
                     label = address.getAddressLine(0)?.takeIf { it.isNotBlank() } ?: query.trim()
