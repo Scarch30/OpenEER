@@ -8,9 +8,9 @@ import java.util.Locale
  */
 class ReminderClassifier {
 
+    private val rappelWordPattern = "rap{1,2}el{1,2}e?(?:r|s)?"
+
     private val triggerPhrases = listOf(
-        "rappelle moi",
-        "rappelle-moi",
         "fais moi penser",
         "fais-moi penser",
         "mets un rappel",
@@ -21,11 +21,16 @@ class ReminderClassifier {
         "pense à"
     )
 
-    private val falsePositivePhrases = listOf(
-        "je me rappelle",
-        "tu te rappelles",
-        "ça me rappelle",
-        "ca me rappelle"
+    private val triggerPatterns = listOf(
+        Regex("\\b$rappelWordPattern\\s+moi\\b"),
+        Regex("\\b$rappelWordPattern\\s+nous\\b"),
+        Regex("\\bpeux\\s+tu\\s+me\\s+$rappelWordPattern\\b")
+    )
+
+    private val falsePositivePatterns = listOf(
+        Regex("\\bje\\s+me\\s+$rappelWordPattern\\b"),
+        Regex("\\btu\\s+te\\s+$rappelWordPattern\\b"),
+        Regex("\\bca\\s+me\\s+$rappelWordPattern\\b")
     )
 
     fun hasTrigger(text: String): Boolean {
@@ -34,8 +39,12 @@ class ReminderClassifier {
             return false
         }
 
-        if (falsePositivePhrases.any { normalized.contains(it) }) {
+        if (falsePositivePatterns.any { it.containsMatchIn(normalized) }) {
             return false
+        }
+
+        if (triggerPatterns.any { it.containsMatchIn(normalized) }) {
+            return true
         }
 
         return triggerPhrases.any { normalized.contains(it) }
