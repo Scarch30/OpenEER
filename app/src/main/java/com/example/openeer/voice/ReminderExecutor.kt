@@ -1,8 +1,8 @@
 package com.example.openeer.voice
 
+import android.Manifest
 import android.app.AlarmManager
 import android.content.Context
-import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Address
 import android.location.Geocoder
@@ -26,11 +26,17 @@ class ReminderExecutor(
     private val alarmManagerProvider: () -> AlarmManager = {
         context.applicationContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     },
-    private val currentLocationResolver: suspend () -> Location = { resolveCurrentLocation() },
-    private val geocodeResolver: suspend (String) -> GeocodedPlace? = { query -> geocode(query) }
+    currentLocationResolver: suspend () -> Location = {
+        resolveCurrentLocation(context.applicationContext)
+    },
+    geocodeResolver: suspend (String) -> GeocodedPlace? = { query ->
+        geocode(context.applicationContext, query)
+    }
 ) {
 
     private val appContext = context.applicationContext
+    private val currentLocationResolver = currentLocationResolver
+    private val geocodeResolver = geocodeResolver
 
     suspend fun createFromVoice(noteId: Long, labelFromWhisper: String): Long {
         val parseResult = LocalTimeIntentParser.parseReminder(labelFromWhisper)
@@ -91,50 +97,6 @@ class ReminderExecutor(
         return reminderId
     }
 
-    private fun resolveCurrentLocation(): Location {
-        val lm = appContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val fineGranted = ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val coarseGranted = ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (!fineGranted && !coarseGranted) {
-            throw IncompleteException("Location permission missing")
-        }
-        val gpsEnabled = runCatching { lm.isProviderEnabled(LocationManager.GPS_PROVIDER) }.getOrDefault(false)
-        if (!gpsEnabled) {
-            throw IncompleteException("GPS provider disabled")
-        }
-        val providers = listOf(
-            LocationManager.GPS_PROVIDER,
-            LocationManager.NETWORK_PROVIDER,
-            LocationManager.PASSIVE_PROVIDER
-        )
-        val location = providers.firstNotNullOfOrNull { provider ->
-            runCatching { lm.getLastKnownLocation(provider) }.getOrNull()
-        }
-        return location ?: throw IncompleteException("No last known location")
-    }
-
-    private suspend fun geocode(query: String): GeocodedPlace? {
-        if (!Geocoder.isPresent()) return null
-        val geocoder = Geocoder(appContext, Locale.getDefault())
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                @Suppress("DEPRECATION")
-                val results: List<Address>? = if (Build.VERSION.SDK_INT >= 33) {
-                    geocoder.getFromLocationName(query, 1)
-                } else {
-                    geocoder.getFromLocationName(query, 1)
-                }
-                results?.firstOrNull()?.let { address ->
-                    GeocodedPlace(
-                        latitude = address.latitude,
-                        longitude = address.longitude,
-                        label = address.getAddressLine(0)?.takeIf { it.isNotBlank() } ?: query.trim()
-                    )
-                }
-            }.getOrNull()
-        }
-    }
-
     class IncompleteException(message: String? = null) : Exception(message)
 
     private data class ResolvedPlace(
@@ -144,13 +106,57 @@ class ReminderExecutor(
         val startingInside: Boolean
     )
 
-    internal data class GeocodedPlace(
-        val latitude: Double,
-        val longitude: Double,
-        val label: String?
-    )
-
     companion object {
         private const val TAG = "ReminderExecutor"
+    }
+}
+
+private data class GeocodedPlace(
+    val latitude: Double,
+    val longitude: Double,
+    val label: String?,
+)
+
+private fun resolveCurrentLocation(appContext: Context): Location {
+    val lm = appContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    val fineGranted = ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    val coarseGranted = ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    if (!fineGranted && !coarseGranted) {
+        throw ReminderExecutor.IncompleteException("Location permission missing")
+    }
+    val gpsEnabled = runCatching { lm.isProviderEnabled(LocationManager.GPS_PROVIDER) }.getOrDefault(false)
+    if (!gpsEnabled) {
+        throw ReminderExecutor.IncompleteException("GPS provider disabled")
+    }
+    val providers = listOf(
+        LocationManager.GPS_PROVIDER,
+        LocationManager.NETWORK_PROVIDER,
+        LocationManager.PASSIVE_PROVIDER
+    )
+    val location = providers.firstNotNullOfOrNull { provider ->
+        runCatching { lm.getLastKnownLocation(provider) }.getOrNull()
+    }
+    return location ?: throw ReminderExecutor.IncompleteException("No last known location")
+}
+
+private suspend fun geocode(appContext: Context, query: String): GeocodedPlace? {
+    if (!Geocoder.isPresent()) return null
+    val geocoder = Geocoder(appContext, Locale.getDefault())
+    return withContext(Dispatchers.IO) {
+        runCatching {
+            @Suppress("DEPRECATION")
+            val results: List<Address>? = if (Build.VERSION.SDK_INT >= 33) {
+                geocoder.getFromLocationName(query, 1)
+            } else {
+                geocoder.getFromLocationName(query, 1)
+            }
+            results?.firstOrNull()?.let { address ->
+                GeocodedPlace(
+                    latitude = address.latitude,
+                    longitude = address.longitude,
+                    label = address.getAddressLine(0)?.takeIf { it.isNotBlank() } ?: query.trim()
+                )
+            }
+        }.getOrNull()
     }
 }
