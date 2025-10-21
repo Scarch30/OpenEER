@@ -158,7 +158,7 @@ internal fun MapFragment.onAddHereClicked() {
 }
 
 /** Place rapide : timeout 1.2 s puis fallback sur dernière position connue. */
-private suspend fun MapFragment.getFastPlace(timeoutMs: Long = 1200L): Place? {
+internal suspend fun MapFragment.getFastPlace(timeoutMs: Long = 1200L): Place? {
     val ctx = requireContext()
     val fromOneShot = withContext(Dispatchers.IO) {
         withTimeoutOrNull(timeoutMs) { runCatching { getOneShotPlace(ctx) }.getOrNull() }
@@ -171,7 +171,7 @@ private suspend fun MapFragment.getFastPlace(timeoutMs: Long = 1200L): Place? {
 }
 
 /** Dernière position connue rapide. */
-private suspend fun MapFragment.lastKnownQuick(): Location? = withContext(Dispatchers.IO) {
+internal suspend fun MapFragment.lastKnownQuick(): Location? = withContext(Dispatchers.IO) {
     val lm = context?.getSystemService(android.content.Context.LOCATION_SERVICE) as? LocationManager ?: return@withContext null
     for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)) {
         try {
