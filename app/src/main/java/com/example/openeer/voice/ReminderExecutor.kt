@@ -6,7 +6,6 @@ import android.util.Log
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.domain.ReminderUseCases
 import com.example.openeer.ui.sheets.ReminderListSheet
-import java.util.concurrent.TimeUnit
 
 class ReminderExecutor(
     context: Context,
@@ -20,21 +19,25 @@ class ReminderExecutor(
 
     private val appContext = context.applicationContext
 
-    suspend fun createFromVoice(noteId: Long, label: String): Long {
+    suspend fun createFromVoice(noteId: Long, labelFromWhisper: String): Long {
+        val parseResult = LocalTimeIntentParser.parseReminder(labelFromWhisper)
+            ?: throw IllegalArgumentException("Unable to parse reminder timing from voice input")
         val useCases = ReminderUseCases(appContext, databaseProvider(), alarmManagerProvider())
-        val triggerAt = System.currentTimeMillis() + PLACEHOLDER_DELAY_MS
+        val triggerAt = parseResult.triggerAtMillis
         val reminderId = useCases.scheduleAtEpoch(
             noteId = noteId,
             timeMillis = triggerAt,
-            label = label
+            label = parseResult.label
         )
         ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
-        Log.d(TAG, "createFromVoice(): reminderId=$reminderId noteId=$noteId triggerAt=$triggerAt")
+        Log.d(
+            TAG,
+            "createFromVoice(): reminderId=$reminderId noteId=$noteId triggerAt=$triggerAt label='${parseResult.label}'"
+        )
         return reminderId
     }
 
     companion object {
         private const val TAG = "ReminderExecutor"
-        private val PLACEHOLDER_DELAY_MS = TimeUnit.MINUTES.toMillis(1)
     }
 }
