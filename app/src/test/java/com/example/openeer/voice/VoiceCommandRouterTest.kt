@@ -36,6 +36,13 @@ class VoiceCommandRouterTest {
     }
 
     @Test
+    fun `place reminder is detected`() {
+        val sentence = "Rappelle-moi d’acheter du pain quand j’arrive ici"
+        val decision = router.route(sentence)
+        assertEquals(VoiceRouteDecision.REMINDER_PLACE, decision)
+    }
+
+    @Test
     fun `feature flag disabled keeps note behaviour`() {
         val disabledRouter = VoiceCommandRouter(isVoiceCommandsEnabled = { false })
         val sentence = "Rappelle-moi demain à 9h d'appeler Paul"

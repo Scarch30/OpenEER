@@ -1,7 +1,9 @@
 package com.example.openeer.voice
 
+import android.Manifest
 import android.app.AlarmManager
 import android.content.Context
+import android.location.LocationManager
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.openeer.data.AppDatabase
@@ -18,6 +20,9 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
+import org.robolectric.shadows.ShadowApplication
+import org.robolectric.shadows.ShadowLocationManager
 import org.robolectric.shadows.ShadowSystemClock
 
 @RunWith(RobolectricTestRunner::class)
@@ -82,5 +87,75 @@ class ReminderExecutorTest {
 
         val reminders = reminderDao.listForNoteOrdered(noteId)
         assertTrue(reminders.isEmpty())
+    }
+
+    @Test
+    fun `current location reminder requires gps`() = runBlocking {
+        ShadowApplication.getInstance().grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val shadowLocationManager: ShadowLocationManager = Shadows.shadowOf(locationManager)
+        shadowLocationManager.setProviderEnabled(LocationManager.GPS_PROVIDER, false)
+
+        val noteId = db.noteDao().insert(Note(title = "Test"))
+
+        assertFailsWith<ReminderExecutor.IncompleteException> {
+            executor.createPlaceReminderFromVoice(noteId, "Rappelle-moi d’acheter du pain quand j’arrive ici")
+        }
+
+        val reminders = reminderDao.listForNoteOrdered(noteId)
+        assertTrue(reminders.isEmpty())
+    }
+
+    @Test
+    fun `unknown address results in incomplete`() = runBlocking {
+        val noteId = db.noteDao().insert(Note(title = "Geo"))
+        val geoExecutor = ReminderExecutor(
+            context,
+            { db },
+            { alarmManager },
+            geocodeResolver = { null }
+        )
+
+        assertFailsWith<ReminderExecutor.IncompleteException> {
+            geoExecutor.createPlaceReminderFromVoice(noteId, "Rappelle-moi de passer au Xyzzzz quand j’arrive")
+        }
+
+        val reminders = reminderDao.listForNoteOrdered(noteId)
+        assertTrue(reminders.isEmpty())
+    }
+
+    @Test
+    fun `geocoded address creates geofence reminder`() = runBlocking {
+        val noteId = db.noteDao().insert(Note(title = "Geo note", body = "Body"))
+        val lat = 48.8566
+        val lon = 2.3522
+        val geoExecutor = ReminderExecutor(
+            context,
+            { db },
+            { alarmManager },
+            geocodeResolver = {
+                ReminderExecutor.GeocodedPlace(
+                    latitude = lat,
+                    longitude = lon,
+                    label = "Paris"
+                )
+            }
+        )
+
+        val reminderId = geoExecutor.createPlaceReminderFromVoice(
+            noteId,
+            "Rappelle-moi de passer à Paris quand j’arrive"
+        )
+
+        val reminders = reminderDao.listForNoteOrdered(noteId)
+        assertEquals(1, reminders.size)
+        val reminder = reminders.first()
+        assertEquals(reminderId, reminder.id)
+        assertEquals(lat, reminder.lat, 0.0001)
+        assertEquals(lon, reminder.lon, 0.0001)
+        assertEquals(100, reminder.radius)
+        assertEquals(30, reminder.cooldownMinutes)
+        assertTrue(reminder.noteId == noteId)
+        assertEquals("Body", db.noteDao().getByIdOnce(noteId)?.body)
     }
 }
