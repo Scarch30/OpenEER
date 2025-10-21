@@ -334,4 +334,6 @@
     <!-- Hint permission localisation -->
     <string name="map_hint_location_perm_needed">Autorise la localisation pour enregistrer l’itinéraire.</string>
 
+    <string name="voice_reminder_incomplete_hint">Il manque le moment…</string>
+
 </resources>
