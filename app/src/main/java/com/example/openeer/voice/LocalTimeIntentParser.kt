@@ -84,13 +84,25 @@ object LocalTimeIntentParser {
         val precision: Int
     )
 
+    private data class IndexSpan(val start: Int, val endExclusive: Int)
+
+    private data class NormalizedText(val normalized: String, val spans: List<IndexSpan>) {
+        fun toOriginalRange(range: IntRange): IntRange {
+            if (range.isEmpty()) return 0..-1
+            val startSpan = spans[range.first]
+            val endSpan = spans[range.last]
+            return startSpan.start..(endSpan.endExclusive - 1)
+        }
+    }
+
     fun parseReminder(text: String, nowMillis: Long = System.currentTimeMillis()): TimeParseResult? {
         val sanitizedText = text.replace('’', '\'')
         val lower = sanitizedText.lowercase(Locale.FRENCH)
+        val normalized = normalizeNumberWords(lower)
         val now = Instant.ofEpochMilli(nowMillis).atZone(ZONE_PARIS)
 
         val candidates = mutableListOf<TemporalCandidate>()
-        candidates += parseRelativeCandidates(lower, now)
+        candidates += parseRelativeCandidates(normalized, now)
         candidates += parseAbsoluteCandidates(lower, now)
 
         val candidate = candidates
@@ -105,28 +117,146 @@ object LocalTimeIntentParser {
         return TimeParseResult(candidate.triggerAt.toInstant().toEpochMilli(), label)
     }
 
-    private fun parseRelativeCandidates(lower: String, now: ZonedDateTime): List<TemporalCandidate> {
+    private fun parseRelativeCandidates(normalized: NormalizedText, now: ZonedDateTime): List<TemporalCandidate> {
         val candidates = mutableListOf<TemporalCandidate>()
 
-        RELATIVE_MINUTES.findAll(lower).forEach { match ->
+        RELATIVE_MINUTES.findAll(normalized.normalized).forEach { match ->
             val value = match.groupValues[1].toLongOrNull() ?: return@forEach
             val triggerAt = now.plusMinutes(value)
-            candidates += TemporalCandidate(triggerAt, listOf(match.range), 500)
+            val range = normalized.toOriginalRange(match.range)
+            candidates += TemporalCandidate(triggerAt, listOf(range), 500)
         }
 
-        RELATIVE_HOURS.findAll(lower).forEach { match ->
+        RELATIVE_HOURS.findAll(normalized.normalized).forEach { match ->
             val value = match.groupValues[1].toLongOrNull() ?: return@forEach
             val triggerAt = now.plusHours(value)
-            candidates += TemporalCandidate(triggerAt, listOf(match.range), 400)
+            val range = normalized.toOriginalRange(match.range)
+            candidates += TemporalCandidate(triggerAt, listOf(range), 400)
         }
 
-        RELATIVE_DAYS.findAll(lower).forEach { match ->
+        RELATIVE_DAYS.findAll(normalized.normalized).forEach { match ->
             val value = match.groupValues[1].toLongOrNull() ?: return@forEach
             val triggerAt = now.plusDays(value)
-            candidates += TemporalCandidate(triggerAt, listOf(match.range), 300)
+            val range = normalized.toOriginalRange(match.range)
+            candidates += TemporalCandidate(triggerAt, listOf(range), 300)
         }
 
         return candidates
+    }
+
+    private data class IdiomaticReplacement(val regex: Regex, val replacement: String)
+
+    private val BASE_NUMBER_WORDS = mapOf(
+        "un" to 1,
+        "une" to 1,
+        "deux" to 2,
+        "trois" to 3,
+        "quatre" to 4,
+        "cinq" to 5,
+        "six" to 6,
+        "sept" to 7,
+        "huit" to 8,
+        "neuf" to 9,
+        "dix" to 10,
+        "onze" to 11,
+        "douze" to 12,
+        "quinze" to 15,
+        "vingt" to 20,
+        "trente" to 30,
+        "quarante" to 40,
+        "cinquante" to 50
+    )
+
+    private val TENS_WORDS = mapOf(
+        "vingt" to 20,
+        "trente" to 30,
+        "quarante" to 40,
+        "cinquante" to 50
+    )
+
+    private val TENS_COMPOSITE_REGEX = Regex(
+        "\\b(vingt|trente|quarante|cinquante)(?:[-\\s](un|une|deux|trois|quatre|cinq|six|sept|huit|neuf))?\\b"
+    )
+
+    private val BASE_NUMBER_REGEX = Regex(
+        "\\b(un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|quinze|vingt|trente|quarante|cinquante)\\b"
+    )
+
+    private val IDIOMATIC_REPLACEMENTS = listOf(
+        IdiomaticReplacement(Regex("\\bun\\s+quart\\s+d['’]?\\s*heure(?:s)?\\b"), "15 minutes"),
+        IdiomaticReplacement(Regex("\\bune\\s+demi[-\\s]?heure(?:s)?\\b"), "30 minutes"),
+        IdiomaticReplacement(Regex("\\btrois(?:[-\\s]+)quarts?\\s+d['’]?\\s*heure(?:s)?\\b"), "45 minutes")
+    )
+
+    private fun normalizeNumberWords(input: String): NormalizedText {
+        val builder = StringBuilder()
+        val spans = mutableListOf<IndexSpan>()
+        var index = 0
+
+        while (index < input.length) {
+            val idiomaticMatch = IDIOMATIC_REPLACEMENTS.firstNotNullOfOrNull { replacement ->
+                replacement.regex.matchAt(input, index)?.let { it to replacement.replacement }
+            }
+            if (idiomaticMatch != null) {
+                val (match, replacement) = idiomaticMatch
+                appendWithSpan(builder, spans, replacement, match.range.first, match.range.last + 1)
+                index = match.range.last + 1
+                continue
+            }
+
+            val tensMatch = TENS_COMPOSITE_REGEX.matchAt(input, index)
+            if (tensMatch != null) {
+                val tensValue = TENS_WORDS[tensMatch.groupValues[1]] ?: 0
+                val unitGroup = tensMatch.groupValues.getOrNull(2)
+                val unitsValue = if (!unitGroup.isNullOrEmpty()) {
+                    BASE_NUMBER_WORDS[unitGroup.replace('’', '\'')]
+                } else {
+                    null
+                }
+                val total = tensValue + (unitsValue ?: 0)
+                appendWithSpan(builder, spans, total.toString(), tensMatch.range.first, tensMatch.range.last + 1)
+                index = tensMatch.range.last + 1
+                continue
+            }
+
+            val baseMatch = BASE_NUMBER_REGEX.matchAt(input, index)
+            if (baseMatch != null) {
+                val value = BASE_NUMBER_WORDS[baseMatch.groupValues[1]]
+                if (value != null) {
+                    appendWithSpan(builder, spans, value.toString(), baseMatch.range.first, baseMatch.range.last + 1)
+                    index = baseMatch.range.last + 1
+                    continue
+                }
+            }
+
+            appendCharWithSpan(builder, spans, input[index], index)
+            index++
+        }
+
+        return NormalizedText(builder.toString(), spans)
+    }
+
+    private fun appendWithSpan(
+        builder: StringBuilder,
+        spans: MutableList<IndexSpan>,
+        replacement: String,
+        originalStart: Int,
+        originalEndExclusive: Int
+    ) {
+        for (ch in replacement) {
+            builder.append(ch)
+            spans += IndexSpan(originalStart, originalEndExclusive)
+        }
+    }
+
+    private fun appendCharWithSpan(
+        builder: StringBuilder,
+        spans: MutableList<IndexSpan>,
+        ch: Char,
+        index: Int
+    ) {
+        builder.append(ch)
+        spans += IndexSpan(index, index + 1)
     }
 
     private fun parseAbsoluteCandidates(lower: String, now: ZonedDateTime): List<TemporalCandidate> {
