@@ -1,5 +1,6 @@
 package com.example.openeer.voice
 
+import android.util.Log
 import com.example.openeer.core.FeatureFlags
 
 /**
@@ -14,19 +15,42 @@ class VoiceCommandRouter(
 ) {
 
     fun route(finalWhisperText: String): VoiceRouteDecision {
-        if (!isVoiceCommandsEnabled()) {
-            return VoiceRouteDecision.NOTE
-        }
         val trimmed = finalWhisperText.trim()
-        if (trimmed.isEmpty()) {
-            return VoiceRouteDecision.NOTE
+        val decision = when {
+            !isVoiceCommandsEnabled() -> VoiceRouteDecision.NOTE
+            trimmed.isEmpty() -> VoiceRouteDecision.NOTE
+            !reminderClassifier.hasTrigger(trimmed) -> VoiceRouteDecision.NOTE
+            LocalTimeIntentParser.parseReminder(trimmed) != null -> VoiceRouteDecision.REMINDER_TIME
+            tryParsePlace(trimmed) -> VoiceRouteDecision.REMINDER_PLACE
+            else -> VoiceRouteDecision.INCOMPLETE
         }
-        return reminderClassifier.classify(trimmed)
+        logDecision(decision, trimmed)
+        return decision
+    }
+
+    private fun logDecision(decision: VoiceRouteDecision, text: String) {
+        val sanitizedText = text.replace("\"", "\\\"")
+        Log.d("VoiceCommandRouter", "decision=${decision.logToken} text=\"$sanitizedText\"")
+    }
+
+    private fun tryParsePlace(text: String): Boolean {
+        val parser = LocalPlaceIntentParserHolder.invoker ?: return false
+        return runCatching { parser.invoke(text) }.getOrNull() != null
+    }
+
+    private object LocalPlaceIntentParserHolder {
+        val invoker: ((String) -> Any?)? = runCatching {
+            val clazz = Class.forName("com.example.openeer.voice.LocalPlaceIntentParser")
+            val instance = runCatching { clazz.getDeclaredField("INSTANCE").get(null) }.getOrNull()
+            val method = clazz.getDeclaredMethod("parsePlace", String::class.java)
+            { text: String -> method.invoke(instance, text) }
+        }.getOrNull()
     }
 }
 
-enum class VoiceRouteDecision {
-    NOTE,
-    REMINDER,
-    INCOMPLETE
+enum class VoiceRouteDecision(val logToken: String) {
+    NOTE("NOTE"),
+    REMINDER_TIME("REMINDER_TIME"),
+    REMINDER_PLACE("REMINDER_PLACE"),
+    INCOMPLETE("INCOMPLETE")
 }

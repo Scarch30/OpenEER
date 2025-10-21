@@ -290,7 +290,8 @@ class MicBarController(
                                     }
                                 }
 
-                                VoiceRouteDecision.REMINDER -> {
+                                VoiceRouteDecision.REMINDER_TIME,
+                                VoiceRouteDecision.REMINDER_PLACE -> {
                                     handleReminderDecision(
                                         noteId = nid,
                                         audioBlockId = newBlockId,
