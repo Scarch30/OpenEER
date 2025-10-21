@@ -14,6 +14,7 @@ import androidx.core.text.getSpans
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import com.example.openeer.R
 import com.example.openeer.audio.PcmRecorder
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.core.RecordingState
@@ -38,7 +39,8 @@ class MicBarController(
     private val blocksRepo: BlocksRepository,
     private val getOpenNoteId: () -> Long?,
     private val onAppendLive: (String) -> Unit,
-    private val onReplaceFinal: (String, Boolean) -> Unit
+    private val onReplaceFinal: (String, Boolean) -> Unit,
+    private val showTopBubble: (String) -> Unit = {}
 ) {
     // Etat rec
     private var recorder: PcmRecorder? = null
@@ -259,35 +261,7 @@ class MicBarController(
                         } else {
                             when (decision) {
                                 VoiceRouteDecision.NOTE -> {
-                                    withContext(Dispatchers.IO) {
-                                        // a) mettre à jour le texte du bloc AUDIO
-                                        blocksRepo.updateAudioTranscription(newBlockId, refinedText)
-
-                                        // b) mettre à jour (ou créer) le bloc TEXTE enfant
-                                        val maybeTextId = textBlockIdByAudio[newBlockId]
-                                        if (maybeTextId != null) {
-                                            blocksRepo.updateText(maybeTextId, refinedText)
-                                        } else {
-                                            val useGid = groupIdByAudio[newBlockId] ?: generateGroupId()
-                                            val createdId = blocksRepo.appendTranscription(
-                                                noteId = nid,
-                                                text = refinedText,
-                                                groupId = useGid
-                                            )
-                                            textBlockIdByAudio[newBlockId] = createdId
-                                        }
-                                    }
-
-                                    withContext(Dispatchers.Main) {
-                                        replaceProvisionalWithRefined(newBlockId, refinedText)
-                                        val finalBodyText = binding.txtBodyDetail.text?.toString().orEmpty()
-                                        val bodyToPersist = if (finalBodyText.isNotEmpty()) {
-                                            finalBodyText
-                                        } else {
-                                            refinedText
-                                        }
-                                        provisionalBodyBuffer.commitToNote(nid, bodyToPersist)
-                                    }
+                                    handleNoteDecision(nid, newBlockId, refinedText)
                                 }
 
                                 VoiceRouteDecision.REMINDER_TIME,
@@ -301,7 +275,10 @@ class MicBarController(
                                 }
 
                                 VoiceRouteDecision.INCOMPLETE -> {
-                                    // Chemin reminder incomplet : la persistance sera gérée par les prompts suivants.
+                                    handleNoteDecision(nid, newBlockId, refinedText)
+                                    withContext(Dispatchers.Main) {
+                                        showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                                    }
                                 }
                             }
                         }
@@ -320,6 +297,42 @@ class MicBarController(
                 Log.e("MicCtl", "Erreur dans stopSegment", e)
                 live = null
             }
+        }
+    }
+
+    private suspend fun handleNoteDecision(
+        noteId: Long,
+        audioBlockId: Long,
+        refinedText: String
+    ) {
+        withContext(Dispatchers.IO) {
+            // a) mettre à jour le texte du bloc AUDIO
+            blocksRepo.updateAudioTranscription(audioBlockId, refinedText)
+
+            // b) mettre à jour (ou créer) le bloc TEXTE enfant
+            val maybeTextId = textBlockIdByAudio[audioBlockId]
+            if (maybeTextId != null) {
+                blocksRepo.updateText(maybeTextId, refinedText)
+            } else {
+                val useGid = groupIdByAudio[audioBlockId] ?: generateGroupId()
+                val createdId = blocksRepo.appendTranscription(
+                    noteId = noteId,
+                    text = refinedText,
+                    groupId = useGid
+                )
+                textBlockIdByAudio[audioBlockId] = createdId
+            }
+        }
+
+        withContext(Dispatchers.Main) {
+            replaceProvisionalWithRefined(audioBlockId, refinedText)
+            val finalBodyText = binding.txtBodyDetail.text?.toString().orEmpty()
+            val bodyToPersist = if (finalBodyText.isNotEmpty()) {
+                finalBodyText
+            } else {
+                refinedText
+            }
+            provisionalBodyBuffer.commitToNote(noteId, bodyToPersist)
         }
     }
 
