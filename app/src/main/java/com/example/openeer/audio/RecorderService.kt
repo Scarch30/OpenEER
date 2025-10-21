@@ -19,6 +19,7 @@ import android.util.Log
 import com.example.openeer.media.decodeWaveFile
 import com.example.openeer.media.AudioDenoiser
 import com.example.openeer.services.WhisperService
+import com.example.openeer.voice.VoiceCommandRouter
 
 class RecorderService : Service() {
 
@@ -38,6 +39,7 @@ class RecorderService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var repo: NoteRepository
     private lateinit var blocksRepo: BlocksRepository
+    private lateinit var voiceRouter: VoiceCommandRouter
     private var noteId: Long = 0L
     private var pcm: PcmRecorder? = null
 
@@ -59,6 +61,7 @@ class RecorderService : Service() {
             database = db
         )
         blocksRepo = blocks
+        voiceRouter = VoiceCommandRouter()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -165,20 +168,25 @@ class RecorderService : Service() {
                 }.getOrNull()
 
                 if (!finalText.isNullOrBlank()) {
-                    // 4) Mets à jour le corps de la note (affichage principal)
-                    runCatching { repo.setBody(noteId, finalText) }
+                    val contextNoteId = noteId.takeIf { it != 0L }
+                    val route = voiceRouter.route(finalText, contextNoteId)
 
-                    // 5) Mets à jour le bloc AUDIO et ajoute un bloc TEXT lié dans la même pile
-                    audioBlockId?.let { aid ->
-                        runCatching { blocksRepo.updateAudioTranscription(aid, finalText) }
-                    }
-                    runCatching {
-                        // crée un bloc TEXT "transcription" dans la même pile (groupId)
-                        blocksRepo.appendTranscription(
-                            noteId = noteId,
-                            text   = finalText,
-                            groupId= groupId ?: generateGroupId()
-                        )
+                    when (route) {
+                        is VoiceCommandRouter.Route.Reminder -> {
+                            Log.d(
+                                TAG,
+                                "VoiceCommandRouter → Reminder (noteId=${route.contextNoteId ?: contextNoteId})"
+                            )
+                            handleReminderRoute(route, finalText, audioBlockId, groupId)
+                        }
+
+                        VoiceCommandRouter.Route.Note -> {
+                            if (contextNoteId != null) {
+                                persistFinalTranscription(contextNoteId, finalText, audioBlockId, groupId)
+                            } else {
+                                Log.w(TAG, "route=Note mais noteId invalide: finalText ignoré")
+                            }
+                        }
                     }
                 } else {
                     Log.w(TAG, "Aucune transcription obtenue (Whisper et Vosk).")
@@ -216,4 +224,44 @@ class RecorderService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private suspend fun persistFinalTranscription(
+        targetNoteId: Long,
+        finalText: String,
+        audioBlockId: Long?,
+        groupId: String?
+    ) {
+        // 4) Mets à jour le corps de la note (affichage principal)
+        runCatching { repo.setBody(targetNoteId, finalText) }
+
+        // 5) Mets à jour le bloc AUDIO et ajoute un bloc TEXT lié dans la même pile
+        audioBlockId?.let { aid ->
+            runCatching { blocksRepo.updateAudioTranscription(aid, finalText) }
+        }
+        runCatching {
+            // crée un bloc TEXT "transcription" dans la même pile (groupId)
+            blocksRepo.appendTranscription(
+                noteId = targetNoteId,
+                text = finalText,
+                groupId = groupId ?: generateGroupId()
+            )
+        }
+    }
+
+    private suspend fun handleReminderRoute(
+        route: VoiceCommandRouter.Route.Reminder,
+        finalText: String,
+        audioBlockId: Long?,
+        groupId: String?
+    ) {
+        val fallbackNoteId = route.contextNoteId ?: noteId.takeIf { it != 0L }
+        if (fallbackNoteId == null) {
+            Log.w(TAG, "handleReminderRoute(): aucun noteId valide, abandon de la transcription")
+            return
+        }
+
+        // TODO: implémenter la création d'un rappel vocal.
+        Log.i(TAG, "Mode rappel non implémenté — fallback sur la création de note")
+        persistFinalTranscription(fallbackNoteId, finalText, audioBlockId, groupId)
+    }
 }
