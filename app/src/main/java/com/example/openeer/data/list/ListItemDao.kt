@@ -20,6 +20,9 @@ interface ListItemDao {
     @Query("UPDATE list_items SET text = :text WHERE id = :itemId")
     suspend fun updateText(itemId: Long, text: String)
 
+    @Query("UPDATE list_items SET text = :text, provisional = 0 WHERE id = :itemId")
+    suspend fun finalizeText(itemId: Long, text: String)
+
     @Query("DELETE FROM list_items WHERE id = :itemId")
     suspend fun delete(itemId: Long)
 

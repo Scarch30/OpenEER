@@ -18,6 +18,7 @@ import com.example.openeer.R
 import com.example.openeer.audio.PcmRecorder
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.core.RecordingState
+import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
@@ -41,6 +42,7 @@ class MicBarController(
     private val repo: NoteRepository,
     private val blocksRepo: BlocksRepository,
     private val getOpenNoteId: () -> Long?,
+    private val getOpenNote: () -> Note?,
     private val onAppendLive: (String) -> Unit,
     private val onReplaceFinal: (String, Boolean) -> Unit,
     private val showTopBubble: (String) -> Unit = {}
@@ -81,6 +83,8 @@ class MicBarController(
      * 🔗 Nouveau : mapping bloc audio -> groupId commun (permet de créer le texte plus tard si Vosk vide).
      */
     private val groupIdByAudio = mutableMapOf<Long, String>()
+
+    private val provisionalListItems = mutableMapOf<Long, ListProvisionalItem>()
 
     /** Démarre un appui PTT immédiatement. */
     fun beginPress(initialX: Float) {
@@ -170,6 +174,8 @@ class MicBarController(
         Log.d("MicCtl", "Switch to hands-free")
     }
 
+
+
     private fun stopSegment() {
         if (state == RecordingState.IDLE) return
         lastWasHandsFree = (state == RecordingState.RECORDING_HANDS_FREE)
@@ -184,6 +190,8 @@ class MicBarController(
         state = RecordingState.IDLE
 
         activity.lifecycleScope.launch {
+            var newBlockId: Long? = null
+            var provisionalList: ListProvisionalItem? = null
             try {
                 val wavPath = withContext(Dispatchers.IO) {
                     rec?.stop()
@@ -193,15 +201,25 @@ class MicBarController(
                 live = null
 
                 val nid = getOpenNoteId()
+                val noteSnapshot = getOpenNote()
+                val isListNote = noteSnapshot?.isList() == true
+                val listFallbackText = initialVoskText.ifBlank { LIST_PLACEHOLDER }
+
+                if (isListNote && nid != null) {
+                    provisionalList = createListProvisionalItem(nid, listFallbackText)
+                }
+
                 if (!wavPath.isNullOrBlank() && nid != null) {
                     val gid = generateGroupId()
 
-                    // 1) Affichage + persistance du Vosk en italique/gris (UI), plain côté DB.
                     val addNewline = !lastWasHandsFree
-                    val blockRange = appendProvisionalToBody(initialVoskText, addNewline)
+                    val blockRange = if (!isListNote) {
+                        appendProvisionalToBody(initialVoskText, addNewline)
+                    } else {
+                        null
+                    }
 
-                    // 2) Créer le bloc audio (avec transcription initiale en clair dans le bloc)
-                    val newBlockId = withContext(Dispatchers.IO) {
+                    newBlockId = withContext(Dispatchers.IO) {
                         blocksRepo.appendAudio(
                             noteId = nid,
                             mediaUri = wavPath,
@@ -211,14 +229,12 @@ class MicBarController(
                             transcription = initialVoskText
                         )
                     }
-                    // mémoriser le groupId pour ce bloc audio
                     groupIdByAudio[newBlockId] = gid
                     if (blockRange != null) {
                         rangesByBlock[newBlockId] = blockRange
                     }
 
-                    // 3) ✅ Option A : créer TOUT DE SUITE un bloc TEXTE "fils" (même groupId) avec Vosk s'il existe
-                    if (initialVoskText.isNotBlank()) {
+                    if (!isListNote && initialVoskText.isNotBlank()) {
                         val textBlockId = withContext(Dispatchers.IO) {
                             blocksRepo.appendTranscription(
                                 noteId = nid,
@@ -229,84 +245,108 @@ class MicBarController(
                         textBlockIdByAudio[newBlockId] = textBlockId
                     }
 
-                    // 4) Affinage Whisper en arrière-plan
+                    if (isListNote && provisionalList != null) {
+                        provisionalListItems[newBlockId] = provisionalList
+                    }
+
+                    val audioBlockId = newBlockId
                     activity.lifecycleScope.launch {
-                        Log.d("MicCtl", "Lancement de l'affinage Whisper pour le bloc #$newBlockId")
-                        // Sécurise : s'assurer que le modèle est chargé (au cas où le warm-up n'a pas abouti)
-                        runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
-                        val refinedText = WhisperService.transcribeWav(File(wavPath))
-                        val decision = voiceCommandRouter.route(refinedText)
-                        Log.d("VoiceRoute", "Bloc #$newBlockId → décision $decision pour \"$refinedText\"")
+                        Log.d("MicCtl", "Lancement de l'affinage Whisper pour le bloc #$audioBlockId")
+                        try {
+                            runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
+                            val refinedText = WhisperService.transcribeWav(File(wavPath))
+                            val decision = voiceCommandRouter.route(refinedText)
+                            Log.d(
+                                "VoiceRoute",
+                                "Bloc #$audioBlockId → décision $decision pour "$refinedText""
+                            )
 
-                        if (!FeatureFlags.voiceCommandsEnabled) {
-                            withContext(Dispatchers.IO) {
-                                // a) mettre à jour le texte du bloc AUDIO
-                                blocksRepo.updateAudioTranscription(newBlockId, refinedText)
-
-                                // b) mettre à jour (ou créer) le bloc TEXTE enfant
-                                val maybeTextId = textBlockIdByAudio[newBlockId]
-                                if (maybeTextId != null) {
-                                    blocksRepo.updateText(maybeTextId, refinedText)
-                                } else {
-                                    // si Vosk était vide, on crée maintenant le bloc texte
-                                    val useGid = groupIdByAudio[newBlockId] ?: generateGroupId()
-                                    val createdId = blocksRepo.appendTranscription(
-                                        noteId = nid,
-                                        text = refinedText,
-                                        groupId = useGid
-                                    )
-                                    textBlockIdByAudio[newBlockId] = createdId
-                                }
-                            }
-
-                            // 5) Remplacement dans le body (UI)
-                            withContext(Dispatchers.Main) {
-                                replaceProvisionalWithRefined(newBlockId, refinedText)
-                            }
-                        } else {
-                            when (decision) {
-                                VoiceRouteDecision.NOTE -> {
-                                    handleNoteDecision(nid, newBlockId, refinedText)
-                                }
-
-                                VoiceRouteDecision.REMINDER_TIME,
-                                VoiceRouteDecision.REMINDER_PLACE -> {
-                                    handleReminderDecision(
-                                        noteId = nid,
-                                        audioBlockId = newBlockId,
-                                        refinedText = refinedText,
-                                        audioPath = wavPath,
-                                        decision = decision
-                                    )
-                                }
-
-                                VoiceRouteDecision.INCOMPLETE -> {
-                                    handleNoteDecision(nid, newBlockId, refinedText)
-                                    withContext(Dispatchers.Main) {
-                                        showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                            if (!FeatureFlags.voiceCommandsEnabled) {
+                                val listFinalized = withContext(Dispatchers.IO) {
+                                    blocksRepo.updateAudioTranscription(audioBlockId, refinedText)
+                                    val listHandle = provisionalListItems[audioBlockId]
+                                    if (listHandle != null) {
+                                        finalizeListProvisional(listHandle, refinedText)
+                                        provisionalListItems.remove(audioBlockId)
+                                        true
+                                    } else {
+                                        val maybeTextId = textBlockIdByAudio[audioBlockId]
+                                        if (maybeTextId != null) {
+                                            blocksRepo.updateText(maybeTextId, refinedText)
+                                        } else {
+                                            val useGid = groupIdByAudio[audioBlockId] ?: generateGroupId()
+                                            val createdId = blocksRepo.appendTranscription(
+                                                noteId = nid,
+                                                text = refinedText,
+                                                groupId = useGid
+                                            )
+                                            textBlockIdByAudio[audioBlockId] = createdId
+                                        }
+                                        false
                                     }
                                 }
 
-                                VoiceRouteDecision.LIST_INCOMPLETE -> {
-                                    handleListIncomplete(newBlockId, wavPath)
+                                if (!listFinalized) {
+                                    withContext(Dispatchers.Main) {
+                                        replaceProvisionalWithRefined(audioBlockId, refinedText)
+                                    }
                                 }
+                            } else {
+                                when (decision) {
+                                    VoiceRouteDecision.NOTE -> {
+                                        handleNoteDecision(nid, audioBlockId, refinedText)
+                                    }
 
-                                is VoiceRouteDecision.List -> {
-                                    handleListDecision(
-                                        noteId = nid,
-                                        audioBlockId = newBlockId,
-                                        refinedText = refinedText,
-                                        audioPath = wavPath,
-                                        decision = decision
-                                    )
+                                    VoiceRouteDecision.REMINDER_TIME,
+                                    VoiceRouteDecision.REMINDER_PLACE -> {
+                                        handleReminderDecision(
+                                            noteId = nid,
+                                            audioBlockId = audioBlockId,
+                                            refinedText = refinedText,
+                                            audioPath = wavPath,
+                                            decision = decision
+                                        )
+                                    }
+
+                                    VoiceRouteDecision.INCOMPLETE -> {
+                                        handleNoteDecision(nid, audioBlockId, refinedText)
+                                        withContext(Dispatchers.Main) {
+                                            showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                                        }
+                                    }
+
+                                    VoiceRouteDecision.LIST_INCOMPLETE -> {
+                                        handleListIncomplete(audioBlockId, wavPath, refinedText)
+                                    }
+
+                                    is VoiceRouteDecision.List -> {
+                                        handleListDecision(
+                                            noteId = nid,
+                                            audioBlockId = audioBlockId,
+                                            refinedText = refinedText,
+                                            audioPath = wavPath,
+                                            decision = decision
+                                        )
+                                    }
+                                }
+                            }
+                        } catch (error: Throwable) {
+                            Log.e("MicCtl", "Erreur Whisper pour le bloc #$audioBlockId", error)
+                            val fallback = if (initialVoskText.isNotBlank()) initialVoskText else listFallbackText
+                            if (provisionalListItems.containsKey(audioBlockId)) {
+                                finalizeListProvisional(audioBlockId, fallback)
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    replaceProvisionalWithRefined(audioBlockId, fallback)
                                 }
                             }
                         }
-                        Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$newBlockId")
+                        Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$audioBlockId")
                     }
+                } else if (isListNote && provisionalList != null) {
+                    finalizeDetachedListProvisional(provisionalList, listFallbackText)
                 }
 
-                // Nettoyage de la barre live
                 if (binding.liveTranscriptionBar.isVisible) {
                     withContext(Dispatchers.Main) {
                         binding.liveTranscriptionText.text = ""
@@ -316,43 +356,56 @@ class MicBarController(
             } catch (e: Throwable) {
                 Log.e("MicCtl", "Erreur dans stopSegment", e)
                 live = null
+                val fallback = provisionalList?.initialText
+                if (fallback != null) {
+                    finalizeDetachedListProvisional(provisionalList, fallback)
+                }
             }
         }
     }
+
+
 
     private suspend fun handleNoteDecision(
         noteId: Long,
         audioBlockId: Long,
         refinedText: String
     ) {
+        val listHandle = provisionalListItems.remove(audioBlockId)
         withContext(Dispatchers.IO) {
             // a) mettre à jour le texte du bloc AUDIO
             blocksRepo.updateAudioTranscription(audioBlockId, refinedText)
 
-            // b) mettre à jour (ou créer) le bloc TEXTE enfant
-            val maybeTextId = textBlockIdByAudio[audioBlockId]
-            if (maybeTextId != null) {
-                blocksRepo.updateText(maybeTextId, refinedText)
+            if (listHandle != null) {
+                finalizeListProvisional(listHandle, refinedText)
             } else {
-                val useGid = groupIdByAudio[audioBlockId] ?: generateGroupId()
-                val createdId = blocksRepo.appendTranscription(
-                    noteId = noteId,
-                    text = refinedText,
-                    groupId = useGid
-                )
-                textBlockIdByAudio[audioBlockId] = createdId
+                // b) mettre à jour (ou créer) le bloc TEXTE enfant
+                val maybeTextId = textBlockIdByAudio[audioBlockId]
+                if (maybeTextId != null) {
+                    blocksRepo.updateText(maybeTextId, refinedText)
+                } else {
+                    val useGid = groupIdByAudio[audioBlockId] ?: generateGroupId()
+                    val createdId = blocksRepo.appendTranscription(
+                        noteId = noteId,
+                        text = refinedText,
+                        groupId = useGid
+                    )
+                    textBlockIdByAudio[audioBlockId] = createdId
+                }
             }
         }
 
-        withContext(Dispatchers.Main) {
-            replaceProvisionalWithRefined(audioBlockId, refinedText)
-            val finalBodyText = binding.txtBodyDetail.text?.toString().orEmpty()
-            val bodyToPersist = if (finalBodyText.isNotEmpty()) {
-                finalBodyText
-            } else {
-                refinedText
+        if (listHandle == null) {
+            withContext(Dispatchers.Main) {
+                replaceProvisionalWithRefined(audioBlockId, refinedText)
+                val finalBodyText = binding.txtBodyDetail.text?.toString().orEmpty()
+                val bodyToPersist = if (finalBodyText.isNotEmpty()) {
+                    finalBodyText
+                } else {
+                    refinedText
+                }
+                provisionalBodyBuffer.commitToNote(noteId, bodyToPersist)
             }
-            provisionalBodyBuffer.commitToNote(noteId, bodyToPersist)
         }
     }
 
@@ -372,10 +425,13 @@ class MicBarController(
         }
 
         result.onSuccess { reminderId ->
-            withContext(Dispatchers.Main) {
-                provisionalBodyBuffer.clear()
+            if (provisionalListItems.containsKey(audioBlockId)) {
+                removeListProvisional(audioBlockId, "REMINDER")
+            } else {
+                withContext(Dispatchers.Main) {
+                    provisionalBodyBuffer.clear()
+                }
             }
-
             cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
 
             Log.d("MicCtl", "Reminder créé via voix: id=$reminderId pour note=$noteId")
@@ -401,25 +457,46 @@ class MicBarController(
         decision: VoiceRouteDecision.List
     ) {
         val result = listExecutor.execute(noteId, decision)
+        val hasListHandle = provisionalListItems.containsKey(audioBlockId)
         when (result) {
             is ListVoiceExecutor.Result.Success -> {
-                withContext(Dispatchers.Main) {
-                    removeProvisionalForBlock(audioBlockId)
+                if (hasListHandle) {
+                    removeListProvisional(audioBlockId, "LIST_COMMAND")
                     if ((decision.action == VoiceListAction.TOGGLE ||
                             decision.action == VoiceListAction.UNTICK ||
                             decision.action == VoiceListAction.REMOVE) &&
                         result.matchedCount == 0
                     ) {
-                        showTopBubble(activity.getString(R.string.voice_list_item_not_found))
+                        withContext(Dispatchers.Main) {
+                            showTopBubble(activity.getString(R.string.voice_list_item_not_found))
+                        }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        removeProvisionalForBlock(audioBlockId)
+                        if ((decision.action == VoiceListAction.TOGGLE ||
+                                decision.action == VoiceListAction.UNTICK ||
+                                decision.action == VoiceListAction.REMOVE) &&
+                            result.matchedCount == 0
+                        ) {
+                            showTopBubble(activity.getString(R.string.voice_list_item_not_found))
+                        }
                     }
                 }
                 cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
             }
 
             is ListVoiceExecutor.Result.Incomplete -> {
-                withContext(Dispatchers.Main) {
-                    removeProvisionalForBlock(audioBlockId)
-                    showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
+                if (hasListHandle) {
+                    finalizeListProvisional(audioBlockId, refinedText)
+                    withContext(Dispatchers.Main) {
+                        showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        removeProvisionalForBlock(audioBlockId)
+                        showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
+                    }
                 }
                 cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
             }
@@ -430,17 +507,28 @@ class MicBarController(
                 if (fallbackNoteId != null) {
                     handleNoteDecision(fallbackNoteId, audioBlockId, refinedText)
                 } else {
-                    withContext(Dispatchers.Main) { removeProvisionalForBlock(audioBlockId) }
+                    if (hasListHandle) {
+                        finalizeListProvisional(audioBlockId, refinedText)
+                    } else {
+                        withContext(Dispatchers.Main) { removeProvisionalForBlock(audioBlockId) }
+                    }
                     cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
                 }
             }
         }
     }
 
-    private suspend fun handleListIncomplete(audioBlockId: Long, audioPath: String) {
-        withContext(Dispatchers.Main) {
-            removeProvisionalForBlock(audioBlockId)
-            showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
+    private suspend fun handleListIncomplete(audioBlockId: Long, audioPath: String, refinedText: String) {
+        if (provisionalListItems.containsKey(audioBlockId)) {
+            finalizeListProvisional(audioBlockId, refinedText)
+            withContext(Dispatchers.Main) {
+                showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
+            }
+        } else {
+            withContext(Dispatchers.Main) {
+                removeProvisionalForBlock(audioBlockId)
+                showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
+            }
         }
         cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
     }
@@ -549,6 +637,7 @@ class MicBarController(
         val textBlockId = textBlockIdByAudio.remove(audioBlockId)
         groupIdByAudio.remove(audioBlockId)
         rangesByBlock.remove(audioBlockId)
+        provisionalListItems.remove(audioBlockId)
 
         withContext(Dispatchers.IO) {
             textBlockId?.let { blocksRepo.deleteBlock(it) }
@@ -562,6 +651,63 @@ class MicBarController(
         }
     }
 
+    private suspend fun createListProvisionalItem(
+        noteId: Long,
+        initialText: String,
+    ): ListProvisionalItem? {
+        val safeText = initialText.ifBlank { LIST_PLACEHOLDER }
+        val itemId = runCatching { repo.addProvisionalItem(noteId, safeText) }
+            .onFailure { error ->
+                Log.e(LIST_VOICE_TAG, "failed to create provisional item for note=$noteId", error)
+            }
+            .getOrNull()
+            ?: return null
+
+        Log.d(
+            LIST_VOICE_TAG,
+            "provisional item created id=$itemId note=$noteId text=\"${safeText.singleLine()}\""
+        )
+
+        withContext(Dispatchers.Main) {
+            binding.scrollBody.post {
+                binding.scrollBody.smoothScrollTo(0, binding.listAddItemInput.bottom)
+            }
+        }
+
+        return ListProvisionalItem(noteId = noteId, itemId = itemId, initialText = safeText)
+    }
+
+    private suspend fun finalizeListProvisional(handle: ListProvisionalItem, candidateText: String) {
+        val finalText = candidateText.ifBlank { handle.initialText }
+        repo.finalizeItemText(handle.itemId, finalText)
+        Log.d(
+            LIST_VOICE_TAG,
+            "provisional item finalized id=${handle.itemId} text=\"${finalText.singleLine()}\""
+        )
+    }
+
+    private suspend fun finalizeListProvisional(audioBlockId: Long, candidateText: String) {
+        val handle = provisionalListItems.remove(audioBlockId) ?: return
+        finalizeListProvisional(handle, candidateText)
+    }
+
+    private suspend fun finalizeDetachedListProvisional(
+        handle: ListProvisionalItem,
+        candidateText: String,
+    ) {
+        val key = provisionalListItems.entries.firstOrNull { it.value.itemId == handle.itemId }?.key
+        if (key != null) {
+            provisionalListItems.remove(key)
+        }
+        finalizeListProvisional(handle, candidateText)
+    }
+
+    private suspend fun removeListProvisional(audioBlockId: Long, dueTo: String) {
+        val handle = provisionalListItems.remove(audioBlockId) ?: return
+        repo.removeItem(handle.itemId)
+        Log.d(LIST_VOICE_TAG, "provisional item removed id=${handle.itemId} dueTo=$dueTo")
+    }
+
     private fun maybeCommitBody(sb: SpannableStringBuilder) {
         if (!FeatureFlags.voiceCommandsEnabled) {
             val nid = getOpenNoteId() ?: return
@@ -571,6 +717,14 @@ class MicBarController(
 
     fun isRecording(): Boolean =
         state == RecordingState.RECORDING_PTT || state == RecordingState.RECORDING_HANDS_FREE
+
+    private fun String.singleLine(): String = replace('\n', ' ').replace('\r', ' ')
+
+    private data class ListProvisionalItem(
+        val noteId: Long,
+        val itemId: Long,
+        val initialText: String,
+    )
 
     private inner class ProvisionalBodyBuffer {
         fun append(text: String, addNewline: Boolean): IntRange? {
@@ -613,5 +767,10 @@ class MicBarController(
                 repo.setBody(noteId, text)
             }
         }
+    }
+
+    companion object {
+        private const val LIST_PLACEHOLDER = "(transcription en cours…)"
+        private const val LIST_VOICE_TAG = "ListVoice"
     }
 }

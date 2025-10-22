@@ -27,4 +27,5 @@ data class ListItemEntity(
     val done: Boolean = false,
     @ColumnInfo(name = "ordering") val order: Int,
     val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "0") val provisional: Boolean = false,
 )

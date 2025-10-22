@@ -1,6 +1,8 @@
 package com.example.openeer.ui.editor
 
+import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Typeface
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -40,6 +42,10 @@ class NoteListItemsAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         private var boundItem: ListItemEntity? = null
+        private val defaultTextColor = binding.inputText.currentTextColor
+        private val defaultTypeface: Typeface = binding.inputText.typeface
+        private val provisionalColor = Color.parseColor("#9AA0A6")
+
         init {
             binding.inputText.setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -67,14 +73,23 @@ class NoteListItemsAdapter(
             if (text != item.text) {
                 binding.inputText.setText(item.text)
             }
-            binding.inputText.setSelection(binding.inputText.text?.length ?: 0)
+            if (!item.provisional) {
+                binding.inputText.setSelection(binding.inputText.text?.length ?: 0)
+            } else {
+                binding.inputText.clearFocus()
+            }
 
             binding.checkDone.setOnCheckedChangeListener(null)
             binding.checkDone.isChecked = item.done
             binding.checkDone.contentDescription = item.text
-            binding.checkDone.setOnCheckedChangeListener { _, _ ->
-                val itemId = boundItem?.id ?: return@setOnCheckedChangeListener
-                onToggle(itemId)
+            binding.checkDone.isEnabled = !item.provisional
+            binding.checkDone.isClickable = !item.provisional
+            binding.checkDone.alpha = if (item.provisional) 0.4f else 1f
+            if (!item.provisional) {
+                binding.checkDone.setOnCheckedChangeListener { _, _ ->
+                    val itemId = boundItem?.id ?: return@setOnCheckedChangeListener
+                    onToggle(itemId)
+                }
             }
 
             val baseFlags = binding.inputText.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
@@ -85,10 +100,27 @@ class NoteListItemsAdapter(
                 binding.inputText.paintFlags = baseFlags
                 binding.inputText.alpha = 1f
             }
+
+            if (item.provisional) {
+                binding.inputText.setTextColor(provisionalColor)
+                binding.inputText.setTypeface(defaultTypeface, Typeface.ITALIC)
+                binding.inputText.isFocusable = false
+                binding.inputText.isFocusableInTouchMode = false
+                binding.inputText.isCursorVisible = false
+                binding.inputText.isLongClickable = false
+            } else {
+                binding.inputText.setTextColor(defaultTextColor)
+                binding.inputText.typeface = defaultTypeface
+                binding.inputText.isFocusable = true
+                binding.inputText.isFocusableInTouchMode = true
+                binding.inputText.isCursorVisible = true
+                binding.inputText.isLongClickable = true
+            }
         }
 
         private fun commitText() {
             val item = boundItem ?: return
+            if (item.provisional) return
             val text = binding.inputText.text
                 ?.toString()
                 ?.trimEnd { it == '\n' || it == '\r' }

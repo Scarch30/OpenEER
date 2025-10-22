@@ -46,7 +46,7 @@ import com.example.openeer.data.tag.TagEntity
         FavoriteEntity::class,
         ListItemEntity::class
     ],
-    version = 21, // 🔼 bump : ajout favoris + note.type + list items
+    version = 22, // 🔼 bump : ajout favoris + note.type + list items + provisional flag
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -460,6 +460,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE list_items ADD COLUMN provisional INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -487,7 +493,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_17_18,
                         MIGRATION_18_19,
                         MIGRATION_19_20,
-                        MIGRATION_20_21
+                        MIGRATION_20_21,
+                        MIGRATION_21_22
                     )
                     .build()
                     .also { INSTANCE = it }
