@@ -30,6 +30,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
+import com.example.openeer.core.FeatureFlags
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlockEntity
@@ -234,6 +235,9 @@ class NotePanelController(
                     // Garde-fou : si l’onglet a changé entre temps, on ignore
                     if (openNoteId != noteId) return@collectLatest
                     currentNote = note
+                    note?.let {
+                        Log.i("NotePanel", "NoteOpen id=${it.id} type=${it.type}")
+                    }
                     render(note)
                 }
             }
@@ -296,14 +300,17 @@ class NotePanelController(
         popup.menu.add(0, MENU_MERGE_WITH, 1, activity.getString(R.string.note_menu_merge_with)).apply {
             isEnabled = openNoteId != null
         }
-        popup.menu.add(0, MENU_CONVERT_TO_LIST, 2, activity.getString(R.string.note_menu_convert_to_list)).apply {
-            isEnabled = openNoteId != null
-        }
-        // TODO: Utiliser le type de note réel lorsqu'il sera disponible.
-        val isListNote = false
-        popup.menu.add(0, MENU_CONVERT_TO_TEXT, 3, activity.getString(R.string.note_menu_convert_to_text)).apply {
-            isEnabled = openNoteId != null
-            isVisible = isListNote
+        if (FeatureFlags.listsEnabled) {
+            val note = currentNote
+            val isListNote = note?.isList() == true
+            popup.menu.add(0, MENU_CONVERT_TO_LIST, 2, activity.getString(R.string.note_menu_convert_to_list)).apply {
+                isEnabled = openNoteId != null
+                isVisible = !isListNote
+            }
+            popup.menu.add(0, MENU_CONVERT_TO_TEXT, 3, activity.getString(R.string.note_menu_convert_to_text)).apply {
+                isEnabled = openNoteId != null
+                isVisible = isListNote
+            }
         }
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
@@ -476,14 +483,16 @@ class NotePanelController(
     class NotePanelViewModel(private val repo: NoteRepository) {
         fun convertCurrentNoteToList(note: Note?): Int {
             val noteId = note?.id
-            Log.d("NotePanelViewModel", "convertCurrentNoteToList called for noteId=$noteId")
-            return R.string.note_convert_to_list_toast
+            val noteType = note?.type
+            Log.d("NotePanelViewModel", "convertCurrentNoteToList called for noteId=$noteId type=$noteType")
+            return R.string.note_convert_in_progress_toast
         }
 
         fun convertCurrentNoteToPlain(note: Note?): Int {
             val noteId = note?.id
-            Log.d("NotePanelViewModel", "convertCurrentNoteToPlain called for noteId=$noteId")
-            return R.string.note_convert_to_text_toast
+            val noteType = note?.type
+            Log.d("NotePanelViewModel", "convertCurrentNoteToPlain called for noteId=$noteId type=$noteType")
+            return R.string.note_convert_in_progress_toast
         }
     }
 
