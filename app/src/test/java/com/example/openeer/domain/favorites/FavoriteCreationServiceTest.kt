@@ -34,6 +34,7 @@ class FavoriteCreationServiceTest {
             context,
             FavoriteCreationRequest(
                 name = "Parc",
+                address = "20 Chem. de Château Gombert, 13013 Marseille, France",
                 latitude = 48.8566,
                 longitude = 2.3522,
                 radiusMeters = 123,
@@ -55,6 +56,12 @@ class FavoriteCreationServiceTest {
         assertEquals(123, favorite.defaultRadiusMeters)
         assertEquals(45, favorite.defaultCooldownMinutes)
         assertTrue(favorite.defaultEveryTime)
+        val aliases = org.json.JSONArray(favorite.aliasesJson)
+        val values = mutableListOf<String>()
+        for (i in 0 until aliases.length()) {
+            values.add(aliases.getString(i))
+        }
+        assertTrue(values.contains("20 Chem. de Château Gombert, 13013 Marseille, France"))
     }
 
     private fun resetDatabase() {

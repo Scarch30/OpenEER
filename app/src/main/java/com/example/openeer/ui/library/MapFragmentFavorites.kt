@@ -2,6 +2,7 @@ package com.example.openeer.ui.library
 
 import android.Manifest
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
@@ -15,6 +16,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 internal fun MapFragment.onFavoriteHereClicked() {
     if (isPickMode) return
@@ -50,9 +52,10 @@ private fun MapFragment.continueFavoriteHereFlow() {
                 return@launch
             }
             val defaultName = FavoriteNameSuggester.defaultHereName(ctx)
-            showFavoriteNameDialog(defaultName) { finalName ->
+            val defaultAddress = MapText.displayLabelFor(place)
+            showFavoriteNameDialog(defaultName, defaultAddress) { finalName, finalAddress ->
                 FavoriteNameSuggester.recordNameUsage(ctx, finalName)
-                launchFavoriteCreation(finalName, place.lat, place.lon, Source.HERE_BUTTON)
+                launchFavoriteCreation(finalName, finalAddress, place.lat, place.lon, Source.HERE_BUTTON)
             }
         } finally {
             favoriteButton?.isEnabled = true
@@ -66,31 +69,75 @@ internal fun MapFragment.onAddFavoriteAtSelectionClicked() {
     val ctx = context ?: return
     val label = MapText.displayLabelFor(place).takeIf { it.isNotBlank() }
     val defaultName = label ?: FavoriteNameSuggester.defaultSequentialName(ctx)
-    showFavoriteNameDialog(defaultName) { finalName ->
+    val defaultAddress = label ?: MapText.displayLabelFor(place)
+    showFavoriteNameDialog(defaultName, defaultAddress) { finalName, finalAddress ->
         FavoriteNameSuggester.recordNameUsage(ctx, finalName)
-        launchFavoriteCreation(finalName, latLng.latitude, latLng.longitude, Source.MAP_TAP)
+        launchFavoriteCreation(finalName, finalAddress, latLng.latitude, latLng.longitude, Source.MAP_TAP)
         dismissSelectionSheet()
     }
 }
 
-private fun MapFragment.showFavoriteNameDialog(defaultName: String, onConfirm: (String) -> Unit) {
+private fun MapFragment.showFavoriteNameDialog(
+    defaultName: String,
+    defaultAddress: String?,
+    onConfirm: (name: String, address: String?) -> Unit
+) {
     val ctx = context ?: return
-    val inputLayout = TextInputLayout(ctx).apply {
-        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        hint = getString(R.string.map_favorite_name_hint)
+    val density = ctx.resources.displayMetrics.density
+    val padding = (16 * density).roundToInt()
+    val spacing = (8 * density).roundToInt()
+    val container = LinearLayout(ctx).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(padding, padding, padding, 0)
+        layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
     }
-    val editText = TextInputEditText(inputLayout.context).apply {
+    val nameLayout = TextInputLayout(ctx).apply {
+        hint = getString(R.string.map_favorite_name_hint)
+        layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+    }
+    val nameEditText = TextInputEditText(nameLayout.context).apply {
         setText(defaultName)
         setSelection(defaultName.length)
-        inputLayout.addView(this)
+        nameLayout.addView(this)
     }
+    val addressLayout = TextInputLayout(ctx).apply {
+        hint = getString(R.string.map_favorite_address_hint)
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            topMargin = spacing
+        }
+    }
+    val addressEditText = TextInputEditText(addressLayout.context).apply {
+        val address = defaultAddress.orEmpty()
+        if (address.isNotEmpty()) {
+            setText(address)
+            setSelection(address.length)
+        }
+        addressLayout.addView(this)
+    }
+    container.addView(nameLayout)
+    container.addView(addressLayout)
     MaterialAlertDialogBuilder(ctx)
         .setTitle(R.string.map_favorite_dialog_title)
-        .setView(inputLayout)
+        .setView(container)
         .setPositiveButton(R.string.map_favorite_dialog_positive) { _, _ ->
-            val entered = editText.text?.toString()?.trim().orEmpty()
-            val finalName = if (entered.isNotEmpty()) entered else defaultName
-            onConfirm(finalName)
+            val enteredName = nameEditText.text?.toString()?.trim().orEmpty()
+            val finalName = if (enteredName.isNotEmpty()) enteredName else defaultName
+            val enteredAddress = addressEditText.text?.toString()?.trim().orEmpty()
+            val finalAddress = when {
+                enteredAddress.isNotEmpty() -> enteredAddress
+                !defaultAddress.isNullOrBlank() -> defaultAddress
+                else -> null
+            }
+            onConfirm(finalName, finalAddress)
             Toast.makeText(ctx, getString(R.string.map_favorite_creation_started), Toast.LENGTH_SHORT).show()
         }
         .setNegativeButton(android.R.string.cancel, null)
@@ -99,6 +146,7 @@ private fun MapFragment.showFavoriteNameDialog(defaultName: String, onConfirm: (
 
 private fun MapFragment.launchFavoriteCreation(
     name: String,
+    address: String?,
     lat: Double,
     lon: Double,
     source: Source
@@ -109,6 +157,7 @@ private fun MapFragment.launchFavoriteCreation(
             ctx,
             FavoriteCreationRequest(
                 name = name,
+                address = address,
                 latitude = lat,
                 longitude = lon,
                 radiusMeters = 100,
