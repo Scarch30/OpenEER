@@ -67,6 +67,10 @@
     <string name="reminder_save">Enregistrer</string>
     <string name="reminder_geo_desc_fmt">📍 %1$s · ~%2$dm</string>
     <string name="note_menu_create_reminder">Créer un rappel</string>
+    <string name="note_menu_convert_to_list">Convertir en liste</string>
+    <string name="note_menu_convert_to_text">Convertir en texte</string>
+    <string name="note_convert_to_list_toast">Conversion en liste – bientôt actif</string>
+    <string name="note_convert_to_text_toast">Conversion en texte – bientôt actif</string>
     <string name="menu_create_global_reminder">Créer un rappel</string>
     <string name="reminder_cancel_action">Annuler le rappel</string>
     <string name="reminder_cancelled">Rappel annulé</string>
