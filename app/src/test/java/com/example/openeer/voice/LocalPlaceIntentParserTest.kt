@@ -152,5 +152,47 @@ class LocalPlaceIntentParserTest {
         assertEquals(20, result.cooldownMinutes)
         assertFalse(result.everyTime)
     }
+
+    @Test
+    fun `enter transition synonyms resolve favorites`() {
+        LocalPlaceIntentParser.favoriteResolver = LocalPlaceIntentParser.FavoriteResolver { text ->
+            when (text.lowercase()) {
+                "maison" -> LocalPlaceIntentParser.FavoriteMatch(
+                    id = 99L,
+                    lat = 12.0,
+                    lon = 34.0,
+                    spokenForm = text,
+                    defaultRadiusMeters = 180,
+                    defaultCooldownMinutes = 25,
+                    defaultEveryTime = false,
+                )
+
+                else -> null
+            }
+        }
+
+        val input = "Rappelle-moi de manger une pizza quand je rentre à la maison"
+        val result = LocalPlaceIntentParser.parse(input)
+        assertNotNull(result)
+        result!!
+        val query = result.query as LocalPlaceIntentParser.PlaceQuery.Favorite
+        assertEquals(99L, query.id)
+        assertEquals("manger une pizza", result.label)
+        assertEquals(180, result.radiusMeters)
+        assertEquals(25, result.cooldownMinutes)
+        assertFalse(result.everyTime)
+    }
+
+    @Test
+    fun `exit transition synonyms parsed`() {
+        val input = "Fais-moi penser à appeler un taxi quand je m'en vais du bureau"
+        val result = LocalPlaceIntentParser.parse(input)
+        assertNotNull(result)
+        result!!
+        assertEquals(LocalPlaceIntentParser.Transition.EXIT, result.transition)
+        val query = result.query as LocalPlaceIntentParser.PlaceQuery.FreeText
+        assertEquals("bureau", query.text)
+        assertEquals("appeler un taxi", result.label)
+    }
 }
 
