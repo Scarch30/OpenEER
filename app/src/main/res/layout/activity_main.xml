@@ -111,32 +111,40 @@
             android:layout_weight="1"
             android:fillViewport="true">
 
-            <LinearLayout
-                android:id="@+id/noteBodyContainer"
-                android:orientation="vertical"
+            <FrameLayout
+                android:id="@+id/noteBodySurface"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <!-- Texte de la note -->
-                <TextView
-                    android:id="@+id/txtBodyDetail"
-                    android:text="(transcription en cours…)"
-                    android:textSize="16sp"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:padding="8dp" />
+                android:layout_height="wrap_content"
+                android:clickable="true"
+                android:focusable="true">
 
                 <LinearLayout
-                    android:id="@+id/childBlocksContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:id="@+id/noteBodyContainer"
                     android:orientation="vertical"
-                    android:paddingTop="8dp"
-                    android:paddingBottom="8dp"
-                    android:visibility="gone"
-                    android:animateLayoutChanges="true" />
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
 
-            </LinearLayout>
+                    <!-- Texte de la note -->
+                    <TextView
+                        android:id="@+id/txtBodyDetail"
+                        android:text="(transcription en cours…)"
+                        android:textSize="16sp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:padding="8dp" />
+
+                    <LinearLayout
+                        android:id="@+id/childBlocksContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingTop="8dp"
+                        android:paddingBottom="8dp"
+                        android:visibility="gone"
+                        android:animateLayoutChanges="true" />
+
+                </LinearLayout>
+            </FrameLayout>
         </ScrollView>
 
         <!-- Compteurs de piles -->

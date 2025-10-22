@@ -19,6 +19,7 @@ import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.ContextCompat
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -48,6 +49,7 @@ import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
 import com.example.openeer.ui.util.toast
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -165,6 +167,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var micCtl: MicBarController
     private lateinit var editorBody: EditorBodyController
     private lateinit var topBubble: TopBubbleController
+    private var isMediaStripDragging = false
+    private val caretPositions = mutableMapOf<Long, Int>()
 
     private val pileCountViews by lazy {
         listOf(
@@ -232,6 +236,11 @@ class MainActivity : AppCompatActivity() {
         notePanel.attachTopBubble(topBubble)
         notePanel.onOpenNoteChanged = { id -> maintainSelection(id) }
         notePanel.onPileCountsChanged = { counts -> applyPileCounts(counts) }
+        b.mediaStrip.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                isMediaStripDragging = newState == RecyclerView.SCROLL_STATE_DRAGGING
+            }
+        })
         lifecycleScope.launch {
             notePanel.observePileUi().collectLatest { piles ->
                 renderPiles(piles)
@@ -371,8 +380,19 @@ class MainActivity : AppCompatActivity() {
             onEditModeChanged = { editing ->
                 b.btnMicBar.isVisible = !editing
                 b.bottomBar.isVisible = !editing
+            },
+            onCaretPositionChanged = { position ->
+                notePanel.openNoteId?.let { caretPositions[it] = position }
             }
         )
+
+        b.noteBodySurface.setOnTouchListener { view, event ->
+            if (event.actionMasked == MotionEvent.ACTION_UP && view.isPressed) {
+                view.performClick()
+            }
+            false
+        }
+        b.noteBodySurface.setOnClickListener { handleTapToFocus() }
 
         // Boutons barre du bas
         b.btnKeyboard.setOnClickListener {
@@ -394,7 +414,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     // Aucune note -> créer note mère VIERGE + édition inline du body
                     val nid = ensureOpenNote()
-                    b.root.post { editorBody.enterInlineEdit(nid) }
+                    b.root.post { editorBody.enterInlineEdit(nid, caretPositions[nid]) }
                 }
             }
         }
@@ -476,12 +496,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Clic sur le corps = édition inline
-        b.txtBodyDetail.setOnClickListener {
-            lifecycleScope.launch {
-                val nid = ensureOpenNote()
-                b.root.post { editorBody.enterInlineEdit(nid) }
-            }
-        }
+        b.txtBodyDetail.setOnClickListener { handleTapToFocus() }
 
         // ✅ Option A : warm-up du modèle Whisper en arrière-plan dès que l’UI est prête
         lifecycleScope.launch(Dispatchers.Default) {
@@ -814,6 +829,34 @@ class MainActivity : AppCompatActivity() {
         pendingDeletionIds.removeAll(pending.ids)
         refreshVisibleNotes()
         Snackbar.make(b.root, getString(R.string.library_delete_undo_success), Snackbar.LENGTH_SHORT).show()
+    }
+
+    private fun handleTapToFocus() {
+        val openNoteId = notePanel.openNoteId ?: return
+        if (isTapToFocusBlocked()) return
+        val caret = caretPositions[openNoteId]
+        editorBody.enterInlineEdit(openNoteId, caret)
+        val cursorLabel = caret?.let { "cursor=$it" } ?: "cursor=end"
+        Log.d("TapToFocus", "focused, $cursorLabel, ime=shown")
+    }
+
+    private fun isTapToFocusBlocked(): Boolean {
+        if (isMediaStripDragging) return true
+        if (micCtl.isRecording()) return true
+        if (isAnyBottomSheetVisible()) return true
+        return false
+    }
+
+    private fun isAnyBottomSheetVisible(): Boolean {
+        return supportFragmentManager.fragments.any { it.hasVisibleBottomSheet() }
+    }
+
+    private fun Fragment?.hasVisibleBottomSheet(): Boolean {
+        this ?: return false
+        if (this is BottomSheetDialogFragment && dialog?.isShowing == true) {
+            return true
+        }
+        return childFragmentManager.fragments.any { it.hasVisibleBottomSheet() }
     }
 
     private suspend fun ensureOpenNote(): Long {

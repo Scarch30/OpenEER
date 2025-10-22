@@ -470,6 +470,9 @@ class MicBarController(
         }
     }
 
+    fun isRecording(): Boolean =
+        state == RecordingState.RECORDING_PTT || state == RecordingState.RECORDING_HANDS_FREE
+
     private inner class ProvisionalBodyBuffer {
         fun append(text: String, addNewline: Boolean): IntRange? {
             if (text.isBlank()) return null
