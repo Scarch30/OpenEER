@@ -69,40 +69,28 @@ class ReminderExecutor(
         val parseResult = LocalPlaceIntentParser.parse(text)
             ?: throw IncompleteException("No place intent parsed")
 
-        val (lat, lon, placeLabel, startingInside) = when (val query = parseResult.query) {
-            is LocalPlaceIntentParser.PlaceQuery.CurrentLocation -> {
-                val location = currentLocationResolver()
-                ResolvedPlace(location.latitude, location.longitude, null, true)
-            }
-
-            is LocalPlaceIntentParser.PlaceQuery.FreeText -> {
-                val geocoded = geocodeResolver(query.text)
-                    ?: throw IncompleteException("Geocode failed for \"${query.text}\"")
-                ResolvedPlace(geocoded.latitude, geocoded.longitude, geocoded.label, false)
-            }
-
-            is LocalPlaceIntentParser.PlaceQuery.Favorite -> {
-                ResolvedPlace(query.lat, query.lon, query.spokenForm, false)
-            }
-        }
+        val resolvedPlace = resolvePlace(parseResult.query)
+        val sanitizedLabel = sanitizeLabel(parseResult.label)
 
         val useCases = ReminderUseCases(appContext, databaseProvider(), alarmManagerProvider())
         val triggerOnExit = parseResult.transition == LocalPlaceIntentParser.Transition.EXIT
         val reminderId = useCases.scheduleGeofence(
             noteId = noteId,
-            lat = lat,
-            lon = lon,
+            lat = resolvedPlace.latitude,
+            lon = resolvedPlace.longitude,
             radiusMeters = parseResult.radiusMeters,
             every = parseResult.everyTime,
-            label = parseResult.label,
+            label = sanitizedLabel,
             cooldownMinutes = parseResult.cooldownMinutes,
             triggerOnExit = triggerOnExit,
-            startingInside = startingInside
+            startingInside = resolvedPlace.startingInside
         )
         ReminderListSheet.notifyChangedBroadcast(appContext, noteId)
         Log.d(
             TAG,
-            "createPlaceReminderFromVoice(): reminderId=$reminderId noteId=$noteId transition=${parseResult.transition} radius=${parseResult.radiusMeters} cooldown=${parseResult.cooldownMinutes} every=${parseResult.everyTime} label='${parseResult.label}' placeLabel='${placeLabel}'"
+            "createPlaceReminderFromVoice(): reminderId=$reminderId noteId=$noteId transition=${parseResult.transition} " +
+                "radius=${parseResult.radiusMeters} cooldown=${parseResult.cooldownMinutes} every=${parseResult.everyTime} " +
+                "label='${sanitizedLabel}' placeLabel='${resolvedPlace.placeLabel}' favoriteId=${resolvedPlace.favoriteId}"
         )
         return reminderId
     }
@@ -118,9 +106,53 @@ class ReminderExecutor(
     private data class ResolvedPlace(
         val latitude: Double,
         val longitude: Double,
-        val label: String?,
-        val startingInside: Boolean
+        val placeLabel: String?,
+        val startingInside: Boolean,
+        val favoriteId: Long? = null,
     )
+
+    private suspend fun resolvePlace(
+        query: LocalPlaceIntentParser.PlaceQuery,
+    ): ResolvedPlace = when (query) {
+        is LocalPlaceIntentParser.PlaceQuery.CurrentLocation -> {
+            val location = currentLocationResolver()
+            ResolvedPlace(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                placeLabel = null,
+                startingInside = true,
+            )
+        }
+
+        is LocalPlaceIntentParser.PlaceQuery.FreeText -> {
+            val geocoded = geocodeResolver(query.text)
+                ?: throw IncompleteException("Geocode failed for \"${query.text}\"")
+            ResolvedPlace(
+                latitude = geocoded.latitude,
+                longitude = geocoded.longitude,
+                placeLabel = geocoded.label,
+                startingInside = false,
+            )
+        }
+
+        is LocalPlaceIntentParser.PlaceQuery.Favorite -> {
+            ResolvedPlace(
+                latitude = query.lat,
+                longitude = query.lon,
+                placeLabel = query.spokenForm,
+                startingInside = false,
+                favoriteId = query.id,
+            )
+        }
+    }
+
+    private fun sanitizeLabel(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) {
+            throw IncompleteException("Parsed label was empty")
+        }
+        return trimmed
+    }
 
     private fun ensureFavoriteResolver() {
         if (LocalPlaceIntentParser.favoriteResolver != null) return
