@@ -8,11 +8,12 @@ import android.view.MenuItem
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import com.example.openeer.R
+import com.example.openeer.ui.map.MapUiDefaults
+import com.example.openeer.ui.sheets.FavoritesSheet
+import com.example.openeer.util.isDebugBuild
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.switchmaterial.SwitchMaterial
-import com.example.openeer.ui.map.MapUiDefaults
-import com.example.openeer.util.isDebugBuild
 
 class MapActivity : AppCompatActivity() {
 
@@ -56,14 +57,20 @@ class MapActivity : AppCompatActivity() {
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        val superResult = super.onCreateOptionsMenu(menu)
-        if (!isDebugBuild()) return superResult
-        menuInflater.inflate(R.menu.menu_map_debug, menu)
+        super.onCreateOptionsMenu(menu)
+        menuInflater.inflate(R.menu.menu_map, menu)
+        if (isDebugBuild()) {
+            menuInflater.inflate(R.menu.menu_map_debug, menu)
+        }
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.action_favorites -> {
+                FavoritesSheet.show(supportFragmentManager)
+                true
+            }
             R.id.action_route_debug_overlay -> {
                 showRouteDebugOverlayDialog()
                 true
