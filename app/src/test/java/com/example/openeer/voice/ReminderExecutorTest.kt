@@ -47,7 +47,7 @@ class ReminderExecutorTest {
         alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val favoritesRepository = FavoritesRepository(db.favoriteDao())
         val favoritesService = FavoritesService(favoritesRepository)
-        val placeParser = LocalPlaceIntentParser()
+        val placeParser = LocalPlaceIntentParser(LocalPlaceIntentParser.FavoriteResolver { null })
         voiceDependencies = VoiceDependencies(favoritesService, placeParser)
         executor = ReminderExecutor(context, voiceDependencies, { db }, { alarmManager })
     }
