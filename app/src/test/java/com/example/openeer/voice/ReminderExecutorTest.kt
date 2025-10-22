@@ -9,6 +9,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.reminders.ReminderDao
+import com.example.openeer.domain.favorites.FavoritesRepository
+import com.example.openeer.domain.favorites.FavoritesService
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlin.test.assertFailsWith
@@ -33,6 +35,7 @@ class ReminderExecutorTest {
     private lateinit var reminderDao: ReminderDao
     private lateinit var alarmManager: AlarmManager
     private lateinit var executor: ReminderExecutor
+    private lateinit var voiceDependencies: VoiceDependencies
 
     @Before
     fun setUp() {
@@ -42,7 +45,11 @@ class ReminderExecutorTest {
             .build()
         reminderDao = db.reminderDao()
         alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        executor = ReminderExecutor(context, { db }, { alarmManager })
+        val favoritesRepository = FavoritesRepository(db.favoriteDao())
+        val favoritesService = FavoritesService(favoritesRepository)
+        val placeParser = LocalPlaceIntentParser()
+        voiceDependencies = VoiceDependencies(favoritesService, placeParser)
+        executor = ReminderExecutor(context, voiceDependencies, { db }, { alarmManager })
     }
 
     @After
@@ -111,6 +118,7 @@ class ReminderExecutorTest {
         val noteId = db.noteDao().insert(Note(title = "Geo"))
         val geoExecutor = ReminderExecutor(
             context,
+            voiceDependencies,
             { db },
             { alarmManager },
             geocodeResolver = { null }
@@ -131,6 +139,7 @@ class ReminderExecutorTest {
         val lon = 2.3522
         val geoExecutor = ReminderExecutor(
             context,
+            voiceDependencies,
             { db },
             { alarmManager },
             geocodeResolver = {

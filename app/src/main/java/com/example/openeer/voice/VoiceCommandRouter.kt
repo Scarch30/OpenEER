@@ -10,6 +10,7 @@ import com.example.openeer.core.FeatureFlags
  * to NOTE to keep the legacy behaviour.
  */
 class VoiceCommandRouter(
+    private val placeIntentParser: LocalPlaceIntentParser,
     private val reminderClassifier: ReminderClassifier = ReminderClassifier(),
     private val isVoiceCommandsEnabled: () -> Boolean = { FeatureFlags.voiceCommandsEnabled }
 ) {
@@ -21,7 +22,7 @@ class VoiceCommandRouter(
             trimmed.isEmpty() -> VoiceRouteDecision.NOTE
             !reminderClassifier.hasTrigger(trimmed) -> VoiceRouteDecision.NOTE
             LocalTimeIntentParser.parseReminder(trimmed) != null -> VoiceRouteDecision.REMINDER_TIME
-            LocalPlaceIntentParser.parse(trimmed) != null -> VoiceRouteDecision.REMINDER_PLACE
+            placeIntentParser.parse(trimmed) != null -> VoiceRouteDecision.REMINDER_PLACE
             else -> VoiceRouteDecision.INCOMPLETE
         }
         logDecision(decision, trimmed)

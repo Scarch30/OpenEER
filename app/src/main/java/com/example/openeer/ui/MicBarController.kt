@@ -25,6 +25,7 @@ import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
 import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceCommandRouter
+import com.example.openeer.voice.VoiceComponents
 import com.example.openeer.voice.VoiceRouteDecision
 import kotlinx.coroutines.*
 import java.io.File
@@ -57,8 +58,9 @@ class MicBarController(
     private var lastWasHandsFree = false
 
     private val provisionalBodyBuffer = ProvisionalBodyBuffer()
-    private val voiceCommandRouter = VoiceCommandRouter()
-    private val reminderExecutor = ReminderExecutor(activity.applicationContext)
+    private val voiceDependencies = VoiceComponents.obtain(activity.applicationContext)
+    private val voiceCommandRouter = VoiceCommandRouter(voiceDependencies.placeParser)
+    private val reminderExecutor = ReminderExecutor(activity.applicationContext, voiceDependencies)
 
     /**
      * Mapping bloc audio -> range du texte Vosk dans la note (indices sur le body).

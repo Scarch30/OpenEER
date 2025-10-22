@@ -13,8 +13,6 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.domain.ReminderUseCases
-import com.example.openeer.domain.favorites.FavoritesRepository
-import com.example.openeer.domain.favorites.FavoritesService
 import com.example.openeer.ui.sheets.ReminderListSheet
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +20,7 @@ import kotlinx.coroutines.withContext
 
 class ReminderExecutor(
     context: Context,
+    voiceDependencies: VoiceDependencies = VoiceComponents.obtain(context),
     private val databaseProvider: () -> AppDatabase = {
         AppDatabase.getInstance(context.applicationContext)
     },
@@ -37,11 +36,9 @@ class ReminderExecutor(
 ) {
 
     private val appContext = context.applicationContext
+    private val placeParser = voiceDependencies.placeParser
     private val currentLocationResolver = currentLocationResolver
     private val geocodeResolver = geocodeResolver
-    private val favoritesService: FavoritesService by lazy {
-        FavoritesService(FavoritesRepository(databaseProvider().favoriteDao()))
-    }
 
     suspend fun createFromVoice(noteId: Long, labelFromWhisper: String): Long {
         val parseResult = LocalTimeIntentParser.parseReminder(labelFromWhisper)
@@ -65,12 +62,15 @@ class ReminderExecutor(
         noteId: Long,
         text: String
     ): Long {
-        ensureFavoriteResolver()
-        val parseResult = LocalPlaceIntentParser.parse(text)
+        val parseResult = placeParser.parse(text)
             ?: throw IncompleteException("No place intent parsed")
 
         val resolvedPlace = resolvePlace(parseResult.query)
         val sanitizedLabel = sanitizeLabel(parseResult.label)
+        Log.d(
+            TAG,
+            "createPlaceReminderFromVoice(): place=${resolvedPlace.toLogString(parseResult.query)} label=\"${sanitizedLabel}\""
+        )
 
         val useCases = ReminderUseCases(appContext, databaseProvider(), alarmManagerProvider())
         val triggerOnExit = parseResult.transition == LocalPlaceIntentParser.Transition.EXIT
@@ -154,25 +154,23 @@ class ReminderExecutor(
         return trimmed
     }
 
-    private fun ensureFavoriteResolver() {
-        if (LocalPlaceIntentParser.favoriteResolver != null) return
-        LocalPlaceIntentParser.favoriteResolver = LocalPlaceIntentParser.FavoriteResolver { candidate ->
-            favoritesService.matchFavorite(candidate)?.let { favorite ->
-                LocalPlaceIntentParser.FavoriteMatch(
-                    id = favorite.id,
-                    lat = favorite.lat,
-                    lon = favorite.lon,
-                    spokenForm = candidate,
-                    defaultRadiusMeters = favorite.defaultRadiusMeters,
-                    defaultCooldownMinutes = favorite.defaultCooldownMinutes,
-                    defaultEveryTime = favorite.defaultEveryTime,
-                )
-            }
-        }
-    }
-
     companion object {
         private const val TAG = "ReminderExecutor"
+    }
+}
+
+private fun ReminderExecutor.ResolvedPlace.toLogString(
+    query: LocalPlaceIntentParser.PlaceQuery,
+): String {
+    return when (query) {
+        is LocalPlaceIntentParser.PlaceQuery.Favorite ->
+            "Favorite(id=${query.id}, lat=${query.lat}, lon=${query.lon})"
+
+        is LocalPlaceIntentParser.PlaceQuery.FreeText ->
+            "FreeText(text=\"${query.text}\")"
+
+        LocalPlaceIntentParser.PlaceQuery.CurrentLocation ->
+            "CurrentLocation(lat=$latitude, lon=$longitude)"
     }
 }
 

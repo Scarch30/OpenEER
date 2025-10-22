@@ -260,7 +260,7 @@ class FavoritesService(
         private val NON_SLUG_CHAR_REGEX = "[^a-z0-9]+".toRegex()
         private val HYPHEN_DUPLICATES_REGEX = "-+".toRegex()
         private val WHITESPACE_REGEX = "\\s+".toRegex()
-        private const val FUZZY_THRESHOLD = 0.85
+        private const val FUZZY_THRESHOLD = 0.80
         private val DEFAULT_ALIASES = mapOf(
             "maison" to listOf("maison", "chez moi", "home"),
             "travail" to listOf("travail", "bureau", "work"),
