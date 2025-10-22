@@ -5,8 +5,10 @@ import java.text.Normalizer
 import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 
 class FavoritesService(
@@ -89,6 +91,43 @@ class FavoritesService(
     }
 
     suspend fun getAll(): List<FavoriteEntity> = repository.getAll()
+
+    fun matchFavorite(text: String): FavoriteEntity? {
+        if (text.isBlank()) return null
+        val normalized = normalizeAlias(text)
+        if (normalized.isEmpty()) return null
+        val slugCandidate = slugify(text)
+        val normalizedSlug = normalizeAlias(slugCandidate)
+        val favorites = runBlocking(Dispatchers.IO) { repository.getAll() }
+        var bestFuzzy: Pair<FavoriteEntity, Double>? = null
+        favorites.forEach { favorite ->
+            val aliasValues = parseAliases(favorite.aliasesJson)
+            val normalizedAliases = aliasValues
+                .map(::normalizeAlias)
+                .filter { it.isNotEmpty() }
+                .toMutableSet()
+            normalizedAliases.add(normalizeAlias(favorite.displayName))
+            normalizedAliases.add(normalizeAlias(favorite.key))
+
+            val exactMatch = normalizedAliases.any { it == normalized || it == normalizedSlug }
+            val slugMatch = slugCandidate.isNotEmpty() && (aliasValues.contains(slugCandidate) || favorite.key == slugCandidate)
+            if (exactMatch || slugMatch) {
+                return favorite
+            }
+
+            val similarity = normalizedAliases.maxOfOrNull { alias ->
+                similarityRatio(normalized, alias)
+            } ?: 0.0
+
+            if (similarity >= FUZZY_THRESHOLD) {
+                val currentBestScore = bestFuzzy?.second ?: Double.MIN_VALUE
+                if (similarity > currentBestScore) {
+                    bestFuzzy = favorite to similarity
+                }
+            }
+        }
+        return bestFuzzy?.first
+    }
 
     suspend fun findByAlias(textNormalized: String): FavoriteEntity? {
         if (textNormalized.isBlank()) return null
@@ -179,6 +218,41 @@ class FavoritesService(
         return hyphenated.trim('-').replace(HYPHEN_DUPLICATES_REGEX, "-")
     }
 
+    private fun similarityRatio(left: String, right: String): Double {
+        if (left.isEmpty() && right.isEmpty()) return 1.0
+        val maxLength = max(left.length, right.length)
+        if (maxLength == 0) return 1.0
+        val distance = levenshteinDistance(left, right)
+        return 1.0 - distance.toDouble() / maxLength.toDouble()
+    }
+
+    private fun levenshteinDistance(left: String, right: String): Int {
+        if (left == right) return 0
+        if (left.isEmpty()) return right.length
+        if (right.isEmpty()) return left.length
+
+        var previous = IntArray(right.length + 1) { it }
+        var current = IntArray(right.length + 1)
+
+        for (i in left.indices) {
+            current[0] = i + 1
+            val leftChar = left[i]
+            for (j in right.indices) {
+                val cost = if (leftChar == right[j]) 0 else 1
+                current[j + 1] = minOf(
+                    current[j] + 1,
+                    previous[j + 1] + 1,
+                    previous[j] + cost,
+                )
+            }
+            val temp = previous
+            previous = current
+            current = temp
+        }
+
+        return previous[right.length]
+    }
+
     companion object {
         private const val DEFAULT_KEY = "favori"
         private val DIACRITICS_REGEX = "\\p{InCombiningDiacriticalMarks}+".toRegex()
@@ -186,6 +260,7 @@ class FavoritesService(
         private val NON_SLUG_CHAR_REGEX = "[^a-z0-9]+".toRegex()
         private val HYPHEN_DUPLICATES_REGEX = "-+".toRegex()
         private val WHITESPACE_REGEX = "\\s+".toRegex()
+        private const val FUZZY_THRESHOLD = 0.85
         private val DEFAULT_ALIASES = mapOf(
             "maison" to listOf("maison", "chez moi", "home"),
             "travail" to listOf("travail", "bureau", "work"),
