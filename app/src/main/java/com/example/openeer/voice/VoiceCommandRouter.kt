@@ -73,7 +73,10 @@ sealed class VoiceRouteDecision(val logToken: String) {
     object REMINDER_TIME : VoiceRouteDecision("REMINDER_TIME")
     object REMINDER_PLACE : VoiceRouteDecision("REMINDER_PLACE")
     object INCOMPLETE : VoiceRouteDecision("INCOMPLETE")
-    data class List(val action: VoiceListAction, val items: List<String>) : VoiceRouteDecision("LIST_${action.name}")
+    data class List(
+        val action: VoiceListAction,
+        val items: kotlin.collections.List<String>,
+    ) : VoiceRouteDecision("LIST_${action.name}")
     object LIST_INCOMPLETE : VoiceRouteDecision("LIST_INCOMPLETE")
 }
 
