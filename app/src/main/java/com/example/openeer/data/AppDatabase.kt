@@ -415,19 +415,18 @@ abstract class AppDatabase : RoomDatabase() {
                             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                             `key` TEXT NOT NULL,
                             displayName TEXT NOT NULL,
-                            aliasesJson TEXT NOT NULL DEFAULT '[]',
+                            aliasesJson TEXT NOT NULL,
                             lat REAL NOT NULL,
                             lon REAL NOT NULL,
-                            defaultRadiusMeters INTEGER NOT NULL DEFAULT 100,
-                            defaultCooldownMinutes INTEGER NOT NULL DEFAULT 30,
-                            defaultEveryTime INTEGER NOT NULL DEFAULT 0,
+                            defaultRadiusMeters INTEGER NOT NULL,
+                            defaultCooldownMinutes INTEGER NOT NULL,
+                            defaultEveryTime INTEGER NOT NULL,
                             createdAt INTEGER NOT NULL,
                             updatedAt INTEGER NOT NULL
                         )
                     """.trimIndent()
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_favorites_key ON favorites(`key`)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_favorites_createdAt ON favorites(createdAt)")
             }
         }
 
