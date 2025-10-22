@@ -46,6 +46,9 @@ interface NoteDao {
     @Query("UPDATE notes SET body = :body, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateBody(id: Long, body: String, updatedAt: Long)
 
+    @Query("UPDATE notes SET body = :body, type = :type, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateBodyAndType(id: Long, body: String, type: NoteType, updatedAt: Long)
+
     @Update
     suspend fun update(note: Note)
 

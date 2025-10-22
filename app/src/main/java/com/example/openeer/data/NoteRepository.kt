@@ -6,6 +6,8 @@ import android.content.Context
 import android.util.Log
 import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.list.ListItemDao
+import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.data.merge.MergeSnapshot
 import com.example.openeer.data.merge.computeBlockHash
 import com.example.openeer.data.merge.toSnapshot
@@ -24,6 +26,7 @@ class NoteRepository(
     private val attachmentDao: AttachmentDao,
     private val blockReadDao: BlockReadDao,
     private val blocksRepository: BlocksRepository,
+    private val listItemDao: ListItemDao,
     private val database: AppDatabase = AppDatabase.getInstance(appContext)
 ) {
     val allNotes = noteDao.getAllFlow()
@@ -172,6 +175,108 @@ class NoteRepository(
 
     private var lastMergeSnapshot: MergeUndoSnapshot? = null
     private val gson = Gson()
+
+    companion object {
+        private const val TAG = "NoteRepository"
+    }
+
+    sealed interface NoteConversionResult {
+        data class Converted(val itemCount: Int) : NoteConversionResult
+        object AlreadyTarget : NoteConversionResult
+        object NotFound : NoteConversionResult
+    }
+
+    suspend fun addItem(noteId: Long, text: String): Long = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val currentMax = listItemDao.maxOrderForNote(noteId) ?: -1
+            val entity = ListItemEntity(
+                noteId = noteId,
+                text = text,
+                order = currentMax + 1,
+                createdAt = System.currentTimeMillis()
+            )
+            listItemDao.insert(entity)
+        }
+    }
+
+    suspend fun removeItem(itemId: Long) = withContext(Dispatchers.IO) {
+        listItemDao.delete(itemId)
+    }
+
+    suspend fun toggleItem(itemId: Long) = withContext(Dispatchers.IO) {
+        listItemDao.toggleDone(itemId)
+    }
+
+    suspend fun updateItemText(itemId: Long, text: String) = withContext(Dispatchers.IO) {
+        listItemDao.updateText(itemId, text)
+    }
+
+    suspend fun reorder(noteId: Long, from: Int, to: Int) = withContext(Dispatchers.IO) {
+        if (from == to) return@withContext
+        database.withTransaction {
+            val items = listItemDao.listForNote(noteId).toMutableList()
+            if (from !in items.indices || to !in items.indices) {
+                return@withTransaction
+            }
+            val item = items.removeAt(from)
+            items.add(to, item)
+            items.forEachIndexed { index, listItem ->
+                listItemDao.updateOrdering(listItem.id, index)
+            }
+        }
+    }
+
+    suspend fun convertNoteToList(noteId: Long): NoteConversionResult = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val note = noteDao.getByIdOnce(noteId) ?: return@withTransaction NoteConversionResult.NotFound
+            if (note.type == NoteType.LIST) {
+                Log.i(TAG, "convertNoteToList: noteId=$noteId already LIST")
+                return@withTransaction NoteConversionResult.AlreadyTarget
+            }
+
+            val lines = note.body.split('\n')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+
+            listItemDao.deleteForNote(noteId)
+
+            val now = System.currentTimeMillis()
+            val items = lines.mapIndexed { index, text ->
+                ListItemEntity(
+                    noteId = noteId,
+                    text = text,
+                    order = index,
+                    createdAt = now + index
+                )
+            }
+            if (items.isNotEmpty()) {
+                listItemDao.insertAll(items)
+                Log.i(TAG, "convertNoteToList: noteId=$noteId created ${items.size} items")
+            } else {
+                Log.i(TAG, "convertNoteToList: noteId=$noteId converted empty body to LIST")
+            }
+            noteDao.updateBodyAndType(noteId, "", NoteType.LIST, now)
+            NoteConversionResult.Converted(items.size)
+        }
+    }
+
+    suspend fun convertNoteToPlain(noteId: Long): NoteConversionResult = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val note = noteDao.getByIdOnce(noteId) ?: return@withTransaction NoteConversionResult.NotFound
+            if (note.type == NoteType.PLAIN) {
+                Log.i(TAG, "convertNoteToPlain: noteId=$noteId already PLAIN")
+                return@withTransaction NoteConversionResult.AlreadyTarget
+            }
+
+            val items = listItemDao.listForNote(noteId)
+            val body = items.joinToString(separator = "\n") { it.text }
+            val now = System.currentTimeMillis()
+            listItemDao.deleteForNote(noteId)
+            noteDao.updateBodyAndType(noteId, body, NoteType.PLAIN, now)
+            Log.i(TAG, "convertNoteToPlain: noteId=$noteId serialized ${items.size} items")
+            NoteConversionResult.Converted(items.size)
+        }
+    }
 
     suspend fun mergeNotes(sourceIds: List<Long>, targetId: Long): MergeResult {
         val TAG = "MergeDiag"

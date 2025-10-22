@@ -56,6 +56,7 @@ class RecorderService : Service() {
             db.attachmentDao(),
             db.blockReadDao(),
             blocks,
+            db.listItemDao(),
             database = db
         )
         blocksRepo = blocks

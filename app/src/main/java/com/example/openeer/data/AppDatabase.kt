@@ -15,6 +15,8 @@ import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.db.Converters
 import com.example.openeer.data.favorites.FavoriteDao
 import com.example.openeer.data.favorites.FavoriteEntity
+import com.example.openeer.data.list.ListItemDao
+import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.data.location.NoteLocationEntity
 import com.example.openeer.data.reminders.ReminderDao
 import com.example.openeer.data.reminders.ReminderEntity
@@ -41,9 +43,10 @@ import com.example.openeer.data.tag.TagEntity
         // 🔗 Liens entre blocs (AUDIO ↔ TEXTE, etc.)
         BlockLinkEntity::class,
         ReminderEntity::class,
-        FavoriteEntity::class
+        FavoriteEntity::class,
+        ListItemEntity::class
     ],
-    version = 20, // 🔼 bump : ajout favoris + note.type
+    version = 21, // 🔼 bump : ajout favoris + note.type + list items
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -65,6 +68,8 @@ abstract class AppDatabase : RoomDatabase() {
 
     // 🔗 Nouveau DAO pour les liens de blocs
     abstract fun blockLinkDao(): BlockLinkDao
+
+    abstract fun listItemDao(): ListItemDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -436,6 +441,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS list_items (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            noteId INTEGER NOT NULL,
+                            text TEXT NOT NULL,
+                            done INTEGER NOT NULL DEFAULT 0,
+                            ordering INTEGER NOT NULL,
+                            createdAt INTEGER NOT NULL,
+                            FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_list_items_noteId_ordering ON list_items(noteId, ordering)")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -462,7 +486,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_16_17,
                         MIGRATION_17_18,
                         MIGRATION_18_19,
-                        MIGRATION_19_20
+                        MIGRATION_19_20,
+                        MIGRATION_20_21
                     )
                     .build()
                     .also { INSTANCE = it }

@@ -108,6 +108,7 @@ class MainActivity : AppCompatActivity() {
                         db.attachmentDao(),
                         db.blockReadDao(),
                         blocksRepo,
+                        db.listItemDao(),
                         database = db
                     )
                 ) as T
@@ -147,6 +148,7 @@ class MainActivity : AppCompatActivity() {
             db.attachmentDao(),
             db.blockReadDao(),
             blocksRepo,
+            db.listItemDao(),
             database = db
         )
     }
