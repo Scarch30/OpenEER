@@ -304,7 +304,7 @@ class FavoritesSheet : BottomSheetDialogFragment() {
                 showToast(R.string.favorites_toast_reposition_success)
                 bindDetail(updated)
                 loadFavorites()
-                withContext(Dispatchers.IO) { refreshGeofencesIfAvailable() }
+                refreshGeofencesIfAvailable()
             } else {
                 showToast(R.string.favorites_toast_reposition_failed)
             }
@@ -350,9 +350,9 @@ class FavoritesSheet : BottomSheetDialogFragment() {
         Toast.makeText(requireContext(), getString(resId), Toast.LENGTH_SHORT).show()
     }
 
-    private fun refreshGeofencesIfAvailable() {
+    private suspend fun refreshGeofencesIfAvailable() = withContext(Dispatchers.IO) {
         runCatching {
-            val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return@runCatching
             ReminderUseCases(appContext, database, alarmManager).restoreGeofences()
         }
     }
