@@ -1,5 +1,6 @@
 package com.example.openeer.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -15,5 +16,8 @@ data class Note(
     val placeLabel: String? = null,
     val accuracyM: Float? = null,
     val audioPath: String? = null,
-    val isMerged: Boolean = false
-)
+    val isMerged: Boolean = false,
+    @ColumnInfo(defaultValue = "PLAIN") val type: NoteType = NoteType.PLAIN,
+) {
+    fun isList(): Boolean = type == NoteType.LIST
+}
