@@ -76,6 +76,11 @@
     <string name="note_convert_already_plain">Déjà du texte</string>
     <string name="note_convert_error_missing">Note introuvable</string>
     <string name="note_convert_error_generic">Conversion impossible</string>
+    <string name="note_list_add_placeholder">+ Ajouter un élément</string>
+    <string name="note_list_empty_placeholder">Aucune entrée. Ajoutez un élément…</string>
+    <string name="note_list_delete_title">Supprimer l’élément ?</string>
+    <string name="note_list_delete_message">Cette action retirera l’élément de la liste.</string>
+    <string name="note_list_delete_positive">Supprimer</string>
     <string name="menu_create_global_reminder">Créer un rappel</string>
     <string name="reminder_cancel_action">Annuler le rappel</string>
     <string name="reminder_cancelled">Rappel annulé</string>

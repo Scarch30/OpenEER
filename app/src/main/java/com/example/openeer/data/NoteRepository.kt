@@ -18,6 +18,7 @@ import kotlin.collections.ArrayDeque
 import kotlin.collections.LinkedHashSet
 import kotlin.collections.buildList
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
 class NoteRepository(
@@ -202,6 +203,8 @@ class NoteRepository(
     suspend fun removeItem(itemId: Long) = withContext(Dispatchers.IO) {
         listItemDao.delete(itemId)
     }
+
+    fun listItems(noteId: Long): Flow<List<ListItemEntity>> = listItemDao.listForNoteFlow(noteId)
 
     suspend fun toggleItem(itemId: Long) = withContext(Dispatchers.IO) {
         listItemDao.toggleDone(itemId)

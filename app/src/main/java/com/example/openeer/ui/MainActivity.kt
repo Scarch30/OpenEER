@@ -836,6 +836,7 @@ class MainActivity : AppCompatActivity() {
     private fun handleTapToFocus() {
         val openNoteId = notePanel.openNoteId ?: return
         if (isTapToFocusBlocked()) return
+        if (notePanel.isListMode()) return
         val caret = caretPositions[openNoteId]
         editorBody.enterInlineEdit(openNoteId, caret)
         val cursorLabel = caret?.let { "cursor=$it" } ?: "cursor=end"
