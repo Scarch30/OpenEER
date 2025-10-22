@@ -99,6 +99,8 @@ class NotePanelController(
         )
     }
 
+    private val viewModel by lazy { NotePanelViewModel(repo) }
+
     var openNoteId: Long? = null
         private set
 
@@ -294,6 +296,15 @@ class NotePanelController(
         popup.menu.add(0, MENU_MERGE_WITH, 1, activity.getString(R.string.note_menu_merge_with)).apply {
             isEnabled = openNoteId != null
         }
+        popup.menu.add(0, MENU_CONVERT_TO_LIST, 2, activity.getString(R.string.note_menu_convert_to_list)).apply {
+            isEnabled = openNoteId != null
+        }
+        // TODO: Utiliser le type de note réel lorsqu'il sera disponible.
+        val isListNote = false
+        popup.menu.add(0, MENU_CONVERT_TO_TEXT, 3, activity.getString(R.string.note_menu_convert_to_text)).apply {
+            isEnabled = openNoteId != null
+            isVisible = isListNote
+        }
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_CREATE_REMINDER -> {
@@ -304,6 +315,16 @@ class NotePanelController(
                 }
                 MENU_MERGE_WITH -> {
                     promptMergeSelection()
+                    true
+                }
+                MENU_CONVERT_TO_LIST -> {
+                    val messageRes = viewModel.convertCurrentNoteToList(currentNote)
+                    activity.toast(messageRes)
+                    true
+                }
+                MENU_CONVERT_TO_TEXT -> {
+                    val messageRes = viewModel.convertCurrentNoteToPlain(currentNote)
+                    activity.toast(messageRes)
                     true
                 }
                 else -> false
@@ -447,7 +468,23 @@ class NotePanelController(
     companion object {
         private const val MENU_CREATE_REMINDER = 1
         private const val MENU_MERGE_WITH = 2
+        private const val MENU_CONVERT_TO_LIST = 3
+        private const val MENU_CONVERT_TO_TEXT = 4
         private const val TAG = "MergeDiag"
+    }
+
+    class NotePanelViewModel(private val repo: NoteRepository) {
+        fun convertCurrentNoteToList(note: Note?): Int {
+            val noteId = note?.id
+            Log.d("NotePanelViewModel", "convertCurrentNoteToList called for noteId=$noteId")
+            return R.string.note_convert_to_list_toast
+        }
+
+        fun convertCurrentNoteToPlain(note: Note?): Int {
+            val noteId = note?.id
+            Log.d("NotePanelViewModel", "convertCurrentNoteToPlain called for noteId=$noteId")
+            return R.string.note_convert_to_text_toast
+        }
     }
 
     fun onAppendLive(displayBody: String) {
