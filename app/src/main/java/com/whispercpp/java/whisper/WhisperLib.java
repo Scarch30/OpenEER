@@ -53,7 +53,7 @@ public class WhisperLib {
   public static native long   initContextFromAsset(AssetManager assetManager, String assetPath);
   public static native long   initContext(String modelPath);
   public static native void   freeContext(long contextPtr);
-  public static native void   fullTranscribe(long contextPtr, int numThreads, float[] audioData);
+  public static native void   fullTranscribe(long contextPtr, int numThreads, float[] audioData, long audioDurationMs);
   public static native int    getTextSegmentCount(long contextPtr);
   public static native String getTextSegment(long contextPtr, int index);
   public static native long   getTextSegmentT0(long contextPtr, int index);
