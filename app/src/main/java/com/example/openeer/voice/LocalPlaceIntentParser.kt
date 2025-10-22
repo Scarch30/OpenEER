@@ -1,15 +1,31 @@
 package com.example.openeer.voice
 
+import java.text.Normalizer
 import java.util.Locale
 
-object LocalPlaceIntentParser {
+class LocalPlaceIntentParser @JvmOverloads constructor(
+    private val favoriteResolver: FavoriteResolver? = null,
+    private val log: (String) -> Unit = {}
+) {
 
     fun interface FavoriteResolver {
-        fun match(text: String): FavoriteMatch?
+        fun resolve(candidate: FavoriteCandidate): FavoriteResolution?
     }
+
+    data class FavoriteCandidate(
+        val raw: String,
+        val normalized: String,
+    )
+
+    data class FavoriteResolution(
+        val match: FavoriteMatch,
+        val aliases: List<String>,
+        val key: String,
+    )
 
     data class FavoriteMatch(
         val id: Long,
+        val key: String,
         val lat: Double,
         val lon: Double,
         val spokenForm: String,
@@ -17,9 +33,6 @@ object LocalPlaceIntentParser {
         val defaultCooldownMinutes: Int,
         val defaultEveryTime: Boolean,
     )
-
-    @Volatile
-    var favoriteResolver: FavoriteResolver? = null
 
     enum class Transition { ENTER, EXIT }
 
@@ -42,64 +55,6 @@ object LocalPlaceIntentParser {
             val spokenForm: String,
         ) : PlaceQuery()
     }
-
-    private data class TransitionMatch(val transition: Transition, val range: IntRange)
-
-    private val ENTER_PATTERNS = listOf(
-        Regex("quand\\s+j['’]?arrive", RegexOption.IGNORE_CASE),
-        Regex("quand\\s+j['’]?entre", RegexOption.IGNORE_CASE),
-        Regex("quand\\s+je\\s+rentre", RegexOption.IGNORE_CASE),
-        Regex("quand\\s+je\\s+reviens", RegexOption.IGNORE_CASE),
-        Regex("lorsque\\s+j['’]?arrive", RegexOption.IGNORE_CASE),
-        Regex("lorsque\\s+je\\s+rentre", RegexOption.IGNORE_CASE),
-        Regex("à\\s+l['’]?arrivée", RegexOption.IGNORE_CASE),
-        Regex("a\\s+l['’]?arrivee", RegexOption.IGNORE_CASE),
-        Regex("à\\s+mon\\s+arrivée", RegexOption.IGNORE_CASE),
-        Regex("a\\s+mon\\s+arrivee", RegexOption.IGNORE_CASE)
-    )
-
-    private val EXIT_PATTERNS = listOf(
-        Regex("quand\\s+je\\s+pars", RegexOption.IGNORE_CASE),
-        Regex("quand\\s+je\\s+quitte", RegexOption.IGNORE_CASE),
-        Regex("quand\\s+je\\s+m['’]?en\\s+vais", RegexOption.IGNORE_CASE),
-        Regex("quand\\s+je\\s+sors", RegexOption.IGNORE_CASE),
-        Regex("lorsque\\s+je\\s+pars", RegexOption.IGNORE_CASE),
-        Regex("lorsque\\s+je\\s+quitte", RegexOption.IGNORE_CASE),
-        Regex("au\\s+d[ée]part", RegexOption.IGNORE_CASE),
-        Regex("à\\s+mon\\s+d[ée]part", RegexOption.IGNORE_CASE),
-        Regex("au\\s+moment\\s+de\\s+partir", RegexOption.IGNORE_CASE)
-    )
-
-    private val RADIUS_PATTERN = Regex("dans\\s+un\\s+rayon\\s+de\\s*(\\d+)\\s*m", RegexOption.IGNORE_CASE)
-    private val COOLDOWN_PATTERN = Regex("d[ée]lai\\s*(\\d+)\\s*minute(?:s)?", RegexOption.IGNORE_CASE)
-    private val COOLDOWN_ALT_PATTERN = Regex("pas\\s+plus\\s+d['’]?une\\s+fois\\s+toutes\\s+les\\s*(\\d+)\\s*minute(?:s)?", RegexOption.IGNORE_CASE)
-    private val EVERY_TIME_PATTERN = Regex("((?:à|a)\\s*chaque\\s*fois|toujours)", RegexOption.IGNORE_CASE)
-    private val CURRENT_LOCATION_PATTERN = Regex("\\bd['’]?ici\\b|\\bici\\b", RegexOption.IGNORE_CASE)
-
-    private val CONNECTOR_PATTERN = Regex(
-        "(?i)(?:\\b(?:à|a|au|aux|chez|dans|sur|vers|pour|près\\s+de|pres\\s+de|à\\s+proximité\\s+de|a\\s+proximite\\s+de|proche\\s+de|à\\s+côté\\s+de|a\\s+cote\\s+de|autour\\s+de|de|du|des|de\\s+la|de\\s+l['’])\\b\\s*)(.+)"
-    )
-
-    private val LOCATION_PREFIX_PATTERN = Regex(
-        "(?i)^(?:à\\s+la|a\\s+la|à\\s+l['’]|a\\s+l['’]|à|a|au|aux|chez|vers|près\\s+de|pres\\s+de|autour\\s+de|du|de\\s+la|des)\\s+"
-    )
-
-    private val TRIGGER_PATTERNS = listOf(
-        Regex("(?i)\\brappelle[- ]?moi\\b"),
-        Regex("(?i)\\brappelle[- ]?nous\\b"),
-        Regex("(?i)\\bfais[- ]?moi\\s+penser\\b"),
-        Regex("(?i)\\bfais[- ]?nous\\s+penser\\b"),
-        Regex("(?i)\\bpense\\s+(?:à|a)\\b"),
-        Regex("(?i)\\bpense\\s+au\\b"),
-        Regex("(?i)\\bpense\\s+aux\\b"),
-        Regex("(?i)\\bpeux[-\\s]?tu\\s+me\\s+rappeler\\b"),
-    )
-
-    private val STOP_WORDS = listOf(
-        "de", "d'", "d’", "le", "la", "les", "l'", "l’", "du", "des", "au", "aux",
-        "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses",
-        "notre", "nos", "votre", "vos", "un", "une",
-    )
 
     fun parse(text: String): PlaceParseResult? {
         if (text.isBlank()) return null
@@ -134,25 +89,25 @@ object LocalPlaceIntentParser {
             QueryExtraction.CurrentLocation -> PlaceQuery.CurrentLocation
             is QueryExtraction.Phrase -> {
                 when (val result = resolveFavorite(extraction.cleaned, extraction.spokenForm)) {
-                    is FavoriteResolution.Found -> {
+                    is FavoriteLookup.Found -> {
                         if (!radiusSpecified) {
-                            radiusMeters = result.match.defaultRadiusMeters
+                            radiusMeters = result.resolution.match.defaultRadiusMeters
                         }
                         if (!cooldownSpecified) {
-                            cooldownMinutes = result.match.defaultCooldownMinutes
+                            cooldownMinutes = result.resolution.match.defaultCooldownMinutes
                         }
                         if (!everyTime) {
-                            everyTime = result.match.defaultEveryTime
+                            everyTime = result.resolution.match.defaultEveryTime
                         }
                         PlaceQuery.Favorite(
-                            id = result.match.id,
-                            lat = result.match.lat,
-                            lon = result.match.lon,
-                            spokenForm = result.match.spokenForm,
+                            id = result.resolution.match.id,
+                            lat = result.resolution.match.lat,
+                            lon = result.resolution.match.lon,
+                            spokenForm = result.resolution.match.spokenForm,
                         )
                     }
 
-                    is FavoriteResolution.None -> PlaceQuery.FreeText(result.cleaned)
+                    is FavoriteLookup.None -> PlaceQuery.FreeText(result.cleaned)
                 }
             }
         }
@@ -171,6 +126,49 @@ object LocalPlaceIntentParser {
             cooldownMinutes = finalCooldown,
             everyTime = everyTime,
             label = label,
+        )
+    }
+
+    private fun resolveFavorite(cleaned: String, spokenForm: String): FavoriteLookup {
+        val resolver = favoriteResolver ?: return FavoriteLookup.None(cleaned)
+        val primaryCandidate = FavoriteCandidate(cleaned, normalizeAlias(cleaned))
+        val fallbackCandidate = if (spokenForm != cleaned) {
+            FavoriteCandidate(spokenForm, normalizeAlias(spokenForm))
+        } else {
+            null
+        }
+
+        val primary = resolver.resolve(primaryCandidate)
+        val fallback = if (primary == null) {
+            fallbackCandidate?.let { resolver.resolve(it) }
+        } else {
+            null
+        }
+
+        val chosenCandidate = when {
+            primary != null -> primaryCandidate
+            fallback != null && fallbackCandidate != null -> fallbackCandidate
+            else -> primaryCandidate
+        }
+
+        logFavoriteResolution(chosenCandidate, primary ?: fallback)
+
+        return when {
+            primary != null -> FavoriteLookup.Found(primary)
+            fallback != null -> FavoriteLookup.Found(fallback)
+            else -> FavoriteLookup.None(cleaned)
+        }
+    }
+
+    private fun logFavoriteResolution(
+        candidate: FavoriteCandidate,
+        resolution: FavoriteResolution?,
+    ) {
+        val aliases = resolution?.aliases?.joinToString(separator = ", ") ?: ""
+        val match = resolution?.let { "Favorite(key=${it.key}, id=${it.match.id})" } ?: "null"
+        log(
+            "placePhrase=\"${candidate.raw}\" -> normalized=\"${candidate.normalized}\" " +
+                "favorites=[${aliases}] match=${match}"
         )
     }
 
@@ -307,32 +305,88 @@ object LocalPlaceIntentParser {
         }
     }
 
+    private fun normalizeAlias(value: String): String {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty()) return ""
+        val normalized = Normalizer.normalize(trimmed, Normalizer.Form.NFD)
+        val withoutDiacritics = DIACRITICS_REGEX.replace(normalized, "")
+        val cleaned = NON_ALPHANUMERIC_REGEX.replace(withoutDiacritics, " ")
+        val tokens = cleaned.lowercase(Locale.getDefault()).split(WHITESPACE_REGEX)
+            .filter { it.isNotEmpty() }
+        return tokens.joinToString(" ")
+    }
+
     private sealed class QueryExtraction {
         data object CurrentLocation : QueryExtraction()
         data class Phrase(val cleaned: String, val spokenForm: String) : QueryExtraction()
     }
 
-    private sealed class FavoriteResolution {
-        data class Found(val match: FavoriteMatch) : FavoriteResolution()
-        data class None(val cleaned: String) : FavoriteResolution()
+    private sealed class FavoriteLookup {
+        data class Found(val resolution: FavoriteResolution) : FavoriteLookup()
+        data class None(val cleaned: String) : FavoriteLookup()
     }
 
-    private fun resolveFavorite(cleaned: String, spokenForm: String): FavoriteResolution {
-        val resolver = favoriteResolver ?: return FavoriteResolution.None(cleaned)
-        val primaryMatch = resolver.match(cleaned)
-        val fallbackMatch = if (primaryMatch == null && spokenForm != cleaned) {
-            resolver.match(spokenForm)
-        } else {
-            null
-        }
-        val match = primaryMatch ?: fallbackMatch
-        if (match != null) {
-            val resolvedSpoken = match.spokenForm.ifBlank {
-                if (primaryMatch != null) cleaned else spokenForm
-            }
-            return FavoriteResolution.Found(match.copy(spokenForm = resolvedSpoken))
-        }
-        return FavoriteResolution.None(cleaned)
+    private data class TransitionMatch(val transition: Transition, val range: IntRange)
+
+    companion object {
+        private val ENTER_PATTERNS = listOf(
+            Regex("quand\\s+j['’]?arrive", RegexOption.IGNORE_CASE),
+            Regex("quand\\s+j['’]?entre", RegexOption.IGNORE_CASE),
+            Regex("quand\\s+je\\s+rentre", RegexOption.IGNORE_CASE),
+            Regex("quand\\s+je\\s+reviens", RegexOption.IGNORE_CASE),
+            Regex("lorsque\\s+j['’]?arrive", RegexOption.IGNORE_CASE),
+            Regex("lorsque\\s+je\\s+rentre", RegexOption.IGNORE_CASE),
+            Regex("à\\s+l['’]?arrivée", RegexOption.IGNORE_CASE),
+            Regex("a\\s+l['’]?arrivee", RegexOption.IGNORE_CASE),
+            Regex("à\\s+mon\\s+arrivée", RegexOption.IGNORE_CASE),
+            Regex("a\\s+mon\\s+arrivee", RegexOption.IGNORE_CASE)
+        )
+
+        private val EXIT_PATTERNS = listOf(
+            Regex("quand\\s+je\\s+pars", RegexOption.IGNORE_CASE),
+            Regex("quand\\s+je\\s+quitte", RegexOption.IGNORE_CASE),
+            Regex("quand\\s+je\\s+m['’]?en\\s+vais", RegexOption.IGNORE_CASE),
+            Regex("quand\\s+je\\s+sors", RegexOption.IGNORE_CASE),
+            Regex("lorsque\\s+je\\s+pars", RegexOption.IGNORE_CASE),
+            Regex("lorsque\\s+je\\s+quitte", RegexOption.IGNORE_CASE),
+            Regex("au\\s+d[ée]part", RegexOption.IGNORE_CASE),
+            Regex("à\\s+mon\\s+d[ée]part", RegexOption.IGNORE_CASE),
+            Regex("au\\s+moment\\s+de\\s+partir", RegexOption.IGNORE_CASE)
+        )
+
+        private val RADIUS_PATTERN = Regex("dans\\s+un\\s+rayon\\s+de\\s*(\\d+)\\s*m", RegexOption.IGNORE_CASE)
+        private val COOLDOWN_PATTERN = Regex("d[ée]lai\\s*(\\d+)\\s*minute(?:s)?", RegexOption.IGNORE_CASE)
+        private val COOLDOWN_ALT_PATTERN = Regex("pas\\s+plus\\s+d['’]?une\\s+fois\\s+toutes\\s+les\\s*(\\d+)\\s*minute(?:s)?", RegexOption.IGNORE_CASE)
+        private val EVERY_TIME_PATTERN = Regex("((?:à|a)\\s*chaque\\s*fois|toujours)", RegexOption.IGNORE_CASE)
+        private val CURRENT_LOCATION_PATTERN = Regex("\\bd['’]?ici\\b|\\bici\\b", RegexOption.IGNORE_CASE)
+
+        private val CONNECTOR_PATTERN = Regex(
+            "(?i)(?:\\b(?:à|a|au|aux|chez|dans|sur|vers|pour|près\\s+de|pres\\s+de|à\\s+proximité\\s+de|a\\s+proximite\\s+de|proche\\s+de|à\\s+côté\\s+de|a\\s+cote\\s+de|autour\\s+de|de|du|des|de\\s+la|de\\s+l['’])\\b\\s*)(.+)"
+        )
+
+        private val LOCATION_PREFIX_PATTERN = Regex(
+            "(?i)^(?:à\\s+la|a\\s+la|à\\s+l['’]|a\\s+l['’]|à|a|au|aux|chez|vers|près\\s+de|pres\\s+de|autour\\s+de|du|de\\s+la|des)\\s+"
+        )
+
+        private val TRIGGER_PATTERNS = listOf(
+            Regex("(?i)\\brappelle[- ]?moi\\b"),
+            Regex("(?i)\\brappelle[- ]?nous\\b"),
+            Regex("(?i)\\bfais[- ]?moi\\s+penser\\b"),
+            Regex("(?i)\\bfais[- ]?nous\\s+penser\\b"),
+            Regex("(?i)\\bpense\\s+(?:à|a)\\b"),
+            Regex("(?i)\\bpense\\s+au\\b"),
+            Regex("(?i)\\bpense\\s+aux\\b"),
+            Regex("(?i)\\bpeux[-\\s]?tu\\s+me\\s+rappeler\\b"),
+        )
+
+        private val STOP_WORDS = listOf(
+            "de", "d'", "d’", "le", "la", "les", "l'", "l’", "du", "des", "au", "aux",
+            "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses",
+            "notre", "nos", "votre", "vos", "un", "une",
+        )
+
+        private val DIACRITICS_REGEX = "\\p{InCombiningDiacriticalMarks}+".toRegex()
+        private val NON_ALPHANUMERIC_REGEX = "[^a-zA-Z0-9]+".toRegex()
+        private val WHITESPACE_REGEX = "\\s+".toRegex()
     }
 }
-

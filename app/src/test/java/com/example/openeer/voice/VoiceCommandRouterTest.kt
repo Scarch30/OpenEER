@@ -5,7 +5,8 @@ import org.junit.Test
 
 class VoiceCommandRouterTest {
 
-    private val router = VoiceCommandRouter(isVoiceCommandsEnabled = { true })
+    private val parser = LocalPlaceIntentParser()
+    private val router = VoiceCommandRouter(parser, isVoiceCommandsEnabled = { true })
 
     @Test
     fun `reminder intent with date and time`() {
@@ -44,7 +45,7 @@ class VoiceCommandRouterTest {
 
     @Test
     fun `feature flag disabled keeps note behaviour`() {
-        val disabledRouter = VoiceCommandRouter(isVoiceCommandsEnabled = { false })
+        val disabledRouter = VoiceCommandRouter(parser, isVoiceCommandsEnabled = { false })
         val sentence = "Rappelle-moi demain à 9h d'appeler Paul"
         val decision = disabledRouter.route(sentence)
         assertEquals(VoiceRouteDecision.NOTE, decision)
