@@ -101,9 +101,13 @@ private fun MapFragment.showFavoriteNameDialog(
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
     }
+    val shouldPrefillName = defaultName.isNotBlank() &&
+        (defaultAddress == null || !defaultName.equals(defaultAddress, ignoreCase = true))
     val nameEditText = TextInputEditText(nameLayout.context).apply {
-        setText(defaultName)
-        setSelection(defaultName.length)
+        if (shouldPrefillName) {
+            setText(defaultName)
+            setSelection(defaultName.length)
+        }
         nameLayout.addView(this)
     }
     val addressLayout = TextInputLayout(ctx).apply {
@@ -130,7 +134,18 @@ private fun MapFragment.showFavoriteNameDialog(
         .setView(container)
         .setPositiveButton(R.string.map_favorite_dialog_positive) { _, _ ->
             val enteredName = nameEditText.text?.toString()?.trim().orEmpty()
-            val finalName = if (enteredName.isNotEmpty()) enteredName else defaultName
+            val sequentialFallback = FavoriteNameSuggester.defaultSequentialName(ctx)
+            val fallbackName = when {
+                defaultName.isNotBlank() &&
+                    (defaultAddress == null || !defaultName.equals(defaultAddress, ignoreCase = true)) -> defaultName
+                else -> sequentialFallback
+            }
+            val finalName = when {
+                enteredName.isNotEmpty() -> enteredName
+                fallbackName.isNotBlank() -> fallbackName
+                !defaultAddress.isNullOrBlank() -> defaultAddress
+                else -> sequentialFallback
+            }
             val enteredAddress = addressEditText.text?.toString()?.trim().orEmpty()
             val finalAddress = when {
                 enteredAddress.isNotEmpty() -> enteredAddress
