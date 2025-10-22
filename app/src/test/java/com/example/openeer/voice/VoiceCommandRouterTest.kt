@@ -5,7 +5,7 @@ import org.junit.Test
 
 class VoiceCommandRouterTest {
 
-    private val parser = LocalPlaceIntentParser()
+    private val parser = LocalPlaceIntentParser(LocalPlaceIntentParser.FavoriteResolver { null })
     private val router = VoiceCommandRouter(parser, isVoiceCommandsEnabled = { true })
 
     @Test

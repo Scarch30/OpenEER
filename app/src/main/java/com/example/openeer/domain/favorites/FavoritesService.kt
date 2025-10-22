@@ -1,5 +1,6 @@
 package com.example.openeer.domain.favorites
 
+import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.favorites.FavoriteEntity
 import java.text.Normalizer
 import java.util.LinkedHashSet
@@ -16,6 +17,16 @@ class FavoritesService(
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val currentLocationProvider: suspend () -> Pair<Double, Double>? = { null }
 ) {
+
+    constructor(
+        database: AppDatabase,
+        clock: () -> Long = { System.currentTimeMillis() },
+        currentLocationProvider: suspend () -> Pair<Double, Double>? = { null }
+    ) : this(
+        repository = FavoritesRepository(database.favoriteDao()),
+        clock = clock,
+        currentLocationProvider = currentLocationProvider,
+    )
 
     suspend fun createFavorite(
         displayName: String,
@@ -92,6 +103,49 @@ class FavoritesService(
 
     suspend fun getAll(): List<FavoriteEntity> = repository.getAll()
 
+    data class FavoriteAliasMatch(
+        val id: Long,
+        val key: String,
+        val displayName: String,
+        val lat: Double,
+        val lon: Double,
+        val defaultRadiusMeters: Int,
+        val defaultCooldownMinutes: Int,
+        val defaultEveryTime: Boolean,
+        val aliases: List<String>,
+    )
+
+    fun findByAliasNormalized(textNormalized: String): FavoriteAliasMatch? {
+        if (textNormalized.isBlank()) return null
+        val candidate = normalizeAlias(textNormalized)
+        if (candidate.isEmpty()) return null
+
+        val favorites = runBlocking(Dispatchers.IO) { repository.getAll() }
+        var bestFuzzy: Pair<FavoriteEntity, Double>? = null
+        favorites.forEach { favorite ->
+            val normalizedAliases = collectNormalizedAliases(favorite)
+
+            if (normalizedAliases.any { it == candidate }) {
+                return favorite.toAliasMatch(normalizedAliases.toList())
+            }
+
+            val similarity = normalizedAliases.maxOfOrNull { alias ->
+                similarityRatio(candidate, alias)
+            } ?: 0.0
+
+            if (similarity >= FUZZY_THRESHOLD) {
+                val currentBest = bestFuzzy?.second ?: Double.MIN_VALUE
+                if (similarity > currentBest) {
+                    bestFuzzy = favorite to similarity
+                }
+            }
+        }
+
+        val chosen = bestFuzzy?.first ?: return null
+        val normalizedAliases = collectNormalizedAliases(chosen)
+        return chosen.toAliasMatch(normalizedAliases.toList())
+    }
+
     fun matchFavorite(text: String): FavoriteEntity? {
         if (text.isBlank()) return null
         val normalized = normalizeAlias(text)
@@ -101,16 +155,12 @@ class FavoritesService(
         val favorites = runBlocking(Dispatchers.IO) { repository.getAll() }
         var bestFuzzy: Pair<FavoriteEntity, Double>? = null
         favorites.forEach { favorite ->
-            val aliasValues = parseAliases(favorite.aliasesJson)
-            val normalizedAliases = aliasValues
-                .map(::normalizeAlias)
-                .filter { it.isNotEmpty() }
-                .toMutableSet()
-            normalizedAliases.add(normalizeAlias(favorite.displayName))
-            normalizedAliases.add(normalizeAlias(favorite.key))
+            val normalizedAliases = collectNormalizedAliases(favorite)
 
             val exactMatch = normalizedAliases.any { it == normalized || it == normalizedSlug }
-            val slugMatch = slugCandidate.isNotEmpty() && (aliasValues.contains(slugCandidate) || favorite.key == slugCandidate)
+            val slugMatch = slugCandidate.isNotEmpty() && (
+                parseAliases(favorite.aliasesJson).contains(slugCandidate) || favorite.key == slugCandidate
+            )
             if (exactMatch || slugMatch) {
                 return favorite
             }
@@ -197,6 +247,32 @@ class FavoritesService(
             }
         }
         return result
+    }
+
+    private fun collectNormalizedAliases(favorite: FavoriteEntity): LinkedHashSet<String> {
+        val normalized = LinkedHashSet<String>()
+        parseAliases(favorite.aliasesJson)
+            .map(::normalizeAlias)
+            .filter { it.isNotEmpty() }
+            .forEach { normalized.add(it) }
+        normalizeAlias(favorite.displayName).takeIf { it.isNotEmpty() }?.let { normalized.add(it) }
+        normalizeAlias(favorite.key).takeIf { it.isNotEmpty() }?.let { normalized.add(it) }
+        return normalized
+    }
+
+    private fun FavoriteEntity.toAliasMatch(aliases: List<String>): FavoriteAliasMatch {
+        val normalizedAliases = aliases.map(::normalizeAlias).filter { it.isNotEmpty() }.distinct()
+        return FavoriteAliasMatch(
+            id = id,
+            key = key,
+            displayName = displayName,
+            lat = lat,
+            lon = lon,
+            defaultRadiusMeters = defaultRadiusMeters,
+            defaultCooldownMinutes = defaultCooldownMinutes,
+            defaultEveryTime = defaultEveryTime,
+            aliases = normalizedAliases,
+        )
     }
 
     private fun normalizeAlias(value: String): String {

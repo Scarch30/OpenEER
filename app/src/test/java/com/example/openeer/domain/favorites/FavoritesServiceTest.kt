@@ -109,6 +109,16 @@ class FavoritesServiceTest {
     }
 
     @Test
+    fun findByAliasNormalizedReturnsNormalizedAliases() = runBlocking {
+        val favoriteId = service.createFavorite("Maison", 10.0, 20.0, aliases = listOf("Chez Moi"))
+
+        val match = service.findByAliasNormalized("à la maison")
+        assertNotNull(match)
+        assertEquals(favoriteId, match!!.id)
+        assertEquals(setOf("maison", "chez moi", "home"), match.aliases.toSet())
+    }
+
+    @Test
     fun matchFavoriteExactThenFuzzy() = runBlocking {
         val homeId = service.createFavorite(
             displayName = "Maison",

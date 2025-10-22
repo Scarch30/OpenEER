@@ -9,15 +9,17 @@ import org.junit.Test
 
 class LocalPlaceIntentParserTest {
 
+    private val emptyResolver = LocalPlaceIntentParser.FavoriteResolver { null }
+
     @Test
     fun `current location enter defaults`() {
-        val parser = LocalPlaceIntentParser()
+        val parser = LocalPlaceIntentParser(emptyResolver)
         val input = "Rappelle-moi d’acheter du pain quand j’arrive ici"
         val result = parser.parse(input)
         assertNotNull(result)
         result!!
         assertEquals(LocalPlaceIntentParser.Transition.ENTER, result.transition)
-        assertTrue(result.query is LocalPlaceIntentParser.PlaceQuery.CurrentLocation)
+        assertTrue(result.place is LocalPlaceIntentParser.PlaceQuery.CurrentLocation)
         assertEquals(100, result.radiusMeters)
         assertEquals(30, result.cooldownMinutes)
         assertFalse(result.everyTime)
@@ -26,13 +28,13 @@ class LocalPlaceIntentParserTest {
 
     @Test
     fun `current location exit with options`() {
-        val parser = LocalPlaceIntentParser()
+        val parser = LocalPlaceIntentParser(emptyResolver)
         val input = "Pense à badger quand je pars d’ici à chaque fois délai 45 minutes"
         val result = parser.parse(input)
         assertNotNull(result)
         result!!
         assertEquals(LocalPlaceIntentParser.Transition.EXIT, result.transition)
-        assertTrue(result.query is LocalPlaceIntentParser.PlaceQuery.CurrentLocation)
+        assertTrue(result.place is LocalPlaceIntentParser.PlaceQuery.CurrentLocation)
         assertEquals(100, result.radiusMeters)
         assertEquals(45, result.cooldownMinutes)
         assertTrue(result.everyTime)
@@ -41,14 +43,15 @@ class LocalPlaceIntentParserTest {
 
     @Test
     fun `free text location extracted`() {
-        val parser = LocalPlaceIntentParser()
+        val parser = LocalPlaceIntentParser(emptyResolver)
         val input = "Rappelle-moi de passer au Biocoop quand j’arrive"
         val result = parser.parse(input)
         assertNotNull(result)
         result!!
         assertEquals(LocalPlaceIntentParser.Transition.ENTER, result.transition)
-        val query = result.query as LocalPlaceIntentParser.PlaceQuery.FreeText
-        assertEquals("Biocoop", query.text)
+        val query = result.place as LocalPlaceIntentParser.PlaceQuery.FreeText
+        assertEquals("biocoop", query.normalized)
+        assertEquals("Biocoop", query.spokenForm)
         assertEquals(100, result.radiusMeters)
         assertEquals(30, result.cooldownMinutes)
         assertFalse(result.everyTime)
@@ -57,33 +60,33 @@ class LocalPlaceIntentParserTest {
 
     @Test
     fun `radius parsed from sentence`() {
-        val parser = LocalPlaceIntentParser()
+        val parser = LocalPlaceIntentParser(emptyResolver)
         val input = "Rappelle-moi de passer au Biocoop quand j’arrive dans un rayon de 200 m"
         val result = parser.parse(input)
         assertNotNull(result)
         result!!
-        val query = result.query as LocalPlaceIntentParser.PlaceQuery.FreeText
-        assertEquals("Biocoop", query.text)
+        val query = result.place as LocalPlaceIntentParser.PlaceQuery.FreeText
+        assertEquals("biocoop", query.normalized)
         assertEquals(200, result.radiusMeters)
         assertEquals("passer", result.label)
     }
 
     @Test
     fun `label extracted when action follows location`() {
-        val parser = LocalPlaceIntentParser()
+        val parser = LocalPlaceIntentParser(emptyResolver)
         val input = "Quand je pars de la gare, rappelle-moi de prendre un taxi"
         val result = parser.parse(input)
         assertNotNull(result)
         result!!
         assertEquals(LocalPlaceIntentParser.Transition.EXIT, result.transition)
-        assertTrue(result.query is LocalPlaceIntentParser.PlaceQuery.FreeText)
-        assertEquals("la gare", (result.query as LocalPlaceIntentParser.PlaceQuery.FreeText).text)
+        assertTrue(result.place is LocalPlaceIntentParser.PlaceQuery.FreeText)
+        assertEquals("gare", (result.place as LocalPlaceIntentParser.PlaceQuery.FreeText).normalized)
         assertEquals("prendre un taxi", result.label)
     }
 
     @Test
     fun `missing action returns null`() {
-        val parser = LocalPlaceIntentParser()
+        val parser = LocalPlaceIntentParser(emptyResolver)
         val input = "Quand j'arrive ici"
         val result = parser.parse(input)
         assertNull(result)
@@ -119,10 +122,11 @@ class LocalPlaceIntentParserTest {
         assertNotNull(result)
         result!!
         assertEquals(LocalPlaceIntentParser.Transition.ENTER, result.transition)
-        val query = result.query as LocalPlaceIntentParser.PlaceQuery.Favorite
+        val query = result.place as LocalPlaceIntentParser.PlaceQuery.Favorite
         assertEquals(42L, query.id)
         assertEquals(48.8566, query.lat, 0.0001)
         assertEquals(2.3522, query.lon, 0.0001)
+        assertEquals("maison", query.spokenForm)
         assertEquals(200, result.radiusMeters)
         assertEquals(15, result.cooldownMinutes)
         assertTrue(result.everyTime)
@@ -158,7 +162,7 @@ class LocalPlaceIntentParserTest {
         val result = parser.parse(input)
         assertNotNull(result)
         result!!
-        val query = result.query as LocalPlaceIntentParser.PlaceQuery.Favorite
+        val query = result.place as LocalPlaceIntentParser.PlaceQuery.Favorite
         assertEquals(7L, query.id)
         assertEquals("arroser les plantes", result.label)
         assertEquals("chez moi", query.spokenForm)
@@ -196,8 +200,9 @@ class LocalPlaceIntentParserTest {
         val result = parser.parse(input)
         assertNotNull(result)
         result!!
-        val query = result.query as LocalPlaceIntentParser.PlaceQuery.Favorite
+        val query = result.place as LocalPlaceIntentParser.PlaceQuery.Favorite
         assertEquals(99L, query.id)
+        assertEquals("maison", query.spokenForm)
         assertEquals("manger une pizza", result.label)
         assertEquals(180, result.radiusMeters)
         assertEquals(25, result.cooldownMinutes)
@@ -206,14 +211,14 @@ class LocalPlaceIntentParserTest {
 
     @Test
     fun `exit transition synonyms parsed`() {
-        val parser = LocalPlaceIntentParser()
+        val parser = LocalPlaceIntentParser(emptyResolver)
         val input = "Fais-moi penser à appeler un taxi quand je m'en vais du bureau"
         val result = parser.parse(input)
         assertNotNull(result)
         result!!
         assertEquals(LocalPlaceIntentParser.Transition.EXIT, result.transition)
-        val query = result.query as LocalPlaceIntentParser.PlaceQuery.FreeText
-        assertEquals("bureau", query.text)
+        val query = result.place as LocalPlaceIntentParser.PlaceQuery.FreeText
+        assertEquals("bureau", query.normalized)
         assertEquals("appeler un taxi", result.label)
     }
 
@@ -245,7 +250,7 @@ class LocalPlaceIntentParserTest {
         val result = parser.parse("Rappelle-moi de manger une pizza quand je rentre à maisom")
         assertNotNull(result)
         result!!
-        val query = result.query as LocalPlaceIntentParser.PlaceQuery.Favorite
+        val query = result.place as LocalPlaceIntentParser.PlaceQuery.Favorite
         assertEquals(12L, query.id)
         assertEquals("manger une pizza", result.label)
     }

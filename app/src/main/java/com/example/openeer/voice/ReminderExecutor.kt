@@ -65,11 +65,12 @@ class ReminderExecutor(
         val parseResult = placeParser.parse(text)
             ?: throw IncompleteException("No place intent parsed")
 
-        val resolvedPlace = resolvePlace(parseResult.query)
+        val resolvedPlace = resolvePlace(parseResult.place)
         val sanitizedLabel = sanitizeLabel(parseResult.label)
         Log.d(
             TAG,
-            "createPlaceReminderFromVoice(): place=${resolvedPlace.toLogString(parseResult.query)} label=\"${sanitizedLabel}\""
+            "createPlaceReminderFromVoice(): place=${resolvedPlace.toLogString(parseResult.place)} " +
+                "transition=${parseResult.transition} label=\"${sanitizedLabel}\""
         )
 
         val useCases = ReminderUseCases(appContext, databaseProvider(), alarmManagerProvider())
@@ -90,7 +91,8 @@ class ReminderExecutor(
             TAG,
             "createPlaceReminderFromVoice(): reminderId=$reminderId noteId=$noteId transition=${parseResult.transition} " +
                 "radius=${parseResult.radiusMeters} cooldown=${parseResult.cooldownMinutes} every=${parseResult.everyTime} " +
-                "label='${sanitizedLabel}' placeLabel='${resolvedPlace.placeLabel}' favoriteId=${resolvedPlace.favoriteId}"
+                "label='${sanitizedLabel}' placeLabel='${resolvedPlace.placeLabel}' " +
+                "favoriteId=${resolvedPlace.favoriteId} favoriteKey=${resolvedPlace.favoriteKey}"
         )
         return reminderId
     }
@@ -109,6 +111,7 @@ class ReminderExecutor(
         val placeLabel: String?,
         val startingInside: Boolean,
         val favoriteId: Long? = null,
+        val favoriteKey: String? = null,
     )
 
     private fun ResolvedPlace.toLogString(
@@ -116,10 +119,10 @@ class ReminderExecutor(
     ): String {
         return when (query) {
             is LocalPlaceIntentParser.PlaceQuery.Favorite ->
-                "Favorite(id=${query.id}, lat=${query.lat}, lon=${query.lon})"
+                "Favorite(id=${query.id}, key=${query.key}, lat=${query.lat}, lon=${query.lon})"
 
             is LocalPlaceIntentParser.PlaceQuery.FreeText ->
-                "FreeText(text=\"${query.text}\")"
+                "FreeText(normalized=\"${query.normalized}\")"
 
             LocalPlaceIntentParser.PlaceQuery.CurrentLocation ->
                 "CurrentLocation(lat=$latitude, lon=$longitude)"
@@ -140,8 +143,8 @@ class ReminderExecutor(
         }
 
         is LocalPlaceIntentParser.PlaceQuery.FreeText -> {
-            val geocoded = geocodeResolver(query.text)
-                ?: throw IncompleteException("Geocode failed for \"${query.text}\"")
+            val geocoded = geocodeResolver(query.normalized)
+                ?: throw IncompleteException("missing_place")
             ResolvedPlace(
                 latitude = geocoded.latitude,
                 longitude = geocoded.longitude,
@@ -157,6 +160,7 @@ class ReminderExecutor(
                 placeLabel = query.spokenForm,
                 startingInside = false,
                 favoriteId = query.id,
+                favoriteKey = query.key,
             )
         }
     }

@@ -17,21 +17,38 @@ class VoiceCommandRouter(
 
     fun route(finalWhisperText: String): VoiceRouteDecision {
         val trimmed = finalWhisperText.trim()
-        val decision = when {
-            !isVoiceCommandsEnabled() -> VoiceRouteDecision.NOTE
-            trimmed.isEmpty() -> VoiceRouteDecision.NOTE
-            !reminderClassifier.hasTrigger(trimmed) -> VoiceRouteDecision.NOTE
-            LocalTimeIntentParser.parseReminder(trimmed) != null -> VoiceRouteDecision.REMINDER_TIME
-            placeIntentParser.parse(trimmed) != null -> VoiceRouteDecision.REMINDER_PLACE
-            else -> VoiceRouteDecision.INCOMPLETE
+        if (!isVoiceCommandsEnabled()) {
+            logDecision(VoiceRouteDecision.NOTE, trimmed)
+            return VoiceRouteDecision.NOTE
         }
-        logDecision(decision, trimmed)
-        return decision
+        if (trimmed.isEmpty()) {
+            logDecision(VoiceRouteDecision.NOTE, trimmed)
+            return VoiceRouteDecision.NOTE
+        }
+        if (!reminderClassifier.hasTrigger(trimmed)) {
+            logDecision(VoiceRouteDecision.NOTE, trimmed)
+            return VoiceRouteDecision.NOTE
+        }
+
+        LocalTimeIntentParser.parseReminder(trimmed)?.let {
+            logDecision(VoiceRouteDecision.REMINDER_TIME, trimmed)
+            return VoiceRouteDecision.REMINDER_TIME
+        }
+
+        val placeParse = placeIntentParser.parse(trimmed)
+        if (placeParse != null) {
+            logDecision(VoiceRouteDecision.REMINDER_PLACE, trimmed)
+            return VoiceRouteDecision.REMINDER_PLACE
+        }
+
+        logDecision(VoiceRouteDecision.INCOMPLETE, trimmed, reason = "missing_place_or_time")
+        return VoiceRouteDecision.INCOMPLETE
     }
 
-    private fun logDecision(decision: VoiceRouteDecision, text: String) {
+    private fun logDecision(decision: VoiceRouteDecision, text: String, reason: String? = null) {
         val sanitizedText = text.replace("\"", "\\\"")
-        Log.d("VoiceCommandRouter", "decision=${decision.logToken} text=\"$sanitizedText\"")
+        val suffix = reason?.let { " reason=$it" } ?: ""
+        Log.d("VoiceCommandRouter", "decision=${decision.logToken}$suffix text=\"$sanitizedText\"")
     }
 
 }
