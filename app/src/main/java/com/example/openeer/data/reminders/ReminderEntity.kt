@@ -25,6 +25,7 @@ import com.example.openeer.data.block.BlockEntity
     ],
     indices = [
         Index(value = ["noteId"]),
+        Index(value = ["blockId"]),
         Index(value = ["status", "nextTriggerAt"])
     ]
 )

@@ -258,7 +258,7 @@ class MicBarController(
                             val decision = voiceCommandRouter.route(refinedText)
                             Log.d(
                                 "VoiceRoute",
-                                "Bloc #$audioBlockId → décision $decision pour "$refinedText""
+                                "Bloc #$audioBlockId → décision $decision pour \"$refinedText\""
                             )
 
                             if (!FeatureFlags.voiceCommandsEnabled) {
