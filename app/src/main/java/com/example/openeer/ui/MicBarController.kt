@@ -356,9 +356,10 @@ class MicBarController(
             } catch (e: Throwable) {
                 Log.e("MicCtl", "Erreur dans stopSegment", e)
                 live = null
-                val fallback = provisionalList?.initialText
-                if (fallback != null) {
-                    finalizeDetachedListProvisional(provisionalList, fallback)
+                val detachedHandle = provisionalList
+                if (detachedHandle != null) {
+                    val fallback = detachedHandle.initialText
+                    finalizeDetachedListProvisional(detachedHandle, fallback)
                 }
             }
         }
