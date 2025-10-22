@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ListItemDao {
@@ -27,6 +28,9 @@ interface ListItemDao {
 
     @Query("SELECT * FROM list_items WHERE noteId = :noteId ORDER BY ordering ASC")
     suspend fun listForNote(noteId: Long): List<ListItemEntity>
+
+    @Query("SELECT * FROM list_items WHERE noteId = :noteId ORDER BY ordering ASC")
+    fun listForNoteFlow(noteId: Long): Flow<List<ListItemEntity>>
 
     @Query("UPDATE list_items SET ordering = :order WHERE id = :itemId")
     suspend fun updateOrdering(itemId: Long, order: Int)

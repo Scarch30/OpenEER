@@ -8,11 +8,13 @@ import android.content.IntentFilter
 import android.graphics.Typeface
 import android.text.Spanned
 import android.text.style.StyleSpan
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.view.inputmethod.EditorInfo
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -37,8 +39,10 @@ import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.imports.MediaKind
+import com.example.openeer.ui.editor.NoteListItemsAdapter
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.reminders.ReminderBadgeFormatter
@@ -122,15 +126,6 @@ class NotePanelController(
 
     private val mediaActions = MediaActions(activity, blocksRepo)
 
-    private var blocksJob: Job? = null
-    // 🧊 Nouveau : on garde un handle pour l’observation de la note et on l’annule lors d’un open() suivant
-    private var noteJob: Job? = null
-
-    private val blockViews = mutableMapOf<Long, View>()
-    private var pendingHighlightBlockId: Long? = null
-
-    private val pileUiState = MutableStateFlow<List<PileUi>>(emptyList())
-
     private val mediaAdapter = MediaStripAdapter(
         onClick = { item -> mediaActions.handleClick(item) },
         onPileClick = { category ->
@@ -140,6 +135,27 @@ class NotePanelController(
         },
         onLongPress = { view, item -> mediaActions.showMenu(view, item) }
     )
+
+    private val listItemsAdapter = NoteListItemsAdapter(
+        onToggle = { itemId -> toggleListItem(itemId) },
+        onCommitText = { itemId, text -> updateListItemText(itemId, text) },
+        onLongPress = { item -> confirmRemoveListItem(item) },
+    )
+
+    private var blocksJob: Job? = null
+    // 🧊 Nouveau : on garde un handle pour l’observation de la note et on l’annule lors d’un open() suivant
+    private var noteJob: Job? = null
+    private var listItemsJob: Job? = null
+    private var observedListNoteId: Long? = null
+
+    private val blockViews = mutableMapOf<Long, View>()
+    private var pendingHighlightBlockId: Long? = null
+
+    private val pileUiState = MutableStateFlow<List<PileUi>>(emptyList())
+
+    private val scrollPositions = mutableMapOf<Long, Int>()
+    private var pendingScrollToBottom = false
+    private var listMode = false
 
     var onPileCountsChanged: ((PileCounts) -> Unit)? = null
     var onOpenNoteChanged: ((Long?) -> Unit)? = null
@@ -183,6 +199,31 @@ class NotePanelController(
             }
         }
 
+        binding.listItemsRecycler.apply {
+            layoutManager = LinearLayoutManager(activity)
+            adapter = listItemsAdapter
+            itemAnimator = null
+            isNestedScrollingEnabled = false
+        }
+        binding.listAddItemInput.apply {
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    tryAddListItem()
+                } else false
+            }
+            setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
+                    tryAddListItem()
+                } else false
+            }
+        }
+
+        binding.scrollBody.viewTreeObserver.addOnScrollChangedListener {
+            openNoteId?.let { id ->
+                scrollPositions[id] = binding.scrollBody.scrollY
+            }
+        }
+
         activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 registerReminderReceiver()
@@ -201,6 +242,8 @@ class NotePanelController(
     fun observePileUi(): Flow<List<PileUi>> = pileUiState.asStateFlow()
 
     fun currentPileUi(): List<PileUi> = pileUiState.value
+
+    fun isListMode(): Boolean = listMode
 
     fun open(noteId: Long) {
         openNoteId = noteId
@@ -228,6 +271,17 @@ class NotePanelController(
         pendingHighlightBlockId = null
         mediaAdapter.submitList(emptyList())
         binding.mediaStrip.isGone = true
+        listItemsAdapter.submitList(emptyList())
+        binding.listItemsContainer.isGone = true
+        binding.listItemsRecycler.isGone = true
+        binding.listItemsPlaceholder.isGone = true
+        binding.listAddItemInput.text?.clear()
+        binding.listAddItemInput.clearFocus()
+        binding.listAddItemInput.isEnabled = false
+        binding.noteBodySurface.isClickable = true
+        pendingScrollToBottom = false
+        listMode = false
+        stopListObservation()
 
         // 🔁 Annule l’observation précédente de la note (évite les écritures UI d’une ancienne note)
         noteJob?.cancel()
@@ -262,6 +316,11 @@ class NotePanelController(
         binding.txtTitleDetail.setOnClickListener { promptEditTitle() }
 
         refreshReminderChip(noteId)
+
+        binding.scrollBody.post {
+            val target = scrollPositions[noteId] ?: 0
+            binding.scrollBody.scrollTo(0, target)
+        }
     }
 
     fun close() {
@@ -287,6 +346,16 @@ class NotePanelController(
         binding.childBlocksContainer.isGone = true
         mediaAdapter.submitList(emptyList())
         binding.mediaStrip.isGone = true
+        listItemsAdapter.submitList(emptyList())
+        binding.listItemsContainer.isGone = true
+        binding.listItemsRecycler.isGone = true
+        binding.listItemsPlaceholder.isGone = true
+        binding.listAddItemInput.text?.clear()
+        binding.listAddItemInput.clearFocus()
+        binding.listAddItemInput.isEnabled = false
+        binding.noteBodySurface.isClickable = true
+        listMode = false
+        stopListObservation()
 
         SimplePlayer.stop { }
 
@@ -348,6 +417,124 @@ class NotePanelController(
             }
         }
         popup.show()
+    }
+
+    private fun tryAddListItem(): Boolean {
+        if (!listMode) return false
+        val raw = binding.listAddItemInput.text?.toString() ?: return false
+        val text = raw.trim()
+        if (text.isEmpty()) {
+            return false
+        }
+        addListItem(text)
+        return true
+    }
+
+    private fun addListItem(text: String) {
+        val noteId = openNoteId ?: return
+        pendingScrollToBottom = true
+        binding.listAddItemInput.text?.clear()
+        activity.lifecycleScope.launch {
+            val newId = repo.addItem(noteId, text)
+            Log.i(LIST_LOG_TAG, "ListUI: add note=$noteId item=$newId.")
+        }
+    }
+
+    private fun ensureListObservation(noteId: Long) {
+        if (observedListNoteId == noteId && listItemsJob?.isActive == true) return
+        listItemsJob?.cancel()
+        observedListNoteId = noteId
+        listItemsJob = activity.lifecycleScope.launch {
+            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                repo.listItems(noteId).collectLatest { items ->
+                    renderListItems(items)
+                }
+            }
+        }
+    }
+
+    private fun stopListObservation() {
+        listItemsJob?.cancel()
+        listItemsJob = null
+        observedListNoteId = null
+    }
+
+    private fun renderListItems(items: List<ListItemEntity>) {
+        if (!listMode) return
+        binding.listItemsContainer.isVisible = true
+        binding.listItemsPlaceholder.isVisible = items.isEmpty()
+        binding.listItemsRecycler.isVisible = items.isNotEmpty()
+        listItemsAdapter.submitList(items) {
+            if (pendingScrollToBottom) {
+                binding.scrollBody.post {
+                    binding.scrollBody.smoothScrollTo(0, binding.listAddItemInput.bottom)
+                }
+                pendingScrollToBottom = false
+            }
+        }
+    }
+
+    private fun toggleListItem(itemId: Long) {
+        val noteId = openNoteId ?: return
+        activity.lifecycleScope.launch {
+            repo.toggleItem(itemId)
+            Log.i(LIST_LOG_TAG, "ListUI: toggle note=$noteId item=$itemId.")
+        }
+    }
+
+    private fun updateListItemText(itemId: Long, text: String) {
+        val noteId = openNoteId ?: return
+        val current = listItemsAdapter.currentList.firstOrNull { it.id == itemId }?.text
+        if (current == text) return
+        activity.lifecycleScope.launch {
+            repo.updateItemText(itemId, text)
+            Log.i(LIST_LOG_TAG, "ListUI: edit note=$noteId item=$itemId.")
+        }
+    }
+
+    private fun confirmRemoveListItem(item: ListItemEntity) {
+        if (!listMode) return
+        AlertDialog.Builder(activity)
+            .setTitle(R.string.note_list_delete_title)
+            .setMessage(R.string.note_list_delete_message)
+            .setPositiveButton(R.string.note_list_delete_positive) { _, _ ->
+                removeListItem(item.id)
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun removeListItem(itemId: Long) {
+        val noteId = openNoteId ?: return
+        activity.lifecycleScope.launch {
+            repo.removeItem(itemId)
+            Log.i(LIST_LOG_TAG, "ListUI: delete note=$noteId item=$itemId.")
+        }
+    }
+
+    private fun updateListUi(note: Note) {
+        val shouldShowList = FeatureFlags.listsEnabled && note.isList()
+        listMode = shouldShowList
+        binding.txtBodyDetail.isVisible = !shouldShowList
+        binding.listItemsContainer.isVisible = shouldShowList
+        binding.listAddItemInput.isEnabled = shouldShowList
+        binding.noteBodySurface.isClickable = !shouldShowList
+
+        if (shouldShowList) {
+            ensureListObservation(note.id)
+            if (listItemsAdapter.currentList.isEmpty()) {
+                binding.listItemsPlaceholder.isVisible = true
+                binding.listItemsRecycler.isGone = true
+            }
+        } else {
+            pendingScrollToBottom = false
+            binding.listItemsPlaceholder.isGone = true
+            binding.listItemsRecycler.isGone = true
+            binding.listAddItemInput.text?.clear()
+            binding.listAddItemInput.clearFocus()
+            stopListObservation()
+            listItemsAdapter.submitList(emptyList())
+        }
     }
 
     private fun promptMergeSelection() {
@@ -488,6 +675,7 @@ class NotePanelController(
         private const val MENU_CONVERT_TO_LIST = 3
         private const val MENU_CONVERT_TO_TEXT = 4
         private const val TAG = "MergeDiag"
+        private const val LIST_LOG_TAG = "NoteListUI"
     }
 
     class NotePanelViewModel(private val repo: NoteRepository) {
@@ -879,6 +1067,8 @@ class NotePanelController(
         if (!keepCurrentStyled) {
             binding.txtBodyDetail.text = note.body
         }
+
+        updateListUi(note)
 
         val meta = note.formatMeta()
         if (meta.isBlank()) {

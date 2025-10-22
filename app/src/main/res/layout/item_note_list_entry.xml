@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="8dp"
+    android:paddingTop="4dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="4dp">
+
+    <CheckBox
+        android:id="@+id/checkDone"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:contentDescription="@null"
+        android:importantForAccessibility="yes" />
+
+    <androidx.appcompat.widget.AppCompatEditText
+        android:id="@+id/inputText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:background="@android:color/transparent"
+        android:imeOptions="actionDone"
+        android:inputType="textCapSentences|textMultiLine"
+        android:maxLines="4"
+        android:minLines="1"
+        android:padding="0dp"
+        android:textSize="16sp"
+        android:importantForAutofill="no"
+        android:gravity="top|start" />
+
+</LinearLayout>
