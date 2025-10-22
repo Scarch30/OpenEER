@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import androidx.appcompat.widget.AppCompatEditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.data.NoteRepository
@@ -19,7 +20,8 @@ class EditorBodyController(
     private val binding: ActivityMainBinding,
     private val repo: NoteRepository,
     private val onEditModeChanged: (Boolean) -> Unit = {},
-    private val onActiveBodyViewChanged: (View) -> Unit = {}
+    private val onActiveBodyViewChanged: (View) -> Unit = {},
+    private val onCaretPositionChanged: (Int) -> Unit = {}
 ) {
 
     private var editOverlay: EditText? = null
@@ -31,23 +33,9 @@ class EditorBodyController(
         wireKeyboardListener()
     }
 
-    fun enterInlineEdit(noteId: Long?) {
+    fun enterInlineEdit(noteId: Long?, caretPosition: Int? = null) {
         val id = noteId ?: return
-        editingNoteId = id
-        val overlay = editOverlay ?: createOverlay()
-        val currentDisplayed = binding.txtBodyDetail.text?.toString().orEmpty()
-        val initialText = if (currentDisplayed.trim() == PLACEHOLDER) "" else currentDisplayed
-        if (overlay.text?.toString() != initialText) {
-            overlay.setText(initialText)
-        }
-        overlay.setSelection(overlay.text?.length ?: 0)
-        overlay.post {
-            overlay.requestFocus()
-            showIme(overlay)
-        }
-        updateEditUi(true)
-        onActiveBodyViewChanged(overlay)
-        binding.scrollBody.requestDisallowInterceptTouchEvent(true)
+        showInlineEditor(id, caretPosition)
     }
 
     fun commitInlineEdit(noteId: Long?) {
@@ -100,6 +88,7 @@ class EditorBodyController(
     private fun finishEditing() {
         val overlay = editOverlay
         if (overlay != null) {
+            onCaretPositionChanged(overlay.selectionEnd.coerceAtLeast(0))
             hideIme(overlay)
             (binding.noteBodyContainer as? ViewGroup)?.removeView(overlay)
             editOverlay = null
@@ -110,7 +99,7 @@ class EditorBodyController(
     }
 
     private fun createOverlay(): EditText {
-        val overlay = EditText(activity).apply {
+        val overlay = TrackingEditText(activity).apply {
             id = View.generateViewId()
             layoutParams = ViewGroup.MarginLayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -153,6 +142,41 @@ class EditorBodyController(
         }
         editOverlay = overlay
         return overlay
+    }
+
+    private fun showInlineEditor(noteId: Long, caretPosition: Int?) {
+        editingNoteId = noteId
+        val overlay = editOverlay ?: createOverlay()
+        val currentDisplayed = binding.txtBodyDetail.text?.toString().orEmpty()
+        val initialText = if (currentDisplayed.trim() == PLACEHOLDER) "" else currentDisplayed
+        if (overlay.text?.toString() != initialText) {
+            overlay.setText(initialText)
+        }
+        val targetSelection = computeSelection(overlay, caretPosition)
+        overlay.setSelection(targetSelection)
+        overlay.post {
+            overlay.requestFocus()
+            showIme(overlay)
+            overlay.bringPointIntoView(overlay.selectionEnd)
+        }
+        updateEditUi(true)
+        onActiveBodyViewChanged(overlay)
+        binding.scrollBody.requestDisallowInterceptTouchEvent(true)
+    }
+
+    private fun computeSelection(target: EditText, caretPosition: Int?): Int {
+        val text = target.text
+        val length = text?.length ?: 0
+        if (length <= 0) return 0
+        val requested = caretPosition ?: length
+        return requested.coerceIn(0, length)
+    }
+
+    private inner class TrackingEditText(context: Context) : AppCompatEditText(context) {
+        override fun onSelectionChanged(selStart: Int, selEnd: Int) {
+            super.onSelectionChanged(selStart, selEnd)
+            onCaretPositionChanged(selEnd.coerceAtLeast(0))
+        }
     }
 
     private fun updateEditUi(active: Boolean) {
