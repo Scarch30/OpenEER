@@ -15,9 +15,6 @@ import java.util.concurrent.Executors;
 public class WhisperContext {
 
   private static final String LOG_TAG = "LibWhisper";
-  private static final int DEFAULT_SAMPLE_RATE = 16000;
-  private static final long SEGMENT_TOLERANCE_MS = 200L;
-
   private long ptr;
   // Exécuteur single-thread pour respecter la contrainte whisper.cpp (pas d’accès concurrent)
   private final ExecutorService executorService;
@@ -29,11 +26,6 @@ public class WhisperContext {
 
   /** Transcription “brute” : concatène les segments en une seule chaîne */
   public String transcribeData(final float[] data) throws ExecutionException, InterruptedException {
-    return transcribeData(data, DEFAULT_SAMPLE_RATE);
-  }
-
-  public String transcribeData(final float[] data, final int sampleRate)
-      throws ExecutionException, InterruptedException {
     return executorService.submit(new Callable<String>() {
       @Override
       public String call() throws Exception {
@@ -42,18 +34,12 @@ public class WhisperContext {
         int numThreads = WhisperCpuConfig.getPreferredThreadCount();
         Log.d(LOG_TAG, "Selecting " + numThreads + " threads");
 
-        final long audioMs = computeAudioDurationMs(data.length, sampleRate);
-
         // Appel natif : remplit les segments internes
-        WhisperLib.fullTranscribe(ptr, numThreads, data, audioMs);
+        WhisperLib.fullTranscribe(ptr, numThreads, data);
 
         int textCount = WhisperLib.getTextSegmentCount(ptr);
         StringBuilder result = new StringBuilder(textCount * 16);
         for (int i = 0; i < textCount; i++) {
-          long end = WhisperLib.getTextSegmentT1(ptr, i);
-          if (end > audioMs + SEGMENT_TOLERANCE_MS) {
-            continue;
-          }
           result.append(WhisperLib.getTextSegment(ptr, i));
         }
         return result.toString();
@@ -62,13 +48,7 @@ public class WhisperContext {
   }
 
   /** Transcription segmentée avec timecodes */
-  public List<WhisperSegment> transcribeDataWithTime(final float[] data)
-      throws ExecutionException, InterruptedException {
-    return transcribeDataWithTime(data, DEFAULT_SAMPLE_RATE);
-  }
-
-  public List<WhisperSegment> transcribeDataWithTime(final float[] data, final int sampleRate)
-      throws ExecutionException, InterruptedException {
+  public List<WhisperSegment> transcribeDataWithTime(final float[] data) throws ExecutionException, InterruptedException {
     return executorService.submit(new Callable<List<WhisperSegment>>() {
       @Override
       public List<WhisperSegment> call() throws Exception {
@@ -77,18 +57,13 @@ public class WhisperContext {
         int numThreads = WhisperCpuConfig.getPreferredThreadCount();
         Log.d(LOG_TAG, "Selecting " + numThreads + " threads");
 
-        final long audioMs = computeAudioDurationMs(data.length, sampleRate);
-
-        WhisperLib.fullTranscribe(ptr, numThreads, data, audioMs);
+        WhisperLib.fullTranscribe(ptr, numThreads, data);
 
         int textCount = WhisperLib.getTextSegmentCount(ptr);
         List<WhisperSegment> segments = new ArrayList<>(textCount);
         for (int i = 0; i < textCount; i++) {
-          long end = WhisperLib.getTextSegmentT1(ptr, i);
-          if (end > audioMs + SEGMENT_TOLERANCE_MS) {
-            continue;
-          }
           long start = WhisperLib.getTextSegmentT0(ptr, i);
+          long end   = WhisperLib.getTextSegmentT1(ptr, i);
           String sentence = WhisperLib.getTextSegment(ptr, i);
           segments.add(new WhisperSegment(start, end, sentence));
         }
@@ -136,10 +111,5 @@ public class WhisperContext {
 
   public static String getSystemInfo() {
     return WhisperLib.getSystemInfo();
-  }
-
-  private static long computeAudioDurationMs(int sampleCount, int sampleRate) {
-    if (sampleRate <= 0) return 0L;
-    return (sampleCount * 1000L) / sampleRate;
   }
 }
