@@ -111,6 +111,21 @@ class ReminderExecutor(
         val favoriteId: Long? = null,
     )
 
+    private fun ResolvedPlace.toLogString(
+        query: LocalPlaceIntentParser.PlaceQuery,
+    ): String {
+        return when (query) {
+            is LocalPlaceIntentParser.PlaceQuery.Favorite ->
+                "Favorite(id=${query.id}, lat=${query.lat}, lon=${query.lon})"
+
+            is LocalPlaceIntentParser.PlaceQuery.FreeText ->
+                "FreeText(text=\"${query.text}\")"
+
+            LocalPlaceIntentParser.PlaceQuery.CurrentLocation ->
+                "CurrentLocation(lat=$latitude, lon=$longitude)"
+        }
+    }
+
     private suspend fun resolvePlace(
         query: LocalPlaceIntentParser.PlaceQuery,
     ): ResolvedPlace = when (query) {
@@ -156,21 +171,6 @@ class ReminderExecutor(
 
     companion object {
         private const val TAG = "ReminderExecutor"
-    }
-}
-
-private fun ReminderExecutor.ResolvedPlace.toLogString(
-    query: LocalPlaceIntentParser.PlaceQuery,
-): String {
-    return when (query) {
-        is LocalPlaceIntentParser.PlaceQuery.Favorite ->
-            "Favorite(id=${query.id}, lat=${query.lat}, lon=${query.lon})"
-
-        is LocalPlaceIntentParser.PlaceQuery.FreeText ->
-            "FreeText(text=\"${query.text}\")"
-
-        LocalPlaceIntentParser.PlaceQuery.CurrentLocation ->
-            "CurrentLocation(lat=$latitude, lon=$longitude)"
     }
 }
 
