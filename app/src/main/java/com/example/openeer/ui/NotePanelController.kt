@@ -113,6 +113,8 @@ class NotePanelController(
 
     private var currentNote: Note? = null
 
+    fun currentNoteSnapshot(): Note? = currentNote
+
     private var topBubble: TopBubbleController? = null
 
     private val blocksRepo: BlocksRepository by lazy {

@@ -200,6 +200,24 @@ class NoteRepository(
         }
     }
 
+    suspend fun addProvisionalItem(noteId: Long, text: String): Long = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val currentMax = listItemDao.maxOrderForNote(noteId) ?: -1
+            val entity = ListItemEntity(
+                noteId = noteId,
+                text = text,
+                order = currentMax + 1,
+                createdAt = System.currentTimeMillis(),
+                provisional = true
+            )
+            listItemDao.insert(entity)
+        }
+    }
+
+    suspend fun finalizeItemText(itemId: Long, text: String) = withContext(Dispatchers.IO) {
+        listItemDao.finalizeText(itemId, text)
+    }
+
     suspend fun removeItem(itemId: Long) = withContext(Dispatchers.IO) {
         listItemDao.delete(itemId)
     }

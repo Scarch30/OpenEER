@@ -316,6 +316,7 @@ class MainActivity : AppCompatActivity() {
             repo = repo,
             blocksRepo = blocksRepo,
             getOpenNoteId = { notePanel.openNoteId },
+            getOpenNote = { notePanel.currentNoteSnapshot() },
             onAppendLive = { body -> notePanel.onAppendLive(body) },
             onReplaceFinal = { body, addNewline -> notePanel.onReplaceFinal(body, addNewline) },
             showTopBubble = { message -> topBubble.show(message) }

@@ -146,7 +146,7 @@ class ListVoiceExecutor(
     }
 
     private suspend fun matchListItems(noteId: Long, requested: List<String>): List<ListMatch> {
-        val items = repo.listItemsOnce(noteId)
+        val items = repo.listItemsOnce(noteId).filterNot { it.provisional }
         val available = items.toMutableList()
         val matches = mutableListOf<ListMatch>()
         for (candidate in requested) {
