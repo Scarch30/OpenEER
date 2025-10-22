@@ -5,14 +5,15 @@ import com.example.openeer.core.FeatureFlags
 
 /**
  * Routes the final Whisper transcription to the appropriate voice command handler.
- * For now this only distinguishes between a regular note, a reminder or an incomplete
- * reminder request. When the voice commands feature flag is disabled we short-circuit
- * to NOTE to keep the legacy behaviour.
+ * For now this distinguishes between a regular note, list commands, reminders or an
+ * incomplete reminder/list request. When the voice commands feature flag is disabled
+ * we short-circuit to NOTE to keep the legacy behaviour.
  */
 class VoiceCommandRouter(
     private val placeIntentParser: LocalPlaceIntentParser,
     private val reminderClassifier: ReminderClassifier = ReminderClassifier(),
-    private val isVoiceCommandsEnabled: () -> Boolean = { FeatureFlags.voiceCommandsEnabled }
+    private val isVoiceCommandsEnabled: () -> Boolean = { FeatureFlags.voiceCommandsEnabled },
+    private val listCommandParser: VoiceListCommandParser = VoiceListCommandParser()
 ) {
 
     fun route(finalWhisperText: String): VoiceRouteDecision {
@@ -24,6 +25,20 @@ class VoiceCommandRouter(
         if (trimmed.isEmpty()) {
             logDecision(VoiceRouteDecision.NOTE, trimmed)
             return VoiceRouteDecision.NOTE
+        }
+        when (val listResult = listCommandParser.parse(trimmed)) {
+            is VoiceListCommandParser.Result.Command -> {
+                val decision = VoiceRouteDecision.List(listResult.action, listResult.items)
+                logDecision(decision, trimmed)
+                return decision
+            }
+
+            VoiceListCommandParser.Result.Incomplete -> {
+                logDecision(VoiceRouteDecision.LIST_INCOMPLETE, trimmed, reason = "list_parser")
+                return VoiceRouteDecision.LIST_INCOMPLETE
+            }
+
+            null -> Unit
         }
         if (!reminderClassifier.hasTrigger(trimmed)) {
             logDecision(VoiceRouteDecision.NOTE, trimmed)
@@ -53,9 +68,19 @@ class VoiceCommandRouter(
 
 }
 
-enum class VoiceRouteDecision(val logToken: String) {
-    NOTE("NOTE"),
-    REMINDER_TIME("REMINDER_TIME"),
-    REMINDER_PLACE("REMINDER_PLACE"),
-    INCOMPLETE("INCOMPLETE")
+sealed class VoiceRouteDecision(val logToken: String) {
+    object NOTE : VoiceRouteDecision("NOTE")
+    object REMINDER_TIME : VoiceRouteDecision("REMINDER_TIME")
+    object REMINDER_PLACE : VoiceRouteDecision("REMINDER_PLACE")
+    object INCOMPLETE : VoiceRouteDecision("INCOMPLETE")
+    data class List(val action: VoiceListAction, val items: List<String>) : VoiceRouteDecision("LIST_${action.name}")
+    object LIST_INCOMPLETE : VoiceRouteDecision("LIST_INCOMPLETE")
+}
+
+enum class VoiceListAction {
+    CONVERT,
+    ADD,
+    TOGGLE,
+    UNTICK,
+    REMOVE,
 }

@@ -23,9 +23,11 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
+import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceCommandRouter
 import com.example.openeer.voice.VoiceComponents
+import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
 import kotlinx.coroutines.*
 import java.io.File
@@ -61,6 +63,7 @@ class MicBarController(
     private val voiceDependencies = VoiceComponents.obtain(activity.applicationContext)
     private val voiceCommandRouter = VoiceCommandRouter(voiceDependencies.placeParser)
     private val reminderExecutor = ReminderExecutor(activity.applicationContext, voiceDependencies)
+    private val listExecutor = ListVoiceExecutor(repo)
 
     /**
      * Mapping bloc audio -> range du texte Vosk dans la note (indices sur le body).
@@ -283,6 +286,20 @@ class MicBarController(
                                         showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
                                     }
                                 }
+
+                                VoiceRouteDecision.LIST_INCOMPLETE -> {
+                                    handleListIncomplete(newBlockId, wavPath)
+                                }
+
+                                is VoiceRouteDecision.List -> {
+                                    handleListDecision(
+                                        noteId = nid,
+                                        audioBlockId = newBlockId,
+                                        refinedText = refinedText,
+                                        audioPath = wavPath,
+                                        decision = decision
+                                    )
+                                }
                             }
                         }
                         Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$newBlockId")
@@ -359,20 +376,7 @@ class MicBarController(
                 provisionalBodyBuffer.clear()
             }
 
-            rangesByBlock.remove(audioBlockId)
-            val textBlockId = textBlockIdByAudio.remove(audioBlockId)
-            groupIdByAudio.remove(audioBlockId)
-
-            withContext(Dispatchers.IO) {
-                textBlockId?.let { blocksRepo.deleteBlock(it) }
-                blocksRepo.deleteBlock(audioBlockId)
-                runCatching {
-                    if (audioPath.isNotBlank()) {
-                        val file = File(audioPath)
-                        if (file.exists()) file.delete()
-                    }
-                }
-            }
+            cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
 
             Log.d("MicCtl", "Reminder créé via voix: id=$reminderId pour note=$noteId")
         }.onFailure { error ->
@@ -387,6 +391,58 @@ class MicBarController(
                 handleNoteDecision(noteId, audioBlockId, refinedText)
             }
         }
+    }
+
+    private suspend fun handleListDecision(
+        noteId: Long?,
+        audioBlockId: Long,
+        refinedText: String,
+        audioPath: String,
+        decision: VoiceRouteDecision.List
+    ) {
+        val result = listExecutor.execute(noteId, decision)
+        when (result) {
+            is ListVoiceExecutor.Result.Success -> {
+                withContext(Dispatchers.Main) {
+                    removeProvisionalForBlock(audioBlockId)
+                    if ((decision.action == VoiceListAction.TOGGLE ||
+                            decision.action == VoiceListAction.UNTICK ||
+                            decision.action == VoiceListAction.REMOVE) &&
+                        result.matchedCount == 0
+                    ) {
+                        showTopBubble(activity.getString(R.string.voice_list_item_not_found))
+                    }
+                }
+                cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+            }
+
+            is ListVoiceExecutor.Result.Incomplete -> {
+                withContext(Dispatchers.Main) {
+                    removeProvisionalForBlock(audioBlockId)
+                    showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
+                }
+                cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+            }
+
+            is ListVoiceExecutor.Result.Failure -> {
+                Log.e("MicCtl", "Échec commande liste", result.error)
+                val fallbackNoteId = result.noteId ?: noteId
+                if (fallbackNoteId != null) {
+                    handleNoteDecision(fallbackNoteId, audioBlockId, refinedText)
+                } else {
+                    withContext(Dispatchers.Main) { removeProvisionalForBlock(audioBlockId) }
+                    cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+                }
+            }
+        }
+    }
+
+    private suspend fun handleListIncomplete(audioBlockId: Long, audioPath: String) {
+        withContext(Dispatchers.Main) {
+            removeProvisionalForBlock(audioBlockId)
+            showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
+        }
+        cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
     }
 
     // ------------------------------------------------------------
@@ -460,6 +516,49 @@ class MicBarController(
             }
             rangesByBlock.clear()
             rangesByBlock.putAll(updated)
+        }
+    }
+
+    private fun removeProvisionalForBlock(blockId: Long) {
+        val range = rangesByBlock.remove(blockId) ?: return
+        val sb = provisionalBodyBuffer.ensureSpannable()
+        if (range.first >= sb.length) return
+
+        val safeStart = min(max(0, range.first), sb.length)
+        val safeEndExclusive = min(max(0, range.last), sb.length).coerceAtLeast(safeStart)
+        if (safeStart >= safeEndExclusive) return
+
+        val spans = sb.getSpans<Any>(safeStart, safeEndExclusive)
+        spans.forEach { sb.removeSpan(it) }
+        sb.delete(safeStart, safeEndExclusive)
+        binding.txtBodyDetail.text = sb
+
+        val delta = safeEndExclusive - safeStart
+        if (delta > 0) {
+            val updated = rangesByBlock.mapValues { (_, r) ->
+                if (r.first >= safeEndExclusive) {
+                    IntRange(r.first - delta, r.last - delta)
+                } else r
+            }
+            rangesByBlock.clear()
+            rangesByBlock.putAll(updated)
+        }
+    }
+
+    private suspend fun cleanupVoiceCaptureArtifacts(audioBlockId: Long, audioPath: String) {
+        val textBlockId = textBlockIdByAudio.remove(audioBlockId)
+        groupIdByAudio.remove(audioBlockId)
+        rangesByBlock.remove(audioBlockId)
+
+        withContext(Dispatchers.IO) {
+            textBlockId?.let { blocksRepo.deleteBlock(it) }
+            blocksRepo.deleteBlock(audioBlockId)
+            runCatching {
+                if (audioPath.isNotBlank()) {
+                    val file = File(audioPath)
+                    if (file.exists()) file.delete()
+                }
+            }
         }
     }
 
