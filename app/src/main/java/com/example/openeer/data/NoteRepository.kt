@@ -206,6 +206,10 @@ class NoteRepository(
 
     fun listItems(noteId: Long): Flow<List<ListItemEntity>> = listItemDao.listForNoteFlow(noteId)
 
+    suspend fun listItemsOnce(noteId: Long): List<ListItemEntity> = withContext(Dispatchers.IO) {
+        listItemDao.listForNote(noteId)
+    }
+
     suspend fun toggleItem(itemId: Long) = withContext(Dispatchers.IO) {
         listItemDao.toggleDone(itemId)
     }

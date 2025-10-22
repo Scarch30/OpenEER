@@ -387,5 +387,7 @@
     <string name="map_hint_location_perm_needed">Autorise la localisation pour enregistrer l’itinéraire.</string>
 
     <string name="voice_reminder_incomplete_hint">Il manque le moment…</string>
+    <string name="voice_list_incomplete_hint">Commande liste incomplète.</string>
+    <string name="voice_list_item_not_found">Aucun élément correspondant dans la liste.</string>
 
 </resources>

@@ -1,6 +1,7 @@
 package com.example.openeer.voice
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceCommandRouterTest {
@@ -41,6 +42,50 @@ class VoiceCommandRouterTest {
         val sentence = "Rappelle-moi d’acheter du pain quand j’arrive ici"
         val decision = router.route(sentence)
         assertEquals(VoiceRouteDecision.REMINDER_PLACE, decision)
+    }
+
+    @Test
+    fun `convert command routes to list`() {
+        val sentence = "Transforme cette note en liste"
+        val decision = router.route(sentence)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.CONVERT)
+    }
+
+    @Test
+    fun `add command extracts items`() {
+        val sentence = "Ajoute lait, oeufs et farine à la liste"
+        val decision = router.route(sentence)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.ADD)
+        decision as VoiceRouteDecision.List
+        assertEquals(listOf("lait", "oeufs", "farine"), decision.items)
+    }
+
+    @Test
+    fun `toggle command without liste keyword works`() {
+        val sentence = "Coche oeufs"
+        val decision = router.route(sentence)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.TOGGLE)
+    }
+
+    @Test
+    fun `untick command supports accents`() {
+        val sentence = "Décoche tomates"
+        val decision = router.route(sentence)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.UNTICK)
+    }
+
+    @Test
+    fun `remove command uses list route`() {
+        val sentence = "Supprime pain"
+        val decision = router.route(sentence)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.REMOVE)
+    }
+
+    @Test
+    fun `incomplete add command returns list incomplete`() {
+        val sentence = "Ajoute à la liste"
+        val decision = router.route(sentence)
+        assertEquals(VoiceRouteDecision.LIST_INCOMPLETE, decision)
     }
 
     @Test
