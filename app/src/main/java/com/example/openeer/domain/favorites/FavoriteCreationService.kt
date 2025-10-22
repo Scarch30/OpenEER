@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 
 data class FavoriteCreationRequest(
     val name: String,
+    val address: String? = null,
     val latitude: Double,
     val longitude: Double,
     val radiusMeters: Int,
@@ -36,6 +37,7 @@ object FavoriteCreationService {
                     displayName = request.name,
                     lat = request.latitude,
                     lon = request.longitude,
+                    aliases = listOfNotNull(request.address?.trim()?.takeIf { it.isNotEmpty() }),
                     defaultRadiusMeters = request.radiusMeters,
                     defaultCooldownMinutes = request.cooldownMinutes,
                     defaultEveryTime = request.everyTime

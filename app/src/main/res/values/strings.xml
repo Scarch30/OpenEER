@@ -251,7 +251,8 @@
     <string name="map_route_start_cd">Démarrer un itinéraire</string>
     <string name="map_preview_ready">Aperçu ajouté à la note</string>
     <string name="map_favorite_dialog_title">Nom du favori</string>
-    <string name="map_favorite_name_hint">Titre du favori</string>
+    <string name="map_favorite_name_hint">Nom du favori</string>
+    <string name="map_favorite_address_hint">Adresse</string>
     <string name="map_favorite_dialog_positive">Enregistrer</string>
     <string name="map_favorite_creation_started">Favori en cours de création…</string>
     <string name="map_favorite_here_permission_denied">Autorisation GPS requise</string>
