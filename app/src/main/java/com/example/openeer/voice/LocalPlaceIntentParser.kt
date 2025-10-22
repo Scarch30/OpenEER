@@ -48,14 +48,26 @@ object LocalPlaceIntentParser {
     private val ENTER_PATTERNS = listOf(
         Regex("quand\\s+j['’]?arrive", RegexOption.IGNORE_CASE),
         Regex("quand\\s+j['’]?entre", RegexOption.IGNORE_CASE),
+        Regex("quand\\s+je\\s+rentre", RegexOption.IGNORE_CASE),
+        Regex("quand\\s+je\\s+reviens", RegexOption.IGNORE_CASE),
+        Regex("lorsque\\s+j['’]?arrive", RegexOption.IGNORE_CASE),
+        Regex("lorsque\\s+je\\s+rentre", RegexOption.IGNORE_CASE),
         Regex("à\\s+l['’]?arrivée", RegexOption.IGNORE_CASE),
-        Regex("a\\s+l['’]?arrivee", RegexOption.IGNORE_CASE)
+        Regex("a\\s+l['’]?arrivee", RegexOption.IGNORE_CASE),
+        Regex("à\\s+mon\\s+arrivée", RegexOption.IGNORE_CASE),
+        Regex("a\\s+mon\\s+arrivee", RegexOption.IGNORE_CASE)
     )
 
     private val EXIT_PATTERNS = listOf(
         Regex("quand\\s+je\\s+pars", RegexOption.IGNORE_CASE),
         Regex("quand\\s+je\\s+quitte", RegexOption.IGNORE_CASE),
-        Regex("au\\s+d[ée]part", RegexOption.IGNORE_CASE)
+        Regex("quand\\s+je\\s+m['’]?en\\s+vais", RegexOption.IGNORE_CASE),
+        Regex("quand\\s+je\\s+sors", RegexOption.IGNORE_CASE),
+        Regex("lorsque\\s+je\\s+pars", RegexOption.IGNORE_CASE),
+        Regex("lorsque\\s+je\\s+quitte", RegexOption.IGNORE_CASE),
+        Regex("au\\s+d[ée]part", RegexOption.IGNORE_CASE),
+        Regex("à\\s+mon\\s+d[ée]part", RegexOption.IGNORE_CASE),
+        Regex("au\\s+moment\\s+de\\s+partir", RegexOption.IGNORE_CASE)
     )
 
     private val RADIUS_PATTERN = Regex("dans\\s+un\\s+rayon\\s+de\\s*(\\d+)\\s*m", RegexOption.IGNORE_CASE)
