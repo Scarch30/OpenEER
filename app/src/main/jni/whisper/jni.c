@@ -5,8 +5,6 @@
 #include <stdlib.h>
 #include <sys/sysinfo.h>
 #include <string.h>
-#include <stdbool.h>
-#include <stdint.h>
 #include "whisper.h"
 #include "ggml.h"
 
@@ -19,24 +17,6 @@
 // utils (pas utilisés partout, mais gardés si besoin)
 static inline int min(int a, int b) { return (a < b) ? a : b; }
 static inline int max(int a, int b) { return (a > b) ? a : b; }
-
-struct whisper_abort_state {
-    int64_t start_ms;
-    int64_t audio_ms;
-};
-
-static inline int64_t current_time_ms(void) {
-    return ggml_time_us() / 1000;
-}
-
-static bool whisper_abort_callback(void *user_data) {
-    if (user_data == NULL) {
-        return false;
-    }
-    struct whisper_abort_state *state = (struct whisper_abort_state *) user_data;
-    const int64_t elapsed = current_time_ms() - state->start_ms;
-    return elapsed > (state->audio_ms + 200);
-}
 
 // -------- InputStream loader --------
 struct input_stream_context {
@@ -169,48 +149,27 @@ Java_com_whispercpp_java_whisper_WhisperLib_freeContext(
 
 JNIEXPORT void JNICALL
 Java_com_whispercpp_java_whisper_WhisperLib_fullTranscribe(
-        JNIEnv *env, jobject thiz, jlong context_ptr, jint num_threads, jfloatArray audio_data,
-        jlong audio_duration_ms) {
+        JNIEnv *env, jobject thiz, jlong context_ptr, jint num_threads, jfloatArray audio_data) {
     UNUSED(thiz);
     struct whisper_context *context = (struct whisper_context *) context_ptr;
     jfloat *audio_data_arr = (*env)->GetFloatArrayElements(env, audio_data, NULL);
     const jsize audio_data_length = (*env)->GetArrayLength(env, audio_data);
 
     struct whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-    params.print_realtime            = false;   // moins de spam log
-    params.print_progress            = false;
-    params.print_timestamps          = true;
-    params.print_special             = false;
-    params.translate                 = false;
-    params.language                  = "fr";
-    params.detect_language           = false;
-    params.n_threads                 = num_threads;
-    params.offset_ms                 = 0;
-    params.duration_ms               = (int) audio_duration_ms;
-    params.no_context                = true;
-    params.no_timestamps             = false;
-    params.single_segment            = true;
-    params.token_timestamps          = true;
-    params.temperature               = 0.0f;
-    params.temperature_inc           = 0.0f;
-    params.suppress_nst              = true;
-    params.no_speech_thold           = 0.85f;
-    params.logprob_thold             = -0.6f;
-    params.entropy_thold             = 2.4f;
+    params.print_realtime   = false;   // moins de spam log
+    params.print_progress   = false;
+    params.print_timestamps = true;
+    params.print_special    = false;
+    params.translate        = false;
+    params.language         = "fr";
+    params.n_threads        = num_threads;
+    params.offset_ms        = 0;
+    params.no_context       = true;
+    params.single_segment   = false;
 
-    const int64_t audio_ms = (int64_t) audio_duration_ms;
-    int max_tokens = 3 * (int) (audio_ms / 1000) + 8;
-    if (max_tokens < 0) {
-        max_tokens = 0;
-    }
-    params.max_tokens = min(64, max_tokens);
-
-    struct whisper_abort_state abort_state = {
-        .start_ms = current_time_ms(),
-        .audio_ms = audio_ms,
-    };
-    params.abort_callback           = whisper_abort_callback;
-    params.abort_callback_user_data = &abort_state;
+    LOGI("Params: lang=%s, n_threads=%d, print_ts=%d, translate=%d, no_context=%d, single_segment=%d",
+         params.language, params.n_threads, params.print_timestamps, params.translate,
+         params.no_context, params.single_segment);
 
     whisper_reset_timings(context);
 

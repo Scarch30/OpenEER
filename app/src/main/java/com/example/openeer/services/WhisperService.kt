@@ -22,7 +22,6 @@ import kotlin.math.sqrt
 object WhisperService {
 
     private const val LOG_TAG = "WhisperService"
-    private const val WHISPER_SAMPLE_RATE = 16_000
 
     @Volatile private var ctx: WhisperContext? = null
     private val loadMutex = Mutex()
@@ -66,7 +65,7 @@ object WhisperService {
     suspend fun transcribeWav(wavFile: File): String = withContext(Dispatchers.Default) {
         val c = ensureCtx()
         var floats = decodeWaveFile(wavFile)
-        Log.d(LOG_TAG, "transcribeWav: samples=${floats.size} sr=$WHISPER_SAMPLE_RATE")
+        Log.d(LOG_TAG, "transcribeWav: samples=${floats.size} sr=16000")
 
         // --- Débruitage AudioDenoiser ---
         val t0 = System.currentTimeMillis()
@@ -78,7 +77,7 @@ object WhisperService {
 
         try {
             val start = System.currentTimeMillis()
-            val text = c.transcribeData(floats, WHISPER_SAMPLE_RATE)
+            val text = c.transcribeData(floats)
             Log.d(LOG_TAG, "Whisper done in ${System.currentTimeMillis() - start} ms")
             text
         } catch (e: ExecutionException) {
@@ -98,7 +97,7 @@ object WhisperService {
         Log.d(LOG_TAG, "🔊 Denoiser applied (transcribeDataDirect) in ${dt}ms | RMS before=$rmsBefore RMS after=$rmsAfter")
 
         try {
-            c.transcribeData(floats, WHISPER_SAMPLE_RATE)
+            c.transcribeData(floats)
         } catch (e: ExecutionException) {
             throw (e.cause ?: e)
         }
@@ -107,7 +106,7 @@ object WhisperService {
     suspend fun transcribeWavWithTimestamps(wavFile: File): List<WhisperSegment> = withContext(Dispatchers.Default) {
         val c = ensureCtx()
         var floats = decodeWaveFile(wavFile)
-        Log.d(LOG_TAG, "transcribeWavWithTimestamps: samples=${floats.size} sr=$WHISPER_SAMPLE_RATE")
+        Log.d(LOG_TAG, "transcribeWavWithTimestamps: samples=${floats.size}")
 
         // --- Débruitage AudioDenoiser ---
         val t0 = System.currentTimeMillis()
@@ -119,7 +118,7 @@ object WhisperService {
 
         try {
             val start = System.currentTimeMillis()
-            val segments = c.transcribeDataWithTime(floats, WHISPER_SAMPLE_RATE)
+            val segments = c.transcribeDataWithTime(floats)
             Log.d(LOG_TAG, "Whisper with timestamps done in ${System.currentTimeMillis() - start} ms")
             segments
         } catch (e: ExecutionException) {
@@ -130,7 +129,7 @@ object WhisperService {
     suspend fun transcribeWavSilenceAware(wavFile: File): String = withContext(Dispatchers.Default) {
         val c = ensureCtx()
         var samples = decodeWaveFile(wavFile)
-        val sr = WHISPER_SAMPLE_RATE
+        val sr = 16_000
 
         // --- Débruitage AudioDenoiser ---
         val t0 = System.currentTimeMillis()
@@ -159,7 +158,7 @@ object WhisperService {
             val seg = samples.copyOfRange(w.first, w.second)
             val text = try {
                 val t1 = System.currentTimeMillis()
-                val out = withTimeoutOrNull(15000L) { c.transcribeData(seg, sr) }
+                val out = withTimeoutOrNull(15000L) { c.transcribeData(seg) }
                 val dt2 = System.currentTimeMillis() - t1
                 Log.d(LOG_TAG, "Whisper window $idx/${windows.size} done in ${dt2}ms -> '${out?.take(60)}'")
                 out ?: ""
