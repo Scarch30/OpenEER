@@ -643,29 +643,109 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun promptDeleteSelectedNote() {
-        val noteId = selectedIds.firstOrNull() ?: return
-        if (pendingDeletions.containsKey(noteId)) {
+        if (selectedIds.isEmpty()) return
+
+        val notes = selectedIds.mapNotNull { id ->
+            latestNotes.firstOrNull { it.id == id } ?: baseNotes.firstOrNull { it.id == id }
+        }
+        if (notes.isEmpty()) return
+
+        val pending = notes.firstOrNull { pendingDeletions.containsKey(it.id) }
+        if (pending != null) {
             Snackbar.make(b.root, getString(R.string.library_delete_pending), Snackbar.LENGTH_SHORT).show()
             return
         }
 
+        if (notes.size > 1) {
+            showMultipleDeleteWarning(notes)
+        } else {
+            showDeletePrimaryConfirmation(notes)
+        }
+    }
+
+    private fun showMultipleDeleteWarning(notes: List<Note>) {
         AlertDialog.Builder(this)
-            .setMessage(R.string.library_delete_primary_message)
+            .setMessage(R.string.library_delete_multiple_warning_message)
             .setNegativeButton(R.string.action_cancel, null)
-            .setPositiveButton(R.string.library_delete_primary_positive) { _, _ ->
-                showDeleteCascadeConfirmation(noteId)
+            .setPositiveButton(R.string.library_delete_multiple_warning_positive) { _, _ ->
+                showDeletePrimaryConfirmation(notes)
             }
             .show()
     }
 
-    private fun showDeleteCascadeConfirmation(noteId: Long) {
+    private fun showDeletePrimaryConfirmation(notes: List<Note>) {
+        val message = if (notes.size > 1) {
+            getString(R.string.library_delete_primary_message_multiple, notes.size)
+        } else {
+            getString(R.string.library_delete_primary_message)
+        }
+
         AlertDialog.Builder(this)
-            .setMessage(R.string.library_delete_secondary_message)
+            .setMessage(message)
             .setNegativeButton(R.string.action_cancel, null)
-            .setPositiveButton(R.string.library_delete_secondary_positive) { _, _ ->
-                lifecycleScope.launch { scheduleNoteDeletion(noteId) }
+            .setPositiveButton(R.string.library_delete_primary_positive) { _, _ ->
+                showDeleteCascadeConfirmation(notes)
             }
             .show()
+    }
+
+    private fun showDeleteCascadeConfirmation(notes: List<Note>) {
+        val message = if (notes.size > 1) {
+            getString(R.string.library_delete_secondary_message_multiple, notes.size)
+        } else {
+            getString(R.string.library_delete_secondary_message)
+        }
+
+        AlertDialog.Builder(this)
+            .setMessage(message)
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.library_delete_secondary_positive) { _, _ ->
+                if (notes.size > 1) {
+                    scheduleNotesDeletion(notes)
+                } else {
+                    val note = notes.first()
+                    lifecycleScope.launch { scheduleNoteDeletion(note.id) }
+                }
+            }
+            .show()
+    }
+
+    private fun scheduleNotesDeletion(notes: List<Note>) {
+        lifecycleScope.launch {
+            val cascades = mutableListOf<Pair<Long, Set<Long>>>()
+            val coveredIds = mutableSetOf<Long>()
+
+            for (note in notes) {
+                val cascade = runCatching { repo.collectCascade(note.id) }
+                    .onFailure {
+                        Snackbar.make(b.root, getString(R.string.library_delete_failed), Snackbar.LENGTH_SHORT).show()
+                    }
+                    .getOrNull() ?: return@launch
+
+                if (cascade.isEmpty()) {
+                    Snackbar.make(b.root, getString(R.string.library_delete_failed), Snackbar.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                if (pendingDeletions.containsKey(note.id)) {
+                    Snackbar.make(b.root, getString(R.string.library_delete_pending), Snackbar.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                if (cascade.all { coveredIds.contains(it) }) {
+                    continue
+                }
+
+                cascades.add(note.id to cascade)
+                coveredIds.addAll(cascade)
+            }
+
+            if (cascades.isEmpty()) return@launch
+
+            cascades.forEach { (rootId, cascade) ->
+                startPendingDeletion(rootId, cascade)
+            }
+        }
     }
 
     private suspend fun scheduleNoteDeletion(noteId: Long) {
@@ -887,7 +967,7 @@ class MainActivity : AppCompatActivity() {
             menu.findItem(MENU_MERGE)?.isEnabled = many
             menu.findItem(MENU_UNMERGE)?.isEnabled = one
             menu.findItem(MENU_RENAME)?.isEnabled = one
-            menu.findItem(MENU_DELETE)?.isEnabled = one
+            menu.findItem(MENU_DELETE)?.isEnabled = selectedIds.isNotEmpty()
             return true
         }
 
