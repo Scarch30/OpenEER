@@ -249,6 +249,7 @@ class RouteRecordingService : Service(), LocationListener {
             attachmentDao,
             blockReadDao,
             blocksRepo,
+            db.listItemDao(),
             database = db
         )
     }

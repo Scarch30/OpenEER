@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
@@ -96,6 +97,7 @@ class NotePanelController(
             db.attachmentDao(),
             db.blockReadDao(),
             blocksRepo,
+            db.listItemDao(),
             database = db
         )
     }
@@ -325,13 +327,21 @@ class NotePanelController(
                     true
                 }
                 MENU_CONVERT_TO_LIST -> {
-                    val messageRes = viewModel.convertCurrentNoteToList(currentNote)
-                    activity.toast(messageRes)
+                    val noteSnapshot = currentNote
+                    activity.lifecycleScope.launch {
+                        val message = viewModel.convertCurrentNoteToList(noteSnapshot)
+                        val duration = if (message.success) Snackbar.LENGTH_SHORT else Snackbar.LENGTH_LONG
+                        Snackbar.make(binding.root, activity.getString(message.messageRes), duration).show()
+                    }
                     true
                 }
                 MENU_CONVERT_TO_TEXT -> {
-                    val messageRes = viewModel.convertCurrentNoteToPlain(currentNote)
-                    activity.toast(messageRes)
+                    val noteSnapshot = currentNote
+                    activity.lifecycleScope.launch {
+                        val message = viewModel.convertCurrentNoteToPlain(noteSnapshot)
+                        val duration = if (message.success) Snackbar.LENGTH_SHORT else Snackbar.LENGTH_LONG
+                        Snackbar.make(binding.root, activity.getString(message.messageRes), duration).show()
+                    }
                     true
                 }
                 else -> false
@@ -481,18 +491,48 @@ class NotePanelController(
     }
 
     class NotePanelViewModel(private val repo: NoteRepository) {
-        fun convertCurrentNoteToList(note: Note?): Int {
-            val noteId = note?.id
-            val noteType = note?.type
-            Log.d("NotePanelViewModel", "convertCurrentNoteToList called for noteId=$noteId type=$noteType")
-            return R.string.note_convert_in_progress_toast
+        data class ConversionMessage(@StringRes val messageRes: Int, val success: Boolean)
+
+        suspend fun convertCurrentNoteToList(note: Note?): ConversionMessage {
+            val noteId = note?.id ?: return ConversionMessage(R.string.note_convert_error_missing, false)
+            Log.d(TAG, "convertCurrentNoteToList called for noteId=$noteId type=${note.type}")
+            val result = runCatching { repo.convertNoteToList(noteId) }
+                .onFailure { error -> Log.e(TAG, "convertCurrentNoteToList failed for noteId=$noteId", error) }
+                .getOrElse { return ConversionMessage(R.string.note_convert_error_generic, false) }
+
+            return when (result) {
+                is NoteRepository.NoteConversionResult.Converted -> {
+                    Log.d(TAG, "convertCurrentNoteToList success noteId=$noteId items=${result.itemCount}")
+                    ConversionMessage(R.string.note_convert_to_list_success, true)
+                }
+                NoteRepository.NoteConversionResult.AlreadyTarget ->
+                    ConversionMessage(R.string.note_convert_already_list, false)
+                NoteRepository.NoteConversionResult.NotFound ->
+                    ConversionMessage(R.string.note_convert_error_missing, false)
+            }
         }
 
-        fun convertCurrentNoteToPlain(note: Note?): Int {
-            val noteId = note?.id
-            val noteType = note?.type
-            Log.d("NotePanelViewModel", "convertCurrentNoteToPlain called for noteId=$noteId type=$noteType")
-            return R.string.note_convert_in_progress_toast
+        suspend fun convertCurrentNoteToPlain(note: Note?): ConversionMessage {
+            val noteId = note?.id ?: return ConversionMessage(R.string.note_convert_error_missing, false)
+            Log.d(TAG, "convertCurrentNoteToPlain called for noteId=$noteId type=${note.type}")
+            val result = runCatching { repo.convertNoteToPlain(noteId) }
+                .onFailure { error -> Log.e(TAG, "convertCurrentNoteToPlain failed for noteId=$noteId", error) }
+                .getOrElse { return ConversionMessage(R.string.note_convert_error_generic, false) }
+
+            return when (result) {
+                is NoteRepository.NoteConversionResult.Converted -> {
+                    Log.d(TAG, "convertCurrentNoteToPlain success noteId=$noteId items=${result.itemCount}")
+                    ConversionMessage(R.string.note_convert_to_plain_success, true)
+                }
+                NoteRepository.NoteConversionResult.AlreadyTarget ->
+                    ConversionMessage(R.string.note_convert_already_plain, false)
+                NoteRepository.NoteConversionResult.NotFound ->
+                    ConversionMessage(R.string.note_convert_error_missing, false)
+            }
+        }
+
+        companion object {
+            private const val TAG = "NotePanelViewModel"
         }
     }
 

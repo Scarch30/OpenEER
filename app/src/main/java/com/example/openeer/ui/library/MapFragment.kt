@@ -246,6 +246,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             attachmentDao,
             database.blockReadDao(),
             blocksRepo,
+            database.listItemDao(),
             database = database
         )
     }

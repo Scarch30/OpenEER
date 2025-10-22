@@ -70,6 +70,12 @@
     <string name="note_menu_convert_to_list">Convertir en liste</string>
     <string name="note_menu_convert_to_text">Convertir en texte</string>
     <string name="note_convert_in_progress_toast">Conversion en cours – étape suivante</string>
+    <string name="note_convert_to_list_success">Converti en liste</string>
+    <string name="note_convert_to_plain_success">Converti en texte</string>
+    <string name="note_convert_already_list">Déjà une liste</string>
+    <string name="note_convert_already_plain">Déjà du texte</string>
+    <string name="note_convert_error_missing">Note introuvable</string>
+    <string name="note_convert_error_generic">Conversion impossible</string>
     <string name="menu_create_global_reminder">Créer un rappel</string>
     <string name="reminder_cancel_action">Annuler le rappel</string>
     <string name="reminder_cancelled">Rappel annulé</string>
