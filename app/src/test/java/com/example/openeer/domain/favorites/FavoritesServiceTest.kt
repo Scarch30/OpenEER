@@ -108,6 +108,36 @@ class FavoritesServiceTest {
         assertEquals(favoriteId, fromAlias.id)
     }
 
+    @Test
+    fun matchFavoriteExactThenFuzzy() = runBlocking {
+        val homeId = service.createFavorite(
+            displayName = "Maison",
+            lat = 10.0,
+            lon = 20.0,
+            aliases = listOf("Chez Moi")
+        )
+        val workId = service.createFavorite(
+            displayName = "Travail",
+            lat = 30.0,
+            lon = 40.0,
+        )
+
+        val exact = service.matchFavorite("chez moi")
+        assertNotNull(exact)
+        assertEquals(homeId, exact!!.id)
+
+        val fuzzy = service.matchFavorite("maisom")
+        assertNotNull(fuzzy)
+        assertEquals(homeId, fuzzy!!.id)
+
+        val none = service.matchFavorite("biocoop")
+        assertNull(none)
+
+        val preferExact = service.matchFavorite("travail")
+        assertNotNull(preferExact)
+        assertEquals(workId, preferExact!!.id)
+    }
+
     private fun parseAliases(json: String): List<String> {
         val array = JSONArray(json)
         val result = mutableListOf<String>()

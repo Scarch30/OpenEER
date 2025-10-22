@@ -13,6 +13,8 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.domain.ReminderUseCases
+import com.example.openeer.domain.favorites.FavoritesRepository
+import com.example.openeer.domain.favorites.FavoritesService
 import com.example.openeer.ui.sheets.ReminderListSheet
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +39,9 @@ class ReminderExecutor(
     private val appContext = context.applicationContext
     private val currentLocationResolver = currentLocationResolver
     private val geocodeResolver = geocodeResolver
+    private val favoritesService: FavoritesService by lazy {
+        FavoritesService(FavoritesRepository(databaseProvider().favoriteDao()))
+    }
 
     suspend fun createFromVoice(noteId: Long, labelFromWhisper: String): Long {
         val parseResult = LocalTimeIntentParser.parseReminder(labelFromWhisper)
@@ -60,6 +65,7 @@ class ReminderExecutor(
         noteId: Long,
         text: String
     ): Long {
+        ensureFavoriteResolver()
         val parseResult = LocalPlaceIntentParser.parse(text)
             ?: throw IncompleteException("No place intent parsed")
 
@@ -73,6 +79,10 @@ class ReminderExecutor(
                 val geocoded = geocodeResolver(query.text)
                     ?: throw IncompleteException("Geocode failed for \"${query.text}\"")
                 ResolvedPlace(geocoded.latitude, geocoded.longitude, geocoded.label, false)
+            }
+
+            is LocalPlaceIntentParser.PlaceQuery.Favorite -> {
+                ResolvedPlace(query.lat, query.lon, query.spokenForm, false)
             }
         }
 
@@ -111,6 +121,23 @@ class ReminderExecutor(
         val label: String?,
         val startingInside: Boolean
     )
+
+    private fun ensureFavoriteResolver() {
+        if (LocalPlaceIntentParser.favoriteResolver != null) return
+        LocalPlaceIntentParser.favoriteResolver = LocalPlaceIntentParser.FavoriteResolver { candidate ->
+            favoritesService.matchFavorite(candidate)?.let { favorite ->
+                LocalPlaceIntentParser.FavoriteMatch(
+                    id = favorite.id,
+                    lat = favorite.lat,
+                    lon = favorite.lon,
+                    spokenForm = candidate,
+                    defaultRadiusMeters = favorite.defaultRadiusMeters,
+                    defaultCooldownMinutes = favorite.defaultCooldownMinutes,
+                    defaultEveryTime = favorite.defaultEveryTime,
+                )
+            }
+        }
+    }
 
     companion object {
         private const val TAG = "ReminderExecutor"

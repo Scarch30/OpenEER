@@ -4,6 +4,23 @@ import java.util.Locale
 
 object LocalPlaceIntentParser {
 
+    fun interface FavoriteResolver {
+        fun match(text: String): FavoriteMatch?
+    }
+
+    data class FavoriteMatch(
+        val id: Long,
+        val lat: Double,
+        val lon: Double,
+        val spokenForm: String,
+        val defaultRadiusMeters: Int,
+        val defaultCooldownMinutes: Int,
+        val defaultEveryTime: Boolean,
+    )
+
+    @Volatile
+    var favoriteResolver: FavoriteResolver? = null
+
     enum class Transition { ENTER, EXIT }
 
     data class PlaceParseResult(
@@ -18,6 +35,12 @@ object LocalPlaceIntentParser {
     sealed class PlaceQuery {
         data object CurrentLocation : PlaceQuery()
         data class FreeText(val text: String) : PlaceQuery()
+        data class Favorite(
+            val id: Long,
+            val lat: Double,
+            val lon: Double,
+            val spokenForm: String,
+        ) : PlaceQuery()
     }
 
     private data class TransitionMatch(val transition: Transition, val range: IntRange)
@@ -42,7 +65,11 @@ object LocalPlaceIntentParser {
     private val CURRENT_LOCATION_PATTERN = Regex("\\bd['’]?ici\\b|\\bici\\b", RegexOption.IGNORE_CASE)
 
     private val CONNECTOR_PATTERN = Regex(
-        "(?i)(?:\\b(?:à|a|au|aux|chez|dans|sur|vers|pour|près\\s+de|pres\\s+de|à\\s+proximité\\s+de|a\\s+proximite\\s+de|proche\\s+de|à\\s+côté\\s+de|a\\s+cote\\s+de|de|du|des|de\\s+la|de\\s+l['’])\\b\\s*)(.+)"
+        "(?i)(?:\\b(?:à|a|au|aux|chez|dans|sur|vers|pour|près\\s+de|pres\\s+de|à\\s+proximité\\s+de|a\\s+proximite\\s+de|proche\\s+de|à\\s+côté\\s+de|a\\s+cote\\s+de|autour\\s+de|de|du|des|de\\s+la|de\\s+l['’])\\b\\s*)(.+)"
+    )
+
+    private val LOCATION_PREFIX_PATTERN = Regex(
+        "(?i)^(?:à\\s+la|a\\s+la|à\\s+l['’]|a\\s+l['’]|à|a|au|aux|chez|vers|près\\s+de|pres\\s+de|autour\\s+de|du|de\\s+la|des)\\s+"
     )
 
     private val TRIGGER_PATTERNS = listOf(
@@ -69,34 +96,67 @@ object LocalPlaceIntentParser {
         var working = removeMatches(sanitized, listOf(transitionMatch.range))
 
         val radiusMatch = RADIUS_PATTERN.find(working)
-        val radiusMeters = radiusMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 100
+        val radiusSpecified = radiusMatch != null
+        var radiusMeters = radiusMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 100
         working = removeMatches(working, listOfNotNull(radiusMatch?.range))
 
         val primaryCooldownMatch = COOLDOWN_PATTERN.find(working)
         var cooldownMinutes = primaryCooldownMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
+        var cooldownSpecified = primaryCooldownMatch != null
         working = removeMatches(working, listOfNotNull(primaryCooldownMatch?.range))
 
         val altCooldownMatch = COOLDOWN_ALT_PATTERN.find(working)
         val altCooldown = altCooldownMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
-        if (altCooldown != null) cooldownMinutes = altCooldown
+        if (altCooldown != null) {
+            cooldownMinutes = altCooldown
+            cooldownSpecified = true
+        }
         working = removeMatches(working, listOfNotNull(altCooldownMatch?.range))
 
         val everyMatches = EVERY_TIME_PATTERN.findAll(working).toList()
-        val everyTime = everyMatches.isNotEmpty()
+        var everyTime = everyMatches.isNotEmpty()
         working = removeMatches(working, everyMatches.map { it.range })
 
-        val query = extractQuery(working) ?: return null
+        val extraction = extractQuery(working) ?: return null
+        val query = when (extraction) {
+            QueryExtraction.CurrentLocation -> PlaceQuery.CurrentLocation
+            is QueryExtraction.Phrase -> {
+                when (val result = resolveFavorite(extraction.cleaned, extraction.spokenForm)) {
+                    is FavoriteResolution.Found -> {
+                        if (!radiusSpecified) {
+                            radiusMeters = result.match.defaultRadiusMeters
+                        }
+                        if (!cooldownSpecified) {
+                            cooldownMinutes = result.match.defaultCooldownMinutes
+                        }
+                        if (!everyTime) {
+                            everyTime = result.match.defaultEveryTime
+                        }
+                        PlaceQuery.Favorite(
+                            id = result.match.id,
+                            lat = result.match.lat,
+                            lon = result.match.lon,
+                            spokenForm = result.match.spokenForm,
+                        )
+                    }
+
+                    is FavoriteResolution.None -> PlaceQuery.FreeText(result.cleaned)
+                }
+            }
+        }
 
         val label = extractLabel(
             original = sanitized,
             query = query,
         ) ?: return null
 
+        val finalCooldown = cooldownMinutes ?: 30
+
         return PlaceParseResult(
             transition = transitionMatch.transition,
             query = query,
             radiusMeters = radiusMeters,
-            cooldownMinutes = cooldownMinutes ?: 30,
+            cooldownMinutes = finalCooldown,
             everyTime = everyTime,
             label = label,
         )
@@ -114,29 +174,37 @@ object LocalPlaceIntentParser {
         return matches.minByOrNull { it.range.first }
     }
 
-    private fun extractQuery(raw: String): PlaceQuery? {
+    private fun extractQuery(raw: String): QueryExtraction? {
         val normalizedWhitespace = raw.replace("\\s+".toRegex(), " ").trim()
         if (normalizedWhitespace.isEmpty()) return null
 
         val normalizedLower = normalizedWhitespace.lowercase(Locale.FRENCH)
         if (CURRENT_LOCATION_PATTERN.containsMatchIn(normalizedLower)) {
-            return PlaceQuery.CurrentLocation
+            return QueryExtraction.CurrentLocation
         }
 
         val connectorMatches = CONNECTOR_PATTERN.findAll(normalizedWhitespace).toList()
-        val candidate = connectorMatches.lastOrNull()?.groupValues?.getOrNull(1)?.let { cleanLocationText(it) }
+        val lastMatch = connectorMatches.lastOrNull() ?: return null
+        val spokenForm = lastMatch.value.replace("\\s+".toRegex(), " ").trim().trim(',', ';', '.')
+        val candidate = lastMatch.groupValues.getOrNull(1)?.let { cleanLocationText(it) }
             ?: return null
         if (candidate.isEmpty()) return null
-        return PlaceQuery.FreeText(candidate)
+        return QueryExtraction.Phrase(candidate, spokenForm)
     }
 
     private fun cleanLocationText(text: String): String {
-        val trimmed = text.replace("\\s+".toRegex(), " ").trim().trim(',', ';', '.')
-        return if (trimmed.startsWith("d'", ignoreCase = true)) {
-            trimmed.substring(2).trimStart()
-        } else {
-            trimmed
+        var trimmed = text.replace("\\s+".toRegex(), " ").trim().trim(',', ';', '.')
+        if (trimmed.isEmpty()) return ""
+        while (true) {
+            val replaced = LOCATION_PREFIX_PATTERN.replaceFirst(trimmed, "").trimStart()
+            if (replaced == trimmed) break
+            trimmed = replaced
         }
+        if (trimmed.startsWith("d'", ignoreCase = true)) {
+            trimmed = trimmed.substring(2).trimStart()
+        }
+        val withoutStopWords = trimLeadingStopWords(trimmed)
+        return withoutStopWords
     }
 
     private fun removeMatches(text: String, ranges: List<IntRange>): String {
@@ -175,6 +243,7 @@ object LocalPlaceIntentParser {
         working = when (query) {
             is PlaceQuery.CurrentLocation -> CURRENT_LOCATION_PATTERN.replace(working, " ")
             is PlaceQuery.FreeText -> removeFreeTextLocation(working, query.text)
+            is PlaceQuery.Favorite -> removeFreeTextLocation(working, query.spokenForm)
         }
 
         working = working.replace("\\s+".toRegex(), " ")
@@ -224,6 +293,34 @@ object LocalPlaceIntentParser {
                 return trimmed.trim()
             }
         }
+    }
+
+    private sealed class QueryExtraction {
+        data object CurrentLocation : QueryExtraction()
+        data class Phrase(val cleaned: String, val spokenForm: String) : QueryExtraction()
+    }
+
+    private sealed class FavoriteResolution {
+        data class Found(val match: FavoriteMatch) : FavoriteResolution()
+        data class None(val cleaned: String) : FavoriteResolution()
+    }
+
+    private fun resolveFavorite(cleaned: String, spokenForm: String): FavoriteResolution {
+        val resolver = favoriteResolver ?: return FavoriteResolution.None(cleaned)
+        val primaryMatch = resolver.match(cleaned)
+        val fallbackMatch = if (primaryMatch == null && spokenForm != cleaned) {
+            resolver.match(spokenForm)
+        } else {
+            null
+        }
+        val match = primaryMatch ?: fallbackMatch
+        if (match != null) {
+            val resolvedSpoken = match.spokenForm.ifBlank {
+                if (primaryMatch != null) cleaned else spokenForm
+            }
+            return FavoriteResolution.Found(match.copy(spokenForm = resolvedSpoken))
+        }
+        return FavoriteResolution.None(cleaned)
     }
 }
 
