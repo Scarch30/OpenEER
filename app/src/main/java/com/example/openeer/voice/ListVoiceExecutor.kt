@@ -161,7 +161,7 @@ class ListVoiceExecutor(
     }
 
     private fun sanitizeItems(items: List<String>): List<String> {
-        return items.map { it.replace(WHITESPACE_REGEX, " ").trim(TRIM_CHARS) }
+        return items.map { it.replace(WHITESPACE_REGEX, " ").trim(*TRIM_CHARS) }
             .filter { it.isNotEmpty() }
     }
 
