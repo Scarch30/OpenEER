@@ -60,9 +60,9 @@ class VoiceListCommandParser {
         }
 
         return working.split(ITEM_SPLIT_REGEX)
-            .map { it.trim(TRIM_CHARS) }
+            .map { it.trim(*TRIM_CHARS) }
             .map { it.replace(WHITESPACE_REGEX, " ") }
-            .map { it.trim(TRIM_CHARS) }
+            .map { it.trim(*TRIM_CHARS) }
             .filter { it.isNotEmpty() }
     }
 
