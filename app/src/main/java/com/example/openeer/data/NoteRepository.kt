@@ -179,6 +179,7 @@ class NoteRepository(
 
     companion object {
         private const val TAG = "NoteRepository"
+        private val LOG_WHITESPACE_REGEX = "\\s+".toRegex()
     }
 
     sealed interface NoteConversionResult {
@@ -196,7 +197,15 @@ class NoteRepository(
                 order = currentMax + 1,
                 createdAt = System.currentTimeMillis()
             )
-            listItemDao.insert(entity)
+            val insertedId = listItemDao.insert(entity)
+            val snapshot = listItemDao.listForNote(noteId)
+            val doneCount = snapshot.count { it.done }
+            val provisionalCount = snapshot.count { it.provisional }
+            Log.d(
+                TAG,
+                "addItem: note=$noteId id=$insertedId order=${entity.order} total=${snapshot.size} done=$doneCount provisional=$provisionalCount text=\"${summarizeListItemText(text)}\""
+            )
+            insertedId
         }
     }
 
@@ -243,6 +252,11 @@ class NoteRepository(
 
     suspend fun updateItemText(itemId: Long, text: String) = withContext(Dispatchers.IO) {
         listItemDao.updateText(itemId, text)
+    }
+
+    private fun summarizeListItemText(text: String): String {
+        val normalized = text.replace(LOG_WHITESPACE_REGEX, " ").trim()
+        return if (normalized.length <= 60) normalized else normalized.take(57) + "…"
     }
 
     suspend fun reorder(noteId: Long, from: Int, to: Int) = withContext(Dispatchers.IO) {
