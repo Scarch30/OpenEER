@@ -488,30 +488,39 @@ class MicBarController(
         val hasListHandle = provisionalListItems.containsKey(audioBlockId)
         when (result) {
             is ListVoiceExecutor.Result.Success -> {
-                if (hasListHandle) {
-                    removeListProvisional(audioBlockId, "LIST_COMMAND")
-                    if ((decision.action == VoiceListAction.TOGGLE ||
-                            decision.action == VoiceListAction.UNTICK ||
-                            decision.action == VoiceListAction.REMOVE) &&
-                        result.matchedCount == 0
-                    ) {
-                        withContext(Dispatchers.Main) {
-                            showTopBubble(activity.getString(R.string.voice_list_item_not_found))
-                        }
+                if (decision.action == VoiceListAction.CONVERT_TO_TEXT) {
+                    if (hasListHandle) {
+                        finalizeListProvisional(audioBlockId, refinedText)
+                    } else {
+                        withContext(Dispatchers.Main) { removeProvisionalForBlock(audioBlockId) }
                     }
+                    cleanupVoiceCaptureReferences(audioBlockId)
                 } else {
-                    withContext(Dispatchers.Main) {
-                        removeProvisionalForBlock(audioBlockId)
+                    if (hasListHandle) {
+                        removeListProvisional(audioBlockId, "LIST_COMMAND")
                         if ((decision.action == VoiceListAction.TOGGLE ||
                                 decision.action == VoiceListAction.UNTICK ||
                                 decision.action == VoiceListAction.REMOVE) &&
                             result.matchedCount == 0
                         ) {
-                            showTopBubble(activity.getString(R.string.voice_list_item_not_found))
+                            withContext(Dispatchers.Main) {
+                                showTopBubble(activity.getString(R.string.voice_list_item_not_found))
+                            }
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            removeProvisionalForBlock(audioBlockId)
+                            if ((decision.action == VoiceListAction.TOGGLE ||
+                                    decision.action == VoiceListAction.UNTICK ||
+                                    decision.action == VoiceListAction.REMOVE) &&
+                                result.matchedCount == 0
+                            ) {
+                                showTopBubble(activity.getString(R.string.voice_list_item_not_found))
+                            }
                         }
                     }
+                    cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
                 }
-                cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
             }
 
             is ListVoiceExecutor.Result.Incomplete -> {
@@ -685,6 +694,13 @@ class MicBarController(
                 }
             }
         }
+    }
+
+    private fun cleanupVoiceCaptureReferences(audioBlockId: Long) {
+        textBlockIdByAudio.remove(audioBlockId)
+        groupIdByAudio.remove(audioBlockId)
+        rangesByBlock.remove(audioBlockId)
+        provisionalListItems.remove(audioBlockId)
     }
 
     private suspend fun createListProvisionalItem(

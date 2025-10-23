@@ -100,6 +100,7 @@ class ListVoiceExecutor(
 
     private suspend fun convertToPlain(noteId: Long?): Result = withContext(Dispatchers.IO) {
         val targetId = noteId ?: repo.createTextNote("")
+        repo.finalizeAllProvisional(targetId)
         val conversion = repo.convertNoteToPlain(targetId)
         val created = noteId == null
         val convertedCount = when (conversion) {
