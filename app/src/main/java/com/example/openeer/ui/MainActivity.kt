@@ -236,7 +236,12 @@ class MainActivity : AppCompatActivity() {
         // Note panel
         notePanel = NotePanelController(this, b)
         notePanel.attachTopBubble(topBubble)
-        notePanel.onOpenNoteChanged = { id -> maintainSelection(id) }
+        notePanel.onOpenNoteChanged = { id ->
+            maintainSelection(id)
+            if (::micCtl.isInitialized) {
+                micCtl.onOpenNoteChanged(id)
+            }
+        }
         notePanel.onPileCountsChanged = { counts -> applyPileCounts(counts) }
         b.mediaStrip.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
@@ -321,6 +326,7 @@ class MainActivity : AppCompatActivity() {
             onReplaceFinal = { body, addNewline -> notePanel.onReplaceFinal(body, addNewline) },
             showTopBubble = { message -> topBubble.show(message) }
         )
+        micCtl.onOpenNoteChanged(notePanel.openNoteId)
 
         handleOpenNoteIntent(intent)
 
