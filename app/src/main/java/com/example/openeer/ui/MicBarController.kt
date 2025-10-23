@@ -145,8 +145,13 @@ class MicBarController(
         binding.liveTranscriptionBar.isVisible = true
         binding.liveTranscriptionText.text = ""
 
-        val currentLength = binding.txtBodyDetail.text?.length ?: 0
-        provisionalBodyBuffer.beginSession(currentLength)
+        val currentBodyText = binding.txtBodyDetail.text?.toString().orEmpty()
+        val currentLength = currentBodyText.length
+        val noteSnapshot = getOpenNote()
+        val insertLeadingNewline = noteSnapshot?.isList() == false &&
+            currentBodyText.isNotEmpty() &&
+            !currentBodyText.endsWith('\n')
+        provisionalBodyBuffer.beginSession(currentLength, insertLeadingNewline)
 
         live = LiveTranscriber(activity).apply {
             onEvent = { event ->
@@ -588,18 +593,23 @@ class MicBarController(
         val safeStart = min(max(0, range.first), sb.length)
         // On a stocké endExclusive dans range.last → réutiliser tel quel.
         val safeEndExclusive = min(max(0, range.last), sb.length).let { it.coerceAtLeast(safeStart) }
+        val hasLeadingNewline = safeStart < safeEndExclusive && sb[safeStart] == '\n'
 
         // Enlever spans existants sur l’ancienne plage
         val oldSpans = sb.getSpans<Any>(safeStart, safeEndExclusive)
         for (sp in oldSpans) sb.removeSpan(sp)
 
         // Remplacer le texte
-        sb.replace(safeStart, safeEndExclusive, refined)
-        val newEnd = safeStart + refined.length
+        val replacement = if (hasLeadingNewline) "\n$refined" else refined
+        sb.replace(safeStart, safeEndExclusive, replacement)
+        val textStart = if (hasLeadingNewline) safeStart + 1 else safeStart
+        val newEnd = textStart + refined.length
 
         // Style "définitif"
-        sb.setSpan(StyleSpan(Typeface.BOLD), safeStart, newEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        sb.setSpan(ForegroundColorSpan(Color.BLACK), safeStart, newEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (refined.isNotEmpty()) {
+            sb.setSpan(StyleSpan(Typeface.BOLD), textStart, newEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            sb.setSpan(ForegroundColorSpan(Color.BLACK), textStart, newEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
 
         binding.txtBodyDetail.text = sb
         maybeCommitBody(sb)
@@ -607,7 +617,7 @@ class MicBarController(
 
         // Ajuster les ranges restants après remplacement (décalage éventuel)
         val oldLen = (safeEndExclusive - safeStart)
-        val newLen = (newEnd - safeStart)
+        val newLen = replacement.length
         val delta = newLen - oldLen
         if (delta != 0) {
             val updated = rangesByBlock.mapValues { (_, r) ->
@@ -762,9 +772,30 @@ class MicBarController(
         private var sessionStart: Int? = null
         private var sessionEnd: Int? = null
 
-        fun beginSession(currentLength: Int) {
+        fun beginSession(currentLength: Int, insertLeadingNewline: Boolean = false) {
             sessionStart = currentLength
             sessionEnd = currentLength
+
+            if (insertLeadingNewline) {
+                val sb = ensureSpannable()
+                val safeStart = currentLength.coerceIn(0, sb.length)
+                sb.insert(safeStart, "\n")
+                val newlineEnd = safeStart + 1
+                sb.setSpan(
+                    StyleSpan(Typeface.ITALIC),
+                    safeStart,
+                    newlineEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                sb.setSpan(
+                    ForegroundColorSpan(Color.parseColor("#9AA0A6")),
+                    safeStart,
+                    newlineEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                binding.txtBodyDetail.text = sb
+                sessionEnd = newlineEnd
+            }
         }
 
         fun append(text: String, addNewline: Boolean): IntRange? {
@@ -791,7 +822,8 @@ class MicBarController(
             )
             binding.txtBodyDetail.text = sb
 
-            return IntRange(start, endExclusive)
+            val rangeStart = sessionStart ?: start
+            return IntRange(rangeStart, endExclusive)
         }
 
         fun removeCurrentSession(): IntRange? {
