@@ -19,8 +19,14 @@ class VoiceListCommandParser {
             .replace(DIACRITICS_REGEX, "")
 
         CONVERT_PATTERN.find(lowered)?.let {
-            if (normalized.contains("liste") || assumeListContext) {
-                return Result.Command(VoiceListAction.CONVERT, emptyList())
+            val targetsText = TEXT_KEYWORD_REGEX.containsMatchIn(normalized)
+            val targetsList = LIST_KEYWORD_REGEX.containsMatchIn(normalized)
+
+            return when {
+                targetsText -> Result.Command(VoiceListAction.CONVERT_TO_TEXT, emptyList())
+                targetsList -> Result.Command(VoiceListAction.CONVERT_TO_LIST, emptyList())
+                assumeListContext -> Result.Command(VoiceListAction.CONVERT_TO_TEXT, emptyList())
+                else -> null
             }
         }
 
@@ -69,6 +75,8 @@ class VoiceListCommandParser {
     companion object {
         private val DIACRITICS_REGEX = "\\p{Mn}+".toRegex()
         private val CONVERT_PATTERN = Regex("^\\s*(convert(?:is|it|ir)?|transforme(?:r)?)\\b", RegexOption.IGNORE_CASE)
+        private val TEXT_KEYWORD_REGEX = Regex("\\btext(?:e|es)?\\b", RegexOption.IGNORE_CASE)
+        private val LIST_KEYWORD_REGEX = Regex("\\blist(?:e|es)?\\b", RegexOption.IGNORE_CASE)
         private val ADD_PATTERN = Regex("^\\s*(ajoute(?:r)?|rajoute(?:r)?)\\b", RegexOption.IGNORE_CASE)
         private val TOGGLE_PATTERN = Regex("^\\s*(coche(?:r)?)\\b", RegexOption.IGNORE_CASE)
         private val UNTICK_PATTERN = Regex("^\\s*(d[ée]coche(?:r)?)\\b", RegexOption.IGNORE_CASE)

@@ -35,7 +35,8 @@ class ListVoiceExecutor(
 
     suspend fun execute(noteId: Long?, command: VoiceRouteDecision.List): Result {
         return when (command.action) {
-            VoiceListAction.CONVERT -> convert(noteId)
+            VoiceListAction.CONVERT_TO_LIST -> convertToList(noteId)
+            VoiceListAction.CONVERT_TO_TEXT -> convertToPlain(noteId)
             VoiceListAction.ADD -> ensureListAnd(noteId) { ensured ->
                 val items = sanitizeItems(command.items)
                 if (items.isEmpty()) return@ensureListAnd Result.Incomplete(ensured.noteId, "empty_items")
@@ -70,7 +71,7 @@ class ListVoiceExecutor(
         }
     }
 
-    private suspend fun convert(noteId: Long?): Result = withContext(Dispatchers.IO) {
+    private suspend fun convertToList(noteId: Long?): Result = withContext(Dispatchers.IO) {
         val targetId = noteId ?: repo.createTextNote("")
         val conversion = repo.convertNoteToList(targetId)
         val created = noteId == null
@@ -82,12 +83,46 @@ class ListVoiceExecutor(
 
         if (convertedCount == null) {
             val error = IllegalStateException("Note $targetId not found for conversion")
-            Log.e(TAG, "decision=CONVERT failed note=$targetId", error)
+            Log.e(TAG, "decision=CONVERT_TO_LIST failed note=$targetId", error)
             return@withContext Result.Failure(targetId, error)
         }
 
-        Log.d(TAG, "decision=CONVERT items=[] note=$targetId matched=$convertedCount/$convertedCount")
-        Result.Success(targetId, VoiceListAction.CONVERT, emptyList(), convertedCount, convertedCount, created)
+        Log.d(TAG, "decision=CONVERT_TO_LIST items=[] note=$targetId matched=$convertedCount/$convertedCount")
+        Result.Success(
+            targetId,
+            VoiceListAction.CONVERT_TO_LIST,
+            emptyList(),
+            convertedCount,
+            convertedCount,
+            created
+        )
+    }
+
+    private suspend fun convertToPlain(noteId: Long?): Result = withContext(Dispatchers.IO) {
+        val targetId = noteId ?: repo.createTextNote("")
+        val conversion = repo.convertNoteToPlain(targetId)
+        val created = noteId == null
+        val convertedCount = when (conversion) {
+            is NoteRepository.NoteConversionResult.Converted -> conversion.itemCount
+            NoteRepository.NoteConversionResult.AlreadyTarget -> 0
+            NoteRepository.NoteConversionResult.NotFound -> null
+        }
+
+        if (convertedCount == null) {
+            val error = IllegalStateException("Note $targetId not found for conversion")
+            Log.e(TAG, "decision=CONVERT_TO_TEXT failed note=$targetId", error)
+            return@withContext Result.Failure(targetId, error)
+        }
+
+        Log.d(TAG, "decision=CONVERT_TO_TEXT items=[] note=$targetId matched=$convertedCount/$convertedCount")
+        Result.Success(
+            targetId,
+            VoiceListAction.CONVERT_TO_TEXT,
+            emptyList(),
+            convertedCount,
+            convertedCount,
+            created
+        )
     }
 
     private suspend fun ensureListAnd(noteId: Long?, block: suspend (EnsureResult) -> Result): Result {

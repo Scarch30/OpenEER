@@ -48,14 +48,21 @@ class VoiceCommandRouterTest {
     fun `convert command routes to list`() {
         val sentence = "Transforme cette note en liste"
         val decision = router.route(sentence)
-        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.CONVERT)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.CONVERT_TO_LIST)
     }
 
     @Test
-    fun `convert command without keyword uses list context`() {
+    fun `convert command routes to text in list context`() {
         val sentence = "Converti en texte"
         val decision = router.route(sentence, assumeListContext = true)
-        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.CONVERT)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.CONVERT_TO_TEXT)
+    }
+
+    @Test
+    fun `convert command without explicit target defaults to text in list context`() {
+        val sentence = "Converti la note"
+        val decision = router.route(sentence, assumeListContext = true)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.CONVERT_TO_TEXT)
     }
 
     @Test

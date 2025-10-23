@@ -81,7 +81,8 @@ sealed class VoiceRouteDecision(val logToken: String) {
 }
 
 enum class VoiceListAction {
-    CONVERT,
+    CONVERT_TO_LIST,
+    CONVERT_TO_TEXT,
     ADD,
     TOGGLE,
     UNTICK,
