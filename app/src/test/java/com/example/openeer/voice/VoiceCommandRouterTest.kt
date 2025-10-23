@@ -52,12 +52,28 @@ class VoiceCommandRouterTest {
     }
 
     @Test
+    fun `convert command without keyword uses list context`() {
+        val sentence = "Converti en texte"
+        val decision = router.route(sentence, assumeListContext = true)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.CONVERT)
+    }
+
+    @Test
     fun `add command extracts items`() {
         val sentence = "Ajoute lait, oeufs et farine à la liste"
         val decision = router.route(sentence)
         assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.ADD)
         decision as VoiceRouteDecision.List
         assertEquals(listOf("lait", "oeufs", "farine"), decision.items)
+    }
+
+    @Test
+    fun `add command without liste keyword uses list context`() {
+        val sentence = "Ajoute tomates"
+        val decision = router.route(sentence, assumeListContext = true)
+        assertTrue(decision is VoiceRouteDecision.List && decision.action == VoiceListAction.ADD)
+        decision as VoiceRouteDecision.List
+        assertEquals(listOf("tomates"), decision.items)
     }
 
     @Test
