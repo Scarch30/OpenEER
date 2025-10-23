@@ -810,29 +810,58 @@ class MicBarController(
         }
 
         fun append(text: String, addNewline: Boolean): IntRange? {
-            if (text.isBlank()) return null
-            val toAppend = if (addNewline) text + "\n" else text
-
             val current = binding.txtBodyDetail.text?.toString().orEmpty()
             val start = current.length
-            val endExclusive = start + toAppend.length
 
             if (sessionStart == null) {
                 beginSession(start)
             }
+
+            val sb = ensureSpannable()
+            var endExclusive = sb.length
+
+            if (text.isNotBlank()) {
+                val toAppend = if (addNewline) text + "\n" else text
+                val appendStart = sb.length
+                sb.append(toAppend)
+                val appendEnd = appendStart + toAppend.length
+                sb.setSpan(
+                    StyleSpan(Typeface.ITALIC),
+                    appendStart,
+                    appendEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                sb.setSpan(
+                    ForegroundColorSpan(Color.parseColor("#9AA0A6")),
+                    appendStart,
+                    appendEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                binding.txtBodyDetail.text = sb
+                endExclusive = appendEnd
+            } else if (addNewline) {
+                val newlineStart = sb.length
+                sb.append("\n")
+                val newlineEnd = newlineStart + 1
+                sb.setSpan(
+                    StyleSpan(Typeface.ITALIC),
+                    newlineStart,
+                    newlineEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                sb.setSpan(
+                    ForegroundColorSpan(Color.parseColor("#9AA0A6")),
+                    newlineStart,
+                    newlineEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                binding.txtBodyDetail.text = sb
+                endExclusive = newlineEnd
+            } else {
+                endExclusive = sb.length
+            }
+
             sessionEnd = endExclusive
-
-            val sb = ensureSpannable(current)
-            sb.append(toAppend)
-            sb.setSpan(StyleSpan(Typeface.ITALIC), start, endExclusive, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            sb.setSpan(
-                ForegroundColorSpan(Color.parseColor("#9AA0A6")),
-                start,
-                endExclusive,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-            binding.txtBodyDetail.text = sb
-
             val rangeStart = sessionStart ?: start
             return IntRange(rangeStart, endExclusive)
         }
