@@ -205,7 +205,6 @@ class NotePanelController(
             layoutManager = LinearLayoutManager(activity)
             adapter = listItemsAdapter
             itemAnimator = null
-            isNestedScrollingEnabled = false
         }
         binding.listAddItemInput.apply {
             setOnEditorActionListener { _, actionId, _ ->

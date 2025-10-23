@@ -104,7 +104,7 @@
         </LinearLayout>
 
         <!-- Corps défilant -->
-        <ScrollView
+        <androidx.core.widget.NestedScrollView
             android:id="@+id/scrollBody"
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -161,7 +161,6 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:overScrollMode="never"
-                            android:nestedScrollingEnabled="false"
                             android:paddingBottom="4dp"
                             android:visibility="gone" />
 
@@ -194,7 +193,7 @@
 
                 </LinearLayout>
             </FrameLayout>
-        </ScrollView>
+        </androidx.core.widget.NestedScrollView>
 
         <!-- Compteurs de piles -->
         <LinearLayout
