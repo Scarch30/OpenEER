@@ -10,7 +10,7 @@ class VoiceListCommandParser {
         object Incomplete : Result
     }
 
-    fun parse(text: String): Result? {
+    fun parse(text: String, assumeListContext: Boolean = false): Result? {
         val sanitized = text.trim()
         if (sanitized.isEmpty()) return null
 
@@ -19,7 +19,7 @@ class VoiceListCommandParser {
             .replace(DIACRITICS_REGEX, "")
 
         CONVERT_PATTERN.find(lowered)?.let {
-            if (normalized.contains("liste")) {
+            if (normalized.contains("liste") || assumeListContext) {
                 return Result.Command(VoiceListAction.CONVERT, emptyList())
             }
         }
@@ -28,7 +28,7 @@ class VoiceListCommandParser {
             val items = extractItems(sanitized.substring(match.range.last + 1))
             val cleaned = items.ifEmpty { extractItems(sanitized) }
             if (cleaned.isEmpty()) return Result.Incomplete
-            if (!normalized.contains("liste")) return null
+            if (!normalized.contains("liste") && !assumeListContext) return null
             return Result.Command(VoiceListAction.ADD, cleaned)
         }
 

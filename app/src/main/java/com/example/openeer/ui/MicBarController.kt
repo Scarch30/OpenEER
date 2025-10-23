@@ -255,7 +255,10 @@ class MicBarController(
                         try {
                             runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
                             val refinedText = WhisperService.transcribeWav(File(wavPath))
-                            val decision = voiceCommandRouter.route(refinedText)
+                            val decision = voiceCommandRouter.route(
+                                refinedText,
+                                assumeListContext = isListNote
+                            )
                             Log.d(
                                 "VoiceRoute",
                                 "Bloc #$audioBlockId → décision $decision pour \"$refinedText\""

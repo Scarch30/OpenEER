@@ -16,7 +16,7 @@ class VoiceCommandRouter(
     private val listCommandParser: VoiceListCommandParser = VoiceListCommandParser()
 ) {
 
-    fun route(finalWhisperText: String): VoiceRouteDecision {
+    fun route(finalWhisperText: String, assumeListContext: Boolean = false): VoiceRouteDecision {
         val trimmed = finalWhisperText.trim()
         if (!isVoiceCommandsEnabled()) {
             logDecision(VoiceRouteDecision.NOTE, trimmed)
@@ -26,7 +26,7 @@ class VoiceCommandRouter(
             logDecision(VoiceRouteDecision.NOTE, trimmed)
             return VoiceRouteDecision.NOTE
         }
-        when (val listResult = listCommandParser.parse(trimmed)) {
+        when (val listResult = listCommandParser.parse(trimmed, assumeListContext)) {
             is VoiceListCommandParser.Result.Command -> {
                 val decision = VoiceRouteDecision.List(listResult.action, listResult.items)
                 logDecision(decision, trimmed)
