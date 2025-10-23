@@ -145,6 +145,9 @@ class MicBarController(
         binding.liveTranscriptionBar.isVisible = true
         binding.liveTranscriptionText.text = ""
 
+        val currentLength = binding.txtBodyDetail.text?.length ?: 0
+        provisionalBodyBuffer.beginSession(currentLength)
+
         live = LiveTranscriber(activity).apply {
             onEvent = { event ->
                 when (event) {
@@ -433,7 +436,12 @@ class MicBarController(
                 removeListProvisional(audioBlockId, "REMINDER")
             } else {
                 withContext(Dispatchers.Main) {
-                    provisionalBodyBuffer.clear()
+                    val removed = provisionalBodyBuffer.removeCurrentSession()
+                    onProvisionalRangeRemoved(audioBlockId, removed)
+                    removed?.let {
+                        val sb = provisionalBodyBuffer.ensureSpannable()
+                        maybeCommitBody(sb)
+                    }
                 }
             }
             cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
@@ -573,6 +581,7 @@ class MicBarController(
             sb.setSpan(ForegroundColorSpan(Color.BLACK), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             binding.txtBodyDetail.text = sb
             maybeCommitBody(sb)
+            provisionalBodyBuffer.clearSession()
             return
         }
 
@@ -594,6 +603,7 @@ class MicBarController(
 
         binding.txtBodyDetail.text = sb
         maybeCommitBody(sb)
+        provisionalBodyBuffer.clearSession()
 
         // Ajuster les ranges restants après remplacement (décalage éventuel)
         val oldLen = (safeEndExclusive - safeStart)
@@ -635,6 +645,7 @@ class MicBarController(
             rangesByBlock.clear()
             rangesByBlock.putAll(updated)
         }
+        provisionalBodyBuffer.clearSession()
     }
 
     private suspend fun cleanupVoiceCaptureArtifacts(audioBlockId: Long, audioPath: String) {
@@ -730,7 +741,32 @@ class MicBarController(
         val initialText: String,
     )
 
+    private fun onProvisionalRangeRemoved(blockId: Long, removedRange: IntRange?) {
+        rangesByBlock.remove(blockId)
+        if (removedRange == null) return
+
+        val delta = removedRange.last - removedRange.first
+        if (delta <= 0) return
+
+        val endExclusive = removedRange.last
+        val updated = rangesByBlock.mapValues { (_, r) ->
+            if (r.first >= endExclusive) {
+                IntRange(r.first - delta, r.last - delta)
+            } else r
+        }
+        rangesByBlock.clear()
+        rangesByBlock.putAll(updated)
+    }
+
     private inner class ProvisionalBodyBuffer {
+        private var sessionStart: Int? = null
+        private var sessionEnd: Int? = null
+
+        fun beginSession(currentLength: Int) {
+            sessionStart = currentLength
+            sessionEnd = currentLength
+        }
+
         fun append(text: String, addNewline: Boolean): IntRange? {
             if (text.isBlank()) return null
             val toAppend = if (addNewline) text + "\n" else text
@@ -738,6 +774,11 @@ class MicBarController(
             val current = binding.txtBodyDetail.text?.toString().orEmpty()
             val start = current.length
             val endExclusive = start + toAppend.length
+
+            if (sessionStart == null) {
+                beginSession(start)
+            }
+            sessionEnd = endExclusive
 
             val sb = ensureSpannable(current)
             sb.append(toAppend)
@@ -753,6 +794,32 @@ class MicBarController(
             return IntRange(start, endExclusive)
         }
 
+        fun removeCurrentSession(): IntRange? {
+            val start = sessionStart ?: return null
+            val endExclusive = sessionEnd ?: start
+            val sb = ensureSpannable()
+            if (start >= sb.length) {
+                clearSession()
+                return IntRange(start, start)
+            }
+
+            val safeStart = start.coerceIn(0, sb.length)
+            val safeEndExclusive = endExclusive.coerceIn(safeStart, sb.length)
+            if (safeStart >= safeEndExclusive) {
+                clearSession()
+                return IntRange(safeStart, safeStart)
+            }
+
+            val spans = sb.getSpans<Any>(safeStart, safeEndExclusive)
+            spans.forEach { sb.removeSpan(it) }
+            sb.delete(safeStart, safeEndExclusive)
+            binding.txtBodyDetail.text = sb
+
+            val removed = IntRange(safeStart, safeEndExclusive)
+            clearSession()
+            return removed
+        }
+
         fun ensureSpannable(currentPlain: String? = null): SpannableStringBuilder {
             val cur = binding.txtBodyDetail.text
             return when (cur) {
@@ -764,6 +831,12 @@ class MicBarController(
 
         fun clear() {
             binding.txtBodyDetail.text = null
+            clearSession()
+        }
+
+        fun clearSession() {
+            sessionStart = null
+            sessionEnd = null
         }
 
         fun commitToNote(noteId: Long, text: String) {
