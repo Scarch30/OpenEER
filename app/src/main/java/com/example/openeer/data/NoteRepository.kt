@@ -218,6 +218,15 @@ class NoteRepository(
         listItemDao.finalizeText(itemId, text)
     }
 
+    suspend fun finalizeAllProvisional(noteId: Long) = withContext(Dispatchers.IO) {
+        val items = listItemDao.listForNote(noteId)
+        for (item in items) {
+            if (item.provisional) {
+                listItemDao.finalizeText(item.id, item.text)
+            }
+        }
+    }
+
     suspend fun removeItem(itemId: Long) = withContext(Dispatchers.IO) {
         listItemDao.delete(itemId)
     }
