@@ -262,10 +262,20 @@ class MicBarController(
                         Log.d("MicCtl", "Lancement de l'affinage Whisper pour le bloc #$audioBlockId")
                         try {
                             runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
-                            val refinedText = WhisperService.transcribeWav(File(wavPath))
+                            val refinedText = WhisperService.transcribeWav(File(wavPath)).trim()
+
+                            // 🔹 Heuristique robuste pour le contexte liste :
+                            //    - si la note est déjà LIST (UI), OK
+                            //    - si on a créé un provisoire de liste, c’est qu’on est en logique LIST
+                            //    - si l’énoncé contient “liste”, on force le contexte liste
+                            val hintList =
+                                isListNote ||
+                                        (provisionalList != null) ||
+                                        refinedText.contains("liste", ignoreCase = true)
+
                             val decision = voiceCommandRouter.route(
                                 refinedText,
-                                assumeListContext = isListNote
+                                assumeListContext = hintList
                             )
                             Log.d(
                                 "VoiceRoute",
@@ -375,6 +385,7 @@ class MicBarController(
             }
         }
     }
+
 
 
 
