@@ -46,7 +46,7 @@ import com.example.openeer.data.tag.TagEntity
         FavoriteEntity::class,
         ListItemEntity::class
     ],
-    version = 22, // 🔼 bump : ajout favoris + note.type + list items + provisional flag
+    version = 23, // 🔼 bump : alignement table reminders avec schéma Room
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -466,6 +466,85 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS reminders_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            noteId INTEGER NOT NULL,
+                            blockId INTEGER,
+                            label TEXT,
+                            type TEXT NOT NULL,
+                            nextTriggerAt INTEGER NOT NULL,
+                            lastFiredAt INTEGER,
+                            lat REAL,
+                            lon REAL,
+                            radius INTEGER,
+                            status TEXT NOT NULL,
+                            cooldownMinutes INTEGER,
+                            repeatEveryMinutes INTEGER,
+                            triggerOnExit INTEGER NOT NULL,
+                            disarmedUntilExit INTEGER NOT NULL,
+                            delivery TEXT NOT NULL,
+                            armedAt INTEGER,
+                            FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE,
+                            FOREIGN KEY(blockId) REFERENCES blocks(id) ON DELETE SET NULL
+                        )
+                    """.trimIndent()
+                )
+
+                db.execSQL(
+                    """
+                        INSERT INTO reminders_new (
+                            id,
+                            noteId,
+                            blockId,
+                            label,
+                            type,
+                            nextTriggerAt,
+                            lastFiredAt,
+                            lat,
+                            lon,
+                            radius,
+                            status,
+                            cooldownMinutes,
+                            repeatEveryMinutes,
+                            triggerOnExit,
+                            disarmedUntilExit,
+                            delivery,
+                            armedAt
+                        )
+                        SELECT
+                            id,
+                            noteId,
+                            blockId,
+                            label,
+                            type,
+                            nextTriggerAt,
+                            lastFiredAt,
+                            lat,
+                            lon,
+                            radius,
+                            status,
+                            cooldownMinutes,
+                            repeatEveryMinutes,
+                            CASE WHEN triggerOnExit IS NOT NULL AND triggerOnExit != 0 THEN 1 ELSE 0 END,
+                            CASE WHEN disarmedUntilExit IS NOT NULL AND disarmedUntilExit != 0 THEN 1 ELSE 0 END,
+                            CASE WHEN delivery IS NULL OR delivery = '' THEN 'NOTIFICATION' ELSE delivery END,
+                            armedAt
+                        FROM reminders
+                    """.trimIndent()
+                )
+
+                db.execSQL("DROP TABLE reminders")
+                db.execSQL("ALTER TABLE reminders_new RENAME TO reminders")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_noteId ON reminders(noteId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_blockId ON reminders(blockId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_status_nextTriggerAt ON reminders(status, nextTriggerAt)")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -494,7 +573,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_18_19,
                         MIGRATION_19_20,
                         MIGRATION_20_21,
-                        MIGRATION_21_22
+                        MIGRATION_21_22,
+                        MIGRATION_22_23
                     )
                     .build()
                     .also { INSTANCE = it }
