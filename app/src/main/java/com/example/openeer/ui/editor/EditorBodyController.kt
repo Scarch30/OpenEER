@@ -62,7 +62,8 @@ class EditorBodyController(
 
     fun exitEditUi() {
         updateEditUi(false)
-        binding.scrollBody.requestDisallowInterceptTouchEvent(false)
+        // ❌ ne plus bloquer le scroll parent (laisse la RV scroller librement)
+        // binding.scrollBody.requestDisallowInterceptTouchEvent(false)
         onActiveBodyViewChanged(activeBodyView())
     }
 
@@ -161,7 +162,8 @@ class EditorBodyController(
         }
         updateEditUi(true)
         onActiveBodyViewChanged(overlay)
-        binding.scrollBody.requestDisallowInterceptTouchEvent(true)
+        // ❌ ne plus bloquer le scroll parent
+        // binding.scrollBody.requestDisallowInterceptTouchEvent(true)
     }
 
     private fun computeSelection(target: EditText, caretPosition: Int?): Int {
@@ -197,13 +199,19 @@ class EditorBodyController(
             if (visible != keyboardVisible) {
                 keyboardVisible = visible
                 if (!visible) {
-                    // Clavier fermé → commit du texte au lieu d’un simple exit (qui faisait “disparaître” l’affichage)
-                    commitInlineEdit(editingNoteId)
+                    // ✅ commit uniquement si l’overlay est vraiment actif & focus
+                    val overlay = editOverlay
+                    if (overlay != null && overlay.isShown && overlay.hasFocus()) {
+                        commitInlineEdit(editingNoteId)
+                    } else {
+                        // sinon, ne fais rien : pas de saut d’UI
+                        updateEditUi(false)
+                    }
                 } else if (editOverlay != null) {
                     updateEditUi(true)
                 }
+                onActiveBodyViewChanged(activeBodyView())
             }
-            onActiveBodyViewChanged(activeBodyView())
         }
     }
 

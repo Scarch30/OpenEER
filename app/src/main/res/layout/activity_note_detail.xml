@@ -1,27 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
+<androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:fitsSystemWindows="true"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/toolbar"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="?attr/actionBarSize"
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
         android:background="?attr/colorSurface"
-        android:elevation="4dp" />
+        android:elevation="4dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Zone scrollable qui s’étend entre la toolbar et le footer -->
     <ScrollView
-        android:layout_width="match_parent"
+        android:id="@+id/scrollNote"
+        android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true">
+        android:fillViewport="true"
+        android:overScrollMode="ifContentScrolls"
+        app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintBottom_toTopOf="@id/footer"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
         <LinearLayout
+            android:id="@+id/scrollContent"
             android:orientation="vertical"
             android:padding="16dp"
             android:layout_width="match_parent"
@@ -39,6 +49,10 @@
                 android:clickable="true"
                 android:focusable="true" />
 
+            <!--
+                Ici, dans la vraie app, tu peux avoir soit le body texte,
+                soit le conteneur de la liste / RecyclerView, etc.
+             -->
             <TextView
                 android:id="@+id/txtBody"
                 android:text="(transcription en cours…)"
@@ -49,86 +63,100 @@
         </LinearLayout>
     </ScrollView>
 
-    <!-- Barre micro (PTT + swipe pour mains libres), identique à Main -->
+    <!-- FOOTER non scrollable, collé en bas -->
     <LinearLayout
-        android:id="@+id/btnMicBar"
-        android:layout_width="match_parent"
-        android:layout_height="84dp"
-        android:background="@drawable/bg_record_bar"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:gravity="center"
-        android:clickable="true"
-        android:focusable="true">
-
-        <ImageView
-            android:id="@+id/iconMic"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:src="@android:drawable/ic_btn_speak_now"
-            android:contentDescription="Micro" />
-
-        <TextView
-            android:id="@+id/labelMic"
-            android:text="Appuyez pour parler"
-            android:textSize="18sp"
-            android:alpha="0.9"
-            android:layout_marginStart="12dp"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-    </LinearLayout>
-
-    <Button
-        android:id="@+id/btnPlay"
-        android:text="Lecture"
-        android:layout_width="match_parent"
+        android:id="@+id/footer"
+        android:orientation="vertical"
+        android:animateLayoutChanges="true"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:enabled="false"
-        android:padding="16dp" />
+        app:layout_constrainedHeight="true"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
-    <!-- Métadonnées de la note -->
-    <LinearLayout
-        android:id="@+id/noteMetaFooterRow"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/noteMetaFooter"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="13sp"
-            android:singleLine="true"
-            android:ellipsize="end" />
-
-        <TextView
-            android:id="@+id/noteReminderBadge"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:minWidth="32dp"
+        <!-- Barre micro -->
+        <LinearLayout
+            android:id="@+id/btnMicBar"
+            android:layout_width="match_parent"
+            android:layout_height="84dp"
+            android:background="@drawable/bg_record_bar"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
             android:gravity="center"
-            android:padding="4dp"
-            android:text="🕑"
-            android:textSize="16sp"
-            android:visibility="gone"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@null"
-            android:focusable="true"
             android:clickable="true"
-            android:importantForAccessibility="yes" />
+            android:focusable="true">
+
+            <ImageView
+                android:id="@+id/iconMic"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:src="@android:drawable/ic_btn_speak_now"
+                android:contentDescription="Micro" />
+
+            <TextView
+                android:id="@+id/labelMic"
+                android:text="Appuyez pour parler"
+                android:textSize="18sp"
+                android:alpha="0.9"
+                android:layout_marginStart="12dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnPlay"
+            android:text="Lecture"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:padding="16dp" />
+
+        <!-- Métadonnées de la note -->
+        <LinearLayout
+            android:id="@+id/noteMetaFooterRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/noteMetaFooter"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textSize="13sp"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/noteReminderBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:minWidth="32dp"
+                android:gravity="center"
+                android:padding="4dp"
+                android:text="🕑"
+                android:textSize="16sp"
+                android:visibility="gone"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@null"
+                android:focusable="true"
+                android:clickable="true"
+                android:importantForAccessibility="yes" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReminders"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAllCaps="false"
+            android:visibility="gone" />
     </LinearLayout>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnReminders"
-        style="@style/Widget.Material3.Button.TextButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textAllCaps="false"
-        android:visibility="gone" />
-</LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>
