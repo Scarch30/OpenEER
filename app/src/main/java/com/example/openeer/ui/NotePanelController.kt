@@ -481,17 +481,30 @@ class NotePanelController(
             )
             return
         }
+
+        // Étape 2 — le flux Room émet la liste
+        val noteId = openNoteId ?: -1L
+        val ids = items.joinToString { it.id.toString() }
         Log.d(
             LIST_LOG_TAG,
-            "ListUI: render note=${openNoteId ?: "<none>"} items=${items.size}."
+            "emit note=$noteId size=${items.size} ids=[$ids]"
         )
+
         binding.listItemsContainer.isVisible = true
         binding.listItemsPlaceholder.isVisible = items.isEmpty()
         binding.listItemsRecycler.isVisible = items.isNotEmpty()
+
+        // Étape 3 — avant submit
+        Log.d(LIST_LOG_TAG, "submit start: adapterCount(before)=${listItemsAdapter.itemCount}")
+
         listItemsAdapter.submitList(items) {
-            if (pendingScrollToBottom) {
-                binding.scrollBody.post {
-                    binding.scrollBody.smoothScrollTo(0, binding.listAddItemInput.bottom)
+            Log.d(LIST_LOG_TAG, "submit done: adapterCount(after)=${listItemsAdapter.itemCount}")
+
+            if (pendingScrollToBottom && items.isNotEmpty()) {
+                binding.listItemsRecycler.post {
+                    // ⚠️ scroller la RecyclerView, pas le ScrollView parent
+                    binding.listItemsRecycler.scrollToPosition(items.size - 1)
+                    Log.d(LIST_LOG_TAG, "rv.scrollToPosition executed (pos=${items.size - 1})")
                 }
                 pendingScrollToBottom = false
             }
@@ -1013,16 +1026,42 @@ class NotePanelController(
 
     private fun tryHighlightBlock(blockId: Long): Boolean {
         val view = blockViews[blockId] ?: return false
-        binding.scrollBody.post {
-            val density = view.resources.displayMetrics.density
-            val offset = (16 * density).toInt()
-            val targetY = (view.top - offset).coerceAtLeast(0)
-            binding.scrollBody.smoothScrollTo(0, targetY)
-            flashView(view)
+
+        // Essaie d'abord via la RecyclerView (si la vue est un item RV)
+        val rv = binding.listItemsRecycler
+        val isInRv = view.parent === rv
+
+        if (isInRv) {
+            val lm = rv.layoutManager as? LinearLayoutManager
+            val pos = rv.getChildAdapterPosition(view)
+            rv.post {
+                val density = view.resources.displayMetrics.density
+                val offsetPx = (16 * density).toInt()
+
+                if (pos != RecyclerView.NO_POSITION && lm != null) {
+                    // Scroll précis avec offset (la ligne apparaît sous la barre)
+                    lm.scrollToPositionWithOffset(pos, -offsetPx)
+                } else {
+                    // Position inconnue → au pire on va en bas
+                    rv.smoothScrollToPosition((rv.adapter?.itemCount ?: 1) - 1)
+                }
+                flashView(view)
+            }
+        } else {
+            // Fallback : vue hors RV → on scrolle le parent comme avant
+            binding.scrollBody.post {
+                val density = view.resources.displayMetrics.density
+                val offset = (16 * density).toInt()
+                val targetY = (view.top - offset).coerceAtLeast(0)
+                binding.scrollBody.smoothScrollTo(0, targetY)
+                flashView(view)
+            }
         }
+
         pendingHighlightBlockId = null
         return true
     }
+
 
     private fun flashView(view: View) {
         view.animate().cancel()

@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.Flow
 interface ListItemDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: ListItemEntity): Long
+    @Query("SELECT * FROM list_items WHERE id = :id")
+    suspend fun findById(id: Long): ListItemEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<ListItemEntity>): List<Long>

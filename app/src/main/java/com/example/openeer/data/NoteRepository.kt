@@ -20,6 +20,8 @@ import kotlin.collections.buildList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withContext
+import androidx.room.withTransaction
 
 class NoteRepository(
     private val appContext: Context,
@@ -189,14 +191,42 @@ class NoteRepository(
 
     suspend fun addItem(noteId: Long, text: String): Long = withContext(Dispatchers.IO) {
         database.withTransaction {
+            val t = text.trim()
+            if (t.isEmpty()) {
+                Log.w("DB", "addItem ignored: empty text (note=$noteId)")
+                return@withTransaction -1L
+            }
+
             val currentMax = listItemDao.maxOrderForNote(noteId) ?: -1
+            val nextOrder = currentMax + 1
+
             val entity = ListItemEntity(
                 noteId = noteId,
-                text = text,
-                order = currentMax + 1,
+                text = t,
+                order = nextOrder,
                 createdAt = System.currentTimeMillis()
             )
-            listItemDao.insert(entity)
+
+            val id = listItemDao.insert(entity)
+
+            // 🔎 Log de contrôle insertion
+            Log.i(
+                "DB",
+                "addItem ok: id=$id note=$noteId text=\"$t\" order=$nextOrder createdAt=${entity.createdAt}"
+            )
+
+            // (Optionnel mais utile) — relis la ligne pour voir ce que Room a vraiment écrit
+            // Si tu n'as pas déjà cette méthode, ajoute la dans le DAO (voir plus bas)
+            runCatching { listItemDao.findById(id) }.onSuccess { row ->
+                if (row != null) {
+                    Log.i(
+                        "DB",
+                        "row(id=$id): note=${row.noteId} text=\"${row.text}\" order=${row.order} createdAt=${row.createdAt}"
+                    )
+                }
+            }
+
+            id
         }
     }
 
