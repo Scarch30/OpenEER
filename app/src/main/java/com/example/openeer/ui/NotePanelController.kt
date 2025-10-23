@@ -422,7 +422,14 @@ class NotePanelController(
     }
 
     private fun tryAddListItem(): Boolean {
-        if (!listMode) return false
+        if (!listMode) {
+            val noteId = openNoteId
+            Log.w(
+                LIST_LOG_TAG,
+                "ListUI: tryAddListItem ignored — listMode=false note=${noteId ?: "<none>"}."
+            )
+            return false
+        }
         val raw = binding.listAddItemInput.text?.toString() ?: return false
         val text = raw.trim()
         if (text.isEmpty()) {
@@ -443,9 +450,13 @@ class NotePanelController(
     }
 
     private fun ensureListObservation(noteId: Long) {
-        if (observedListNoteId == noteId && listItemsJob?.isActive == true) return
+        if (observedListNoteId == noteId && listItemsJob?.isActive == true) {
+            Log.d(LIST_LOG_TAG, "ListUI: observation already active for note=$noteId.")
+            return
+        }
         listItemsJob?.cancel()
         observedListNoteId = noteId
+        Log.d(LIST_LOG_TAG, "ListUI: start observing items for note=$noteId.")
         listItemsJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 repo.listItems(noteId).collectLatest { items ->
@@ -456,13 +467,24 @@ class NotePanelController(
     }
 
     private fun stopListObservation() {
+        observedListNoteId?.let { Log.d(LIST_LOG_TAG, "ListUI: stop observing items for note=$it.") }
         listItemsJob?.cancel()
         listItemsJob = null
         observedListNoteId = null
     }
 
     private fun renderListItems(items: List<ListItemEntity>) {
-        if (!listMode) return
+        if (!listMode) {
+            Log.w(
+                LIST_LOG_TAG,
+                "ListUI: render skipped — listMode=false note=${openNoteId ?: "<none>"} items=${items.size}."
+            )
+            return
+        }
+        Log.d(
+            LIST_LOG_TAG,
+            "ListUI: render note=${openNoteId ?: "<none>"} items=${items.size}."
+        )
         binding.listItemsContainer.isVisible = true
         binding.listItemsPlaceholder.isVisible = items.isEmpty()
         binding.listItemsRecycler.isVisible = items.isNotEmpty()
@@ -515,7 +537,14 @@ class NotePanelController(
     }
 
     private fun updateListUi(note: Note) {
+        val previousMode = listMode
         val shouldShowList = FeatureFlags.listsEnabled && note.isList()
+        if (previousMode != shouldShowList) {
+            Log.i(
+                LIST_LOG_TAG,
+                "ListUI: mode change note=${note.id} type=${note.type} -> listMode=$shouldShowList (was $previousMode)."
+            )
+        }
         listMode = shouldShowList
         binding.txtBodyDetail.isVisible = !shouldShowList
         binding.listItemsContainer.isVisible = shouldShowList
@@ -523,12 +552,22 @@ class NotePanelController(
         binding.noteBodySurface.isClickable = !shouldShowList
 
         if (shouldShowList) {
+            Log.d(
+                LIST_LOG_TAG,
+                "ListUI: enabling list UI note=${note.id} items=${listItemsAdapter.currentList.size}."
+            )
             ensureListObservation(note.id)
             if (listItemsAdapter.currentList.isEmpty()) {
                 binding.listItemsPlaceholder.isVisible = true
                 binding.listItemsRecycler.isGone = true
             }
         } else {
+            if (previousMode) {
+                Log.w(
+                    LIST_LOG_TAG,
+                    "ListUI: disabling list UI note=${note.id} type=${note.type} items=${listItemsAdapter.currentList.size}."
+                )
+            }
             pendingScrollToBottom = false
             binding.listItemsPlaceholder.isGone = true
             binding.listItemsRecycler.isGone = true
