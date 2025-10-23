@@ -780,9 +780,7 @@ class NotePanelController(
 
         visibleBlocks.forEach { block ->
             val view = when (block.type) {
-                BlockType.TEXT -> if (block.groupId == null) {
-                    BlockRenderers.createTextBlockView(container.context, block, margin, activity)
-                } else null
+                BlockType.TEXT -> null // 🗒️ Post-its s'affichent uniquement dans la pile dédiée
                 BlockType.SKETCH,
                 BlockType.PHOTO,
                 BlockType.VIDEO,
