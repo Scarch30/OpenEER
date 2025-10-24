@@ -420,6 +420,7 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         cancelButton = view.findViewById(R.id.btnCancel)
         validateButton = view.findViewById(R.id.btnValidate)
         badgeView = view.findViewById<TextView>(R.id.badgeChild)
+        view.findViewById<TextView>(R.id.postitTitle)?.visibility = View.GONE
         menuButton = view.findViewById(R.id.btnMenu)
         checklistContainer = view.findViewById(R.id.checklistContainer) as? LinearLayout
         checklistRecycler = view.findViewById(R.id.checklistRecycler)
