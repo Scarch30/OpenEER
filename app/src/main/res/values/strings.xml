@@ -81,6 +81,19 @@
     <string name="note_list_delete_title">Supprimer l’élément ?</string>
     <string name="note_list_delete_message">Cette action retirera l’élément de la liste.</string>
     <string name="note_list_delete_positive">Supprimer</string>
+    <plurals name="note_list_selection_count">
+        <item quantity="one">%d élément coché</item>
+        <item quantity="other">%d éléments cochés</item>
+    </plurals>
+    <string name="note_list_selection_delete">Supprimer</string>
+    <string name="note_list_selection_copy">Copier</string>
+    <string name="note_list_selection_reminder">Rappel</string>
+    <plurals name="note_list_copy_toast">
+        <item quantity="one">%d élément copié dans le presse-papiers</item>
+        <item quantity="other">%d éléments copiés dans le presse-papiers</item>
+    </plurals>
+    <string name="note_list_copy_empty">Les éléments cochés sont vides.</string>
+    <string name="note_list_reminder_empty">Ajoutez du texte aux éléments cochés pour créer un rappel.</string>
     <string name="menu_create_global_reminder">Créer un rappel</string>
     <string name="reminder_cancel_action">Annuler le rappel</string>
     <string name="reminder_cancelled">Rappel annulé</string>

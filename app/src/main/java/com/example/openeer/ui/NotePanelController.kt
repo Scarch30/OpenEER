@@ -1,6 +1,8 @@
 // app/src/main/java/com/example/openeer/ui/NotePanelController.kt
 package com.example.openeer.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -217,6 +219,19 @@ class NotePanelController(
                     tryAddListItem()
                 } else false
             }
+        }
+
+        binding.btnListSelectionDelete.apply {
+            isEnabled = false
+            setOnClickListener { deleteSelectedListItems() }
+        }
+        binding.btnListSelectionCopy.apply {
+            isEnabled = false
+            setOnClickListener { copySelectedListItems() }
+        }
+        binding.btnListSelectionReminder.apply {
+            isEnabled = false
+            setOnClickListener { createReminderFromSelectedItems() }
         }
 
         binding.scrollBody.viewTreeObserver.addOnScrollChangedListener {
@@ -496,6 +511,8 @@ class NotePanelController(
         // Étape 3 — avant submit
         Log.d(LIST_LOG_TAG, "submit start: adapterCount(before)=${listItemsAdapter.itemCount}")
 
+        updateListSelectionUi(items)
+
         listItemsAdapter.submitList(items) {
             Log.d(LIST_LOG_TAG, "submit done: adapterCount(after)=${listItemsAdapter.itemCount}")
 
@@ -526,6 +543,87 @@ class NotePanelController(
             repo.updateItemText(itemId, text)
             Log.i(LIST_LOG_TAG, "ListUI: edit note=$noteId item=$itemId.")
         }
+    }
+
+    private fun currentCheckedListItems(): List<ListItemEntity> =
+        listItemsAdapter.currentList.filter { it.done }
+
+    private fun updateListSelectionUi(items: List<ListItemEntity>) {
+        if (!listMode) {
+            binding.listSelectionBar.isGone = true
+            binding.listSelectionCounter.text = ""
+            binding.btnListSelectionDelete.isEnabled = false
+            binding.btnListSelectionCopy.isEnabled = false
+            binding.btnListSelectionReminder.isEnabled = false
+            return
+        }
+
+        val selected = items.filter { it.done }
+        val count = selected.size
+        binding.listSelectionBar.isVisible = count > 0
+        if (count > 0) {
+            binding.listSelectionCounter.text = activity.resources.getQuantityString(
+                R.plurals.note_list_selection_count,
+                count,
+                count
+            )
+        } else {
+            binding.listSelectionCounter.text = ""
+        }
+
+        binding.btnListSelectionDelete.isEnabled = count > 0
+        val hasText = selected.any { it.text.isNotBlank() }
+        binding.btnListSelectionCopy.isEnabled = count > 0 && hasText
+        binding.btnListSelectionReminder.isEnabled = count > 0 && hasText
+    }
+
+    private fun deleteSelectedListItems() {
+        val noteId = openNoteId ?: return
+        val selected = currentCheckedListItems()
+        if (selected.isEmpty()) return
+        val ids = selected.map { it.id }
+        activity.lifecycleScope.launch {
+            repo.removeItems(ids)
+            Log.i(
+                LIST_LOG_TAG,
+                "ListUI: bulk delete note=$noteId items=${ids.joinToString()}"
+            )
+        }
+    }
+
+    private fun copySelectedListItems() {
+        val selected = currentCheckedListItems()
+        if (selected.isEmpty()) return
+        val texts = selected.mapNotNull { it.text.trim().takeIf { text -> text.isNotEmpty() } }
+        if (texts.isEmpty()) {
+            activity.toast(R.string.note_list_copy_empty)
+            return
+        }
+        val joined = texts.joinToString(separator = "\n")
+        val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("list_items", joined)
+        clipboard.setPrimaryClip(clip)
+        val message = activity.resources.getQuantityString(
+            R.plurals.note_list_copy_toast,
+            texts.size,
+            texts.size
+        )
+        activity.toast(message)
+    }
+
+    private fun createReminderFromSelectedItems() {
+        val noteId = openNoteId ?: return
+        val selected = currentCheckedListItems()
+        if (selected.isEmpty()) return
+        val texts = selected.mapNotNull { it.text.trim().takeIf { text -> text.isNotEmpty() } }
+        if (texts.isEmpty()) {
+            activity.toast(R.string.note_list_reminder_empty)
+            return
+        }
+        val label = texts.joinToString(separator = "\n") { "• $it" }
+        BottomSheetReminderPicker
+            .newInstance(noteId, initialLabel = label)
+            .show(activity.supportFragmentManager, "reminder_picker_from_selection")
     }
 
     private fun confirmRemoveListItem(item: ListItemEntity) {
@@ -573,6 +671,7 @@ class NotePanelController(
                 binding.listItemsPlaceholder.isVisible = true
                 binding.listItemsRecycler.isGone = true
             }
+            updateListSelectionUi(listItemsAdapter.currentList)
         } else {
             if (previousMode) {
                 Log.w(
@@ -587,6 +686,11 @@ class NotePanelController(
             binding.listAddItemInput.clearFocus()
             stopListObservation()
             listItemsAdapter.submitList(emptyList())
+            binding.listSelectionBar.isGone = true
+            binding.listSelectionCounter.text = ""
+            binding.btnListSelectionDelete.isEnabled = false
+            binding.btnListSelectionCopy.isEnabled = false
+            binding.btnListSelectionReminder.isEnabled = false
         }
     }
 
