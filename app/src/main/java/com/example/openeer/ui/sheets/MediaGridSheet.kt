@@ -95,7 +95,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         BlocksRepository(
             blockDao = db.blockDao(),
             noteDao  = db.noteDao(),
-            linkDao  = db.blockLinkDao()
+            linkDao  = db.blockLinkDao(),
+            listItemDao = db.listItemDao(),
         )
     }
 
@@ -329,7 +330,12 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                                 }
                             BlockType.TEXT -> {
                                 val linkedToVideo = block.groupId != null && block.groupId in videoGroupIds
-                                if (linkedToVideo) MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty()) else null
+                                if (linkedToVideo) MediaStripItem.Text(
+                                    blockId = block.id,
+                                    noteId = block.noteId,
+                                    content = block.text.orEmpty(),
+                                    isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                                ) else null
                             }
                             else -> null
                         }
@@ -345,7 +351,12 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                                 }
                             BlockType.TEXT -> {
                                 val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
-                                if (linkedToAudio) MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty()) else null
+                                if (linkedToAudio) MediaStripItem.Text(
+                                    blockId = block.id,
+                                    noteId = block.noteId,
+                                    content = block.text.orEmpty(),
+                                    isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                                ) else null
                             }
                             else -> null
                         }
@@ -355,7 +366,12 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                                 val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
                                 val linkedToVideo = block.groupId != null && block.groupId in videoGroupIds
                                 if (!linkedToAudio && !linkedToVideo) {
-                                    MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
+                                    MediaStripItem.Text(
+                                        blockId = block.id,
+                                        noteId = block.noteId,
+                                        content = block.text.orEmpty(),
+                                        isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                                    )
                                 } else null
                             } else null
                         }

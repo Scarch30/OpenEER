@@ -16,6 +16,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import android.view.inputmethod.EditorInfo
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
@@ -124,7 +125,8 @@ class NotePanelController(
         BlocksRepository(
             blockDao = db.blockDao(),
             noteDao  = db.noteDao(),
-            linkDao  = db.blockLinkDao()   // ✅ liens AUDIO↔TEXTE / VIDEO↔TEXTE
+            linkDao  = db.blockLinkDao(),  // ✅ liens AUDIO↔TEXTE / VIDEO↔TEXTE
+            listItemDao = db.listItemDao(),
         )
     }
 
@@ -137,8 +139,54 @@ class NotePanelController(
                 mediaActions.handlePileClick(noteId, category)
             }
         },
-        onLongPress = { view, item -> mediaActions.showMenu(view, item) }
+        onLongPress = { view, item -> mediaActions.showMenu(view, item) },
+        onTextMenuAction = { item, action -> handleTextBlockMenuAction(item, action) },
     )
+
+    private fun handleTextBlockMenuAction(item: MediaStripItem.Text, action: MediaStripAdapter.TextMenuAction) {
+        activity.lifecycleScope.launch {
+            val result = when (action) {
+                MediaStripAdapter.TextMenuAction.CONVERT_TO_LIST -> blocksRepo.convertTextBlockToList(item.blockId)
+                MediaStripAdapter.TextMenuAction.CONVERT_TO_TEXT -> blocksRepo.convertListBlockToText(item.blockId)
+            }
+            handleBlockConversionResult(result, action)
+        }
+    }
+
+    private fun handleBlockConversionResult(
+        result: BlocksRepository.BlockConversionResult,
+        action: MediaStripAdapter.TextMenuAction,
+    ) {
+        val ctx = activity
+        when (result) {
+            is BlocksRepository.BlockConversionResult.Converted -> {
+                val messageRes = if (action == MediaStripAdapter.TextMenuAction.CONVERT_TO_LIST) {
+                    R.string.block_convert_to_list_success
+                } else {
+                    R.string.block_convert_to_text_success
+                }
+                val message = ctx.getString(messageRes, result.itemCount)
+                Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
+            }
+            BlocksRepository.BlockConversionResult.AlreadyTarget -> {
+                val res = if (action == MediaStripAdapter.TextMenuAction.CONVERT_TO_LIST) {
+                    R.string.block_convert_already_list
+                } else {
+                    R.string.block_convert_already_text
+                }
+                Toast.makeText(ctx, res, Toast.LENGTH_SHORT).show()
+            }
+            BlocksRepository.BlockConversionResult.EmptySource -> {
+                Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+            }
+            BlocksRepository.BlockConversionResult.NotFound -> {
+                Toast.makeText(ctx, R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
+            }
+            BlocksRepository.BlockConversionResult.Unsupported -> {
+                Toast.makeText(ctx, R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     private val listItemsAdapter = NoteListItemsAdapter(
         onToggle = { itemId -> toggleListItem(itemId) },
@@ -1025,15 +1073,30 @@ class NotePanelController(
                         linkedToAudio -> {
                             transcriptsLinkedToAudio += 1
                             // On les collecte pour compter côté AUDIO/VIDEO, mais on ne les montrera pas dans la pile TEXT
-                            transcriptTextItems += MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
+                            transcriptTextItems += MediaStripItem.Text(
+                                blockId = block.id,
+                                noteId = block.noteId,
+                                content = block.text.orEmpty(),
+                                isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                            )
                         }
                         linkedToVideo -> {
                             transcriptsLinkedToVideo += 1
-                            transcriptTextItems += MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
+                            transcriptTextItems += MediaStripItem.Text(
+                                blockId = block.id,
+                                noteId = block.noteId,
+                                content = block.text.orEmpty(),
+                                isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                            )
                         }
                         else -> {
                             // ✅ TEXT sans groupId → considéré comme "post-it" saisi au clavier
-                            textItems += MediaStripItem.Text(block.id, block.noteId, block.text.orEmpty())
+                            textItems += MediaStripItem.Text(
+                                blockId = block.id,
+                                noteId = block.noteId,
+                                content = block.text.orEmpty(),
+                                isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                            )
                         }
                     }
                 }
@@ -1081,7 +1144,8 @@ class NotePanelController(
                 val cover: MediaStripItem = coverImage ?: MediaStripItem.Text(
                     blockId = -999L,
                     noteId = openNoteId ?: 0L,
-                    content = "Carte"
+                    content = "Carte",
+                    isList = false,
                 )
                 add(MediaStripItem.Pile(MediaCategory.LOCATION, mapBlocks.size, cover))
             }

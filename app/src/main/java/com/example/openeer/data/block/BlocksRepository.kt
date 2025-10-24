@@ -2,6 +2,8 @@ package com.example.openeer.data.block
 
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteDao
+import com.example.openeer.data.list.ListItemDao
+import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.data.merge.BlockSnapshot
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +18,8 @@ class BlocksRepository(
     private val blockDao: BlockDao,
     private val noteDao: NoteDao? = null,
     private val io: CoroutineDispatcher = Dispatchers.IO,
-    private val linkDao: BlockLinkDao? = null // 🔗 optionnel pour liens AUDIO↔TEXTE / VIDEO↔TEXTE
+    private val linkDao: BlockLinkDao? = null, // 🔗 optionnel pour liens AUDIO↔TEXTE / VIDEO↔TEXTE
+    private val listItemDao: ListItemDao? = null,
 ) {
 
     private val snapshotGson by lazy { Gson() }
@@ -24,6 +27,15 @@ class BlocksRepository(
     companion object {
         const val LINK_AUDIO_TRANSCRIPTION = "AUDIO_TRANSCRIPTION"
         const val LINK_VIDEO_TRANSCRIPTION = "VIDEO_TRANSCRIPTION"
+        const val MIME_TYPE_TEXT_BLOCK_LIST = "text/x-openeer-list"
+    }
+
+    sealed interface BlockConversionResult {
+        data class Converted(val itemCount: Int) : BlockConversionResult
+        object AlreadyTarget : BlockConversionResult
+        object NotFound : BlockConversionResult
+        object Unsupported : BlockConversionResult
+        object EmptySource : BlockConversionResult
     }
     suspend fun updateLocationLabel(blockId: Long, newPlaceName: String) {
         withContext(io) {
@@ -101,6 +113,96 @@ class BlocksRepository(
             updatedAt = now
         )
         return insert(noteId, block)
+    }
+
+    suspend fun convertTextBlockToList(blockId: Long): BlockConversionResult {
+        val dao = listItemDao ?: return BlockConversionResult.Unsupported
+        return withContext(io) {
+            val block = blockDao.getById(blockId) ?: return@withContext BlockConversionResult.NotFound
+            if (block.type != BlockType.TEXT) {
+                return@withContext BlockConversionResult.Unsupported
+            }
+            if (block.mimeType == MIME_TYPE_TEXT_BLOCK_LIST) {
+                return@withContext BlockConversionResult.AlreadyTarget
+            }
+            if (block.mimeType == "text/transcript") {
+                return@withContext BlockConversionResult.Unsupported
+            }
+
+            val lines = block.text.orEmpty()
+                .lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .toList()
+
+            if (lines.isEmpty()) {
+                return@withContext BlockConversionResult.EmptySource
+            }
+
+            dao.deleteForBlock(blockId)
+
+            val now = System.currentTimeMillis()
+            val items = lines.mapIndexed { index, textLine ->
+                ListItemEntity(
+                    noteId = null,
+                    ownerBlockId = blockId,
+                    text = textLine,
+                    order = index,
+                    createdAt = now + index,
+                )
+            }
+            dao.insertAll(items)
+
+            blockDao.update(
+                block.copy(
+                    mimeType = MIME_TYPE_TEXT_BLOCK_LIST,
+                    text = lines.joinToString(separator = "\n"),
+                    updatedAt = now,
+                )
+            )
+
+            BlockConversionResult.Converted(items.size)
+        }
+    }
+
+    suspend fun convertListBlockToText(blockId: Long): BlockConversionResult {
+        val dao = listItemDao ?: return BlockConversionResult.Unsupported
+        return withContext(io) {
+            val block = blockDao.getById(blockId) ?: return@withContext BlockConversionResult.NotFound
+            if (block.type != BlockType.TEXT) {
+                return@withContext BlockConversionResult.Unsupported
+            }
+            if (block.mimeType != MIME_TYPE_TEXT_BLOCK_LIST) {
+                return@withContext BlockConversionResult.AlreadyTarget
+            }
+
+            val items = dao.listForBlock(blockId)
+            val now = System.currentTimeMillis()
+
+            if (items.isEmpty()) {
+                dao.deleteForBlock(blockId)
+                blockDao.update(
+                    block.copy(
+                        mimeType = null,
+                        text = block.text.orEmpty(),
+                        updatedAt = now,
+                    )
+                )
+                return@withContext BlockConversionResult.EmptySource
+            }
+
+            val text = items.joinToString(separator = "\n") { it.text }
+            dao.deleteForBlock(blockId)
+            blockDao.update(
+                block.copy(
+                    mimeType = null,
+                    text = text,
+                    updatedAt = now,
+                )
+            )
+
+            BlockConversionResult.Converted(items.size)
+        }
     }
 
     /** Crée explicitement une “note-fille” texte (transcription immuable et indexable). */
