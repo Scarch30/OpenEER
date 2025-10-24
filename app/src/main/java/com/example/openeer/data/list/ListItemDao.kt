@@ -28,21 +28,33 @@ interface ListItemDao {
     @Query("DELETE FROM list_items WHERE id = :itemId")
     suspend fun delete(itemId: Long)
 
-    @Query("SELECT MAX(ordering) FROM list_items WHERE noteId = :noteId")
+    @Query("SELECT MAX(ordering) FROM list_items WHERE noteId = :noteId AND ownerBlockId IS NULL")
     suspend fun maxOrderForNote(noteId: Long): Int?
 
-    @Query("SELECT * FROM list_items WHERE noteId = :noteId ORDER BY ordering ASC")
+    @Query("SELECT * FROM list_items WHERE noteId = :noteId AND ownerBlockId IS NULL ORDER BY ordering ASC")
     suspend fun listForNote(noteId: Long): List<ListItemEntity>
 
-    @Query("SELECT * FROM list_items WHERE noteId = :noteId ORDER BY ordering ASC")
+    @Query("SELECT * FROM list_items WHERE noteId = :noteId AND ownerBlockId IS NULL ORDER BY ordering ASC")
     fun listForNoteFlow(noteId: Long): Flow<List<ListItemEntity>>
 
     @Query("UPDATE list_items SET ordering = :order WHERE id = :itemId")
     suspend fun updateOrdering(itemId: Long, order: Int)
 
-    @Query("DELETE FROM list_items WHERE noteId = :noteId")
+    @Query("DELETE FROM list_items WHERE noteId = :noteId AND ownerBlockId IS NULL")
     suspend fun deleteForNote(noteId: Long)
 
     @Query("DELETE FROM list_items WHERE id IN (:itemIds)")
     suspend fun deleteMany(itemIds: List<Long>)
+
+    @Query("SELECT MAX(ordering) FROM list_items WHERE ownerBlockId = :blockId AND noteId IS NULL")
+    suspend fun maxOrderForBlock(blockId: Long): Int?
+
+    @Query("SELECT * FROM list_items WHERE ownerBlockId = :blockId AND noteId IS NULL ORDER BY ordering ASC")
+    suspend fun listForBlock(blockId: Long): List<ListItemEntity>
+
+    @Query("SELECT * FROM list_items WHERE ownerBlockId = :blockId AND noteId IS NULL ORDER BY ordering ASC")
+    fun listForBlockFlow(blockId: Long): Flow<List<ListItemEntity>>
+
+    @Query("DELETE FROM list_items WHERE ownerBlockId = :blockId AND noteId IS NULL")
+    suspend fun deleteForBlock(blockId: Long)
 }

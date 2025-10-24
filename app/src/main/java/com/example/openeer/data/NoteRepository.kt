@@ -181,6 +181,7 @@ class NoteRepository(
 
     companion object {
         private const val TAG = "NoteRepository"
+        private const val LIST_LOG_TAG = "ListRepo"
     }
 
     sealed interface NoteConversionResult {
@@ -272,10 +273,111 @@ class NoteRepository(
         listItemDao.listForNote(noteId)
     }
 
+    suspend fun addItemForBlock(blockId: Long, text: String): Long = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val trimmed = text.trim()
+            if (trimmed.isEmpty()) {
+                Log.w(LIST_LOG_TAG, "owner=BLOCK blockId=$blockId op=ADD count=0 reason=EMPTY")
+                return@withTransaction -1L
+            }
+
+            val currentMax = listItemDao.maxOrderForBlock(blockId) ?: -1
+            val nextOrder = currentMax + 1
+
+            val entity = ListItemEntity(
+                noteId = null,
+                ownerBlockId = blockId,
+                text = trimmed,
+                order = nextOrder,
+                createdAt = System.currentTimeMillis()
+            )
+
+            val id = listItemDao.insert(entity)
+            Log.i(LIST_LOG_TAG, "owner=BLOCK blockId=$blockId op=ADD count=1")
+            id
+        }
+    }
+
+    suspend fun getItemsForBlock(blockId: Long): List<ListItemEntity> = withContext(Dispatchers.IO) {
+        listItemDao.listForBlock(blockId)
+    }
+
+    suspend fun updateItemForBlock(
+        itemId: Long,
+        text: String? = null,
+        done: Boolean? = null
+    ) = withContext(Dispatchers.IO) {
+        if (text == null && done == null) return@withContext
+
+        database.withTransaction {
+            val current = listItemDao.findById(itemId)
+            if (current == null) {
+                Log.w(LIST_LOG_TAG, "owner=BLOCK blockId=? op=UPDATE count=0 reason=NOT_FOUND id=$itemId")
+                return@withTransaction
+            }
+
+            val blockId = current.ownerBlockId
+            if (blockId == null) {
+                Log.w(LIST_LOG_TAG, "owner=BLOCK blockId=? op=UPDATE count=0 reason=NOT_BLOCK id=$itemId")
+                return@withTransaction
+            }
+
+            var changed = false
+            if (text != null && text != current.text) {
+                listItemDao.updateText(itemId, text)
+                changed = true
+            }
+            if (done != null && done != current.done) {
+                listItemDao.updateDone(itemId, done)
+                changed = true
+            }
+
+            val count = if (changed) 1 else 0
+            Log.i(LIST_LOG_TAG, "owner=BLOCK blockId=$blockId op=UPDATE count=$count")
+        }
+    }
+
+    suspend fun removeItemForBlock(itemId: Long) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val current = listItemDao.findById(itemId)
+            if (current == null) {
+                Log.w(LIST_LOG_TAG, "owner=BLOCK blockId=? op=DELETE count=0 reason=NOT_FOUND id=$itemId")
+                return@withTransaction
+            }
+
+            val blockId = current.ownerBlockId
+            if (blockId == null) {
+                Log.w(LIST_LOG_TAG, "owner=BLOCK blockId=? op=DELETE count=0 reason=NOT_BLOCK id=$itemId")
+                return@withTransaction
+            }
+
+            listItemDao.delete(itemId)
+            Log.i(LIST_LOG_TAG, "owner=BLOCK blockId=$blockId op=DELETE count=1")
+        }
+    }
+
+    suspend fun clearItemsForBlock(blockId: Long) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val existing = listItemDao.listForBlock(blockId)
+            if (existing.isEmpty()) {
+                Log.i(LIST_LOG_TAG, "owner=BLOCK blockId=$blockId op=DELETE count=0")
+                return@withTransaction
+            }
+
+            listItemDao.deleteForBlock(blockId)
+            Log.i(LIST_LOG_TAG, "owner=BLOCK blockId=$blockId op=DELETE count=${existing.size}")
+        }
+    }
+
     suspend fun toggleItem(itemId: Long) = withContext(Dispatchers.IO) {
         database.withTransaction {
             val current = listItemDao.findById(itemId) ?: return@withTransaction
-            val noteItems = listItemDao.listForNote(current.noteId)
+            val noteOwnerId = current.noteId
+            if (noteOwnerId == null) {
+                Log.w(TAG, "toggleItem: item=$itemId is not owned by a note; ignoring")
+                return@withTransaction
+            }
+            val noteItems = listItemDao.listForNote(noteOwnerId)
             val newDone = !current.done
             listItemDao.updateDone(itemId, newDone)
 
