@@ -1,16 +1,19 @@
 package com.example.openeer.data.block
 
+import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteDao
 import com.example.openeer.data.list.ListItemDao
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.data.merge.BlockSnapshot
+import com.example.openeer.voice.SmartListSplitter
+import com.google.gson.Gson
+import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
-import java.util.UUID
-import com.google.gson.Gson
 
 fun generateGroupId(): String = UUID.randomUUID().toString()
 
@@ -23,6 +26,21 @@ class BlocksRepository(
 ) {
 
     private val snapshotGson by lazy { Gson() }
+    private val roomDatabase: RoomDatabase? by lazy { resolveRoomDatabase() }
+
+    private fun resolveRoomDatabase(): RoomDatabase? {
+        val daos = listOf(blockDao, listItemDao, noteDao, linkDao)
+        for (dao in daos) {
+            if (dao == null) continue
+            val db = runCatching {
+                val field = dao.javaClass.getDeclaredField("__db")
+                field.isAccessible = true
+                field.get(dao) as? RoomDatabase
+            }.getOrNull()
+            if (db != null) return db
+        }
+        return null
+    }
 
     companion object {
         const val LINK_AUDIO_TRANSCRIPTION = "AUDIO_TRANSCRIPTION"
@@ -36,6 +54,7 @@ class BlocksRepository(
         object NotFound : BlockConversionResult
         object Unsupported : BlockConversionResult
         object EmptySource : BlockConversionResult
+        object Incomplete : BlockConversionResult
     }
     suspend fun updateLocationLabel(blockId: Long, newPlaceName: String) {
         withContext(io) {
@@ -129,20 +148,23 @@ class BlocksRepository(
                 return@withContext BlockConversionResult.Unsupported
             }
 
-            val lines = block.text.orEmpty()
+            val sanitized = block.text.orEmpty()
                 .lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
-                .toList()
+                .joinToString(separator = "\n")
 
-            if (lines.isEmpty()) {
-                return@withContext BlockConversionResult.EmptySource
+            val rawItems = SmartListSplitter.splitAllCandidates(sanitized)
+            val whitespaceRegex = "\\s+".toRegex()
+            val itemsTexts = rawItems.map { it.replace(whitespaceRegex, " ").trim() }
+                .filter { it.isNotEmpty() }
+
+            if (itemsTexts.isEmpty()) {
+                return@withContext BlockConversionResult.Incomplete
             }
 
-            dao.deleteForBlock(blockId)
-
             val now = System.currentTimeMillis()
-            val items = lines.mapIndexed { index, textLine ->
+            val entities = itemsTexts.mapIndexed { index, textLine ->
                 ListItemEntity(
                     noteId = null,
                     ownerBlockId = blockId,
@@ -151,17 +173,29 @@ class BlocksRepository(
                     createdAt = now + index,
                 )
             }
-            dao.insertAll(items)
+            val updatedText = itemsTexts.joinToString(separator = "\n")
 
-            blockDao.update(
-                block.copy(
-                    mimeType = MIME_TYPE_TEXT_BLOCK_LIST,
-                    text = lines.joinToString(separator = "\n"),
-                    updatedAt = now,
+            suspend fun performConversion(): BlockConversionResult {
+                dao.deleteForBlock(blockId)
+                if (entities.isNotEmpty()) {
+                    dao.insertAll(entities)
+                }
+                blockDao.update(
+                    block.copy(
+                        mimeType = MIME_TYPE_TEXT_BLOCK_LIST,
+                        text = updatedText,
+                        updatedAt = now,
+                    )
                 )
-            )
+                return BlockConversionResult.Converted(entities.size)
+            }
 
-            BlockConversionResult.Converted(items.size)
+            val database = roomDatabase
+            return@withContext if (database != null) {
+                database.withTransaction { performConversion() }
+            } else {
+                performConversion()
+            }
         }
     }
 
