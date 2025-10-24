@@ -149,13 +149,20 @@ class NotePanelController(
                 MediaStripAdapter.TextMenuAction.CONVERT_TO_LIST -> blocksRepo.convertTextBlockToList(item.blockId)
                 MediaStripAdapter.TextMenuAction.CONVERT_TO_TEXT -> blocksRepo.convertListBlockToText(item.blockId)
             }
-            handleBlockConversionResult(result, action)
+            val updatedBlock = when (result) {
+                is BlocksRepository.BlockConversionResult.Converted,
+                BlocksRepository.BlockConversionResult.EmptySource -> blocksRepo.getBlock(item.blockId)
+                else -> null
+            }
+            handleBlockConversionResult(item, result, action, updatedBlock)
         }
     }
 
     private fun handleBlockConversionResult(
+        sourceItem: MediaStripItem.Text,
         result: BlocksRepository.BlockConversionResult,
         action: MediaStripAdapter.TextMenuAction,
+        updatedBlock: BlockEntity?,
     ) {
         val ctx = activity
         when (result) {
@@ -167,6 +174,7 @@ class NotePanelController(
                 }
                 val message = ctx.getString(messageRes, result.itemCount)
                 Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
+                refreshConvertedTextBlockUi(sourceItem, updatedBlock, action)
             }
             BlocksRepository.BlockConversionResult.AlreadyTarget -> {
                 val res = if (action == MediaStripAdapter.TextMenuAction.CONVERT_TO_LIST) {
@@ -178,6 +186,7 @@ class NotePanelController(
             }
             BlocksRepository.BlockConversionResult.EmptySource -> {
                 Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+                refreshConvertedTextBlockUi(sourceItem, updatedBlock, action)
             }
             BlocksRepository.BlockConversionResult.Incomplete -> {
                 Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
@@ -189,6 +198,76 @@ class NotePanelController(
                 Toast.makeText(ctx, R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun refreshConvertedTextBlockUi(
+        sourceItem: MediaStripItem.Text,
+        updatedBlock: BlockEntity?,
+        action: MediaStripAdapter.TextMenuAction,
+    ) {
+        val updatedItem = when {
+            updatedBlock != null && updatedBlock.type == BlockType.TEXT -> {
+                MediaStripItem.Text(
+                    blockId = updatedBlock.id,
+                    noteId = updatedBlock.noteId,
+                    content = updatedBlock.text.orEmpty(),
+                    isList = updatedBlock.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                )
+            }
+            action == MediaStripAdapter.TextMenuAction.CONVERT_TO_LIST -> {
+                sourceItem.copy(isList = true)
+            }
+            action == MediaStripAdapter.TextMenuAction.CONVERT_TO_TEXT -> {
+                sourceItem.copy(isList = false)
+            }
+            else -> null
+        } ?: return
+        updateMediaStripTextItem(updatedItem)
+        refreshChildTextViewer(updatedItem.blockId)
+    }
+
+    private fun updateMediaStripTextItem(updatedItem: MediaStripItem.Text) {
+        val currentItems = mediaAdapter.currentList
+        if (currentItems.isEmpty()) return
+
+        var changed = false
+        val patched = currentItems.map { item ->
+            when (item) {
+                is MediaStripItem.Text -> {
+                    if (item.blockId == updatedItem.blockId && item != updatedItem) {
+                        changed = true
+                        updatedItem
+                    } else item
+                }
+                is MediaStripItem.Pile -> {
+                    val cover = item.cover
+                    val newCover = when (cover) {
+                        is MediaStripItem.Text -> {
+                            if (cover.blockId == updatedItem.blockId && cover != updatedItem) {
+                                changed = true
+                                updatedItem
+                            } else cover
+                        }
+                        else -> cover
+                    }
+                    if (newCover != cover) {
+                        changed = true
+                        item.copy(cover = newCover)
+                    } else item
+                }
+                else -> item
+            }
+        }
+
+        if (changed) {
+            mediaAdapter.submitList(patched)
+        }
+    }
+
+    private fun refreshChildTextViewer(blockId: Long) {
+        val tag = "child_text_viewer_$blockId"
+        val sheet = activity.supportFragmentManager.findFragmentByTag(tag) as? ChildTextViewerSheet
+        sheet?.requestContentRefresh()
     }
 
     private val listItemsAdapter = NoteListItemsAdapter(
