@@ -16,8 +16,8 @@ interface ListItemDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<ListItemEntity>): List<Long>
 
-    @Query("UPDATE list_items SET done = CASE WHEN done = 1 THEN 0 ELSE 1 END WHERE id = :itemId")
-    suspend fun toggleDone(itemId: Long)
+    @Query("UPDATE list_items SET done = :done WHERE id = :itemId")
+    suspend fun updateDone(itemId: Long, done: Boolean)
 
     @Query("UPDATE list_items SET text = :text WHERE id = :itemId")
     suspend fun updateText(itemId: Long, text: String)
@@ -42,4 +42,7 @@ interface ListItemDao {
 
     @Query("DELETE FROM list_items WHERE noteId = :noteId")
     suspend fun deleteForNote(noteId: Long)
+
+    @Query("DELETE FROM list_items WHERE id IN (:itemIds)")
+    suspend fun deleteMany(itemIds: List<Long>)
 }

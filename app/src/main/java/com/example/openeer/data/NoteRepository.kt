@@ -261,6 +261,11 @@ class NoteRepository(
         listItemDao.delete(itemId)
     }
 
+    suspend fun removeItems(itemIds: List<Long>) = withContext(Dispatchers.IO) {
+        if (itemIds.isEmpty()) return@withContext
+        listItemDao.deleteMany(itemIds)
+    }
+
     fun listItems(noteId: Long): Flow<List<ListItemEntity>> = listItemDao.listForNoteFlow(noteId)
 
     suspend fun listItemsOnce(noteId: Long): List<ListItemEntity> = withContext(Dispatchers.IO) {
@@ -268,7 +273,45 @@ class NoteRepository(
     }
 
     suspend fun toggleItem(itemId: Long) = withContext(Dispatchers.IO) {
-        listItemDao.toggleDone(itemId)
+        database.withTransaction {
+            val current = listItemDao.findById(itemId) ?: return@withTransaction
+            val noteItems = listItemDao.listForNote(current.noteId)
+            val newDone = !current.done
+            listItemDao.updateDone(itemId, newDone)
+
+            val undone = mutableListOf<ListItemEntity>()
+            val done = mutableListOf<ListItemEntity>()
+
+            for (item in noteItems) {
+                val updated = if (item.id == itemId) item.copy(done = newDone) else item
+                if (updated.done) {
+                    done += updated
+                } else {
+                    undone += updated
+                }
+            }
+
+            if (newDone) {
+                val idx = done.indexOfFirst { it.id == itemId }
+                if (idx >= 0) {
+                    val toggled = done.removeAt(idx)
+                    done += toggled
+                }
+            } else {
+                val idx = undone.indexOfFirst { it.id == itemId }
+                if (idx >= 0) {
+                    val toggled = undone.removeAt(idx)
+                    undone += toggled
+                }
+            }
+
+            val reordered = undone + done
+            reordered.forEachIndexed { index, item ->
+                if (item.order != index) {
+                    listItemDao.updateOrdering(item.id, index)
+                }
+            }
+        }
     }
 
     suspend fun updateItemText(itemId: Long, text: String) = withContext(Dispatchers.IO) {

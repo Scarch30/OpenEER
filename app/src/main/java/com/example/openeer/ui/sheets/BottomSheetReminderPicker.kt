@@ -58,6 +58,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val ARG_BLOCK_ID = "arg_block_id"
         private const val ARG_REMINDER_ID = "arg_reminder_id"
+        private const val ARG_INITIAL_LABEL = "arg_initial_label"
         private const val TAG = "ReminderPicker"
         private const val DEFAULT_RADIUS_METERS = 100
         private const val DEFAULT_COOLDOWN_MINUTES = 30
@@ -67,12 +68,19 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
         internal const val IMMEDIATE_REPEAT_OFFSET_MILLIS = 1_000L
 
-        fun newInstance(noteId: Long, blockId: Long? = null): BottomSheetReminderPicker {
+        fun newInstance(
+            noteId: Long,
+            blockId: Long? = null,
+            initialLabel: String? = null,
+        ): BottomSheetReminderPicker {
             val fragment = BottomSheetReminderPicker()
             fragment.arguments = Bundle().apply {
                 putLong(ARG_NOTE_ID, noteId)
                 if (blockId != null) {
                     putLong(ARG_BLOCK_ID, blockId)
+                }
+                if (!initialLabel.isNullOrBlank()) {
+                    putString(ARG_INITIAL_LABEL, initialLabel)
                 }
             }
             return fragment
@@ -308,6 +316,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         if (isEditing) {
             reminderId?.let { loadReminderForEdit(it) }
         } else {
+            val requestedLabel = arguments?.getString(ARG_INITIAL_LABEL)
+            if (!requestedLabel.isNullOrBlank()) {
+                labelInput.editText?.setText(requestedLabel)
+            }
             val baseNoteId = noteIdValue ?: requireArguments().getLong(ARG_NOTE_ID)
             preloadExistingData(baseNoteId)
         }
@@ -435,7 +447,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                     ?.trim()
                 if (!firstLine.isNullOrBlank()) {
                     val maybeLabel = firstLine.substringBefore("—").trim()
-                    if (maybeLabel.isNotEmpty()) {
+                    val existing = labelInput.editText?.text?.toString()
+                    if (maybeLabel.isNotEmpty() && existing.isNullOrBlank()) {
                         labelInput.editText?.setText(maybeLabel)
                     }
                 }

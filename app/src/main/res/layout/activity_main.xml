@@ -164,6 +164,64 @@
                             android:paddingBottom="4dp"
                             android:visibility="gone" />
 
+                        <com.google.android.material.card.MaterialCardView
+                            android:id="@+id/listSelectionBar"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_marginTop="8dp"
+                            android:layout_marginEnd="8dp"
+                            android:layout_marginBottom="4dp"
+                            android:elevation="4dp"
+                            android:visibility="gone">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical"
+                                android:paddingStart="12dp"
+                                android:paddingTop="8dp"
+                                android:paddingEnd="8dp"
+                                android:paddingBottom="8dp">
+
+                                <TextView
+                                    android:id="@+id/listSelectionCounter"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:textColor="?android:attr/textColorPrimary"
+                                    android:textSize="14sp"
+                                    android:textStyle="bold"
+                                    android:text="" />
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnListSelectionDelete"
+                                    style="@style/Widget.Material3.Button.TextButton"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/note_list_selection_delete" />
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnListSelectionCopy"
+                                    style="@style/Widget.Material3.Button.TextButton"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="4dp"
+                                    android:text="@string/note_list_selection_copy" />
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnListSelectionReminder"
+                                    style="@style/Widget.Material3.Button.TextButton"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="4dp"
+                                    android:text="@string/note_list_selection_reminder" />
+
+                            </LinearLayout>
+
+                        </com.google.android.material.card.MaterialCardView>
+
                         <androidx.appcompat.widget.AppCompatEditText
                             android:id="@+id/listAddItemInput"
                             android:layout_width="match_parent"
