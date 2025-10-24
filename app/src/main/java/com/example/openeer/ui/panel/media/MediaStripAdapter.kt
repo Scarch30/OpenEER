@@ -224,6 +224,19 @@ class MediaStripAdapter(
 
         val pileBadge = createBadge(ctx)
 
+        val listBadge = ImageView(ctx).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                dp(ctx, 20),
+                dp(ctx, 20),
+                Gravity.TOP or Gravity.START
+            ).apply {
+                topMargin = dp(ctx, 6)
+                leftMargin = dp(ctx, 6)
+            }
+            setImageResource(R.drawable.ic_checklist_badge)
+            isVisible = false
+        }
+
         val menuButton = ImageButton(ctx).apply {
             layoutParams = FrameLayout.LayoutParams(
                 dp(ctx, 36),
@@ -252,10 +265,11 @@ class MediaStripAdapter(
         column.addView(preview)
         container.addView(column)
         container.addView(pileBadge)
+        container.addView(listBadge)
         container.addView(menuButton)
         card.addView(container)
 
-        return TextHolder(card, preview, badgeLabel, pileBadge, menuButton)
+        return TextHolder(card, preview, badgeLabel, pileBadge, menuButton, listBadge)
     }
 
     private fun createPileHolder(parent: ViewGroup): PileHolder {
@@ -419,6 +433,7 @@ class MediaStripAdapter(
         private val label: TextView,
         private val badge: TextView,
         private val menu: ImageButton,
+        private val listBadge: ImageView,
     ) : RecyclerView.ViewHolder(card) {
         fun bind(item: MediaStripItem) {
             val display = when (item) {
@@ -431,6 +446,7 @@ class MediaStripAdapter(
                 preview.text = ""
                 label.text = card.context.getString(R.string.media_text_badge_note)
                 menu.isVisible = false
+                listBadge.isVisible = false
                 bindBadge(badge, item)
                 return
             }
@@ -443,11 +459,16 @@ class MediaStripAdapter(
                 ctx.getString(R.string.media_text_badge_note)
             }
 
-            menu.isVisible = item is MediaStripItem.Text
-            menu.isEnabled = item is MediaStripItem.Text
-            menu.setOnClickListener { showMenu(display) }
-            ViewCompat.setTooltipText(menu, ctx.getString(R.string.media_text_menu_content_description))
+            val isTextItem = item is MediaStripItem.Text
+            menu.isVisible = isTextItem
+            menu.isEnabled = isTextItem
+            menu.setOnClickListener(null)
+            if (isTextItem) {
+                menu.setOnClickListener { showMenu(display) }
+                ViewCompat.setTooltipText(menu, ctx.getString(R.string.media_text_menu_content_description))
+            }
 
+            listBadge.isVisible = display.isList
             bindBadge(badge, item)
 
             card.setOnClickListener { onClick(item) }
