@@ -49,15 +49,24 @@
 
         <View
             android:layout_width="match_parent"
-            android:layout_height="16dp" />
+            android:layout_height="8dp" />
 
         <TextView
             android:id="@+id/postitTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="0dp"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
             android:textColor="?android:attr/textColorPrimary"
+            android:visibility="gone" />
+
+        <View
+            android:id="@+id/postitTitleDivider"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="20dp"
+            android:background="?android:attr/listDivider"
             android:visibility="gone" />
 
         <FrameLayout
@@ -85,7 +94,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="0dp"
                 android:paddingStart="4dp"
                 android:paddingEnd="4dp"
                 android:visibility="gone">
