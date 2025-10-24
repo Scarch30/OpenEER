@@ -46,7 +46,7 @@ import com.example.openeer.data.tag.TagEntity
         FavoriteEntity::class,
         ListItemEntity::class
     ],
-    version = 23, // 🔼 bump : alignement table reminders avec schéma Room
+    version = 24, // 🔼 bump : listes scellées par bloc
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -545,6 +545,61 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS list_items_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            noteId INTEGER,
+                            ownerBlockId INTEGER,
+                            text TEXT NOT NULL,
+                            done INTEGER NOT NULL DEFAULT 0,
+                            ordering INTEGER NOT NULL,
+                            createdAt INTEGER NOT NULL,
+                            provisional INTEGER NOT NULL DEFAULT 0,
+                            CHECK (
+                                (noteId IS NOT NULL AND ownerBlockId IS NULL)
+                                OR (noteId IS NULL AND ownerBlockId IS NOT NULL)
+                            ),
+                            FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE,
+                            FOREIGN KEY(ownerBlockId) REFERENCES blocks(id) ON DELETE CASCADE
+                        )
+                    """.trimIndent()
+                )
+
+                db.execSQL(
+                    """
+                        INSERT INTO list_items_new (
+                            id,
+                            noteId,
+                            ownerBlockId,
+                            text,
+                            done,
+                            ordering,
+                            createdAt,
+                            provisional
+                        )
+                        SELECT
+                            id,
+                            noteId,
+                            NULL,
+                            text,
+                            done,
+                            ordering,
+                            createdAt,
+                            provisional
+                        FROM list_items
+                    """.trimIndent()
+                )
+
+                db.execSQL("DROP TABLE list_items")
+                db.execSQL("ALTER TABLE list_items_new RENAME TO list_items")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_list_items_noteId_ordering ON list_items(noteId, ordering)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_list_items_ownerBlockId ON list_items(ownerBlockId)")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -574,7 +629,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_19_20,
                         MIGRATION_20_21,
                         MIGRATION_21_22,
-                        MIGRATION_22_23
+                        MIGRATION_22_23,
+                        MIGRATION_23_24
                     )
                     .build()
                     .also { INSTANCE = it }
