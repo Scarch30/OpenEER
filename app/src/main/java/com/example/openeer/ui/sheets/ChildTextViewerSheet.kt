@@ -7,7 +7,6 @@ import android.view.*
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
-import androidx.core.view.ViewCompat
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -31,6 +30,8 @@ import android.view.inputmethod.InputMethodManager
 
 private const val MENU_CONVERT_TO_LIST = 2001
 private const val MENU_CONVERT_TO_TEXT = 2002
+private const val MENU_SHARE = 2003
+private const val MENU_DELETE = 2004
 
 class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
@@ -70,9 +71,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     private var postitText: TextView? = null
     private var postitScroll: ScrollView? = null
     private var btnEdit: Button? = null
-    private var btnShare: ImageButton? = null
-    private var btnDelete: ImageButton? = null
-    private var btnConvert: ImageButton? = null
+    private var menuButton: ImageButton? = null
     private var checklistContainer: LinearLayout? = null
     private var checklistRecycler: RecyclerView? = null
     private var checklistEmptyView: TextView? = null
@@ -98,36 +97,35 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     private var isListMode: Boolean = false
     private var currentBlockMimeType: String? = null
     private var currentBlockId: Long? = null
+    private var canShare: Boolean = false
+    private var canDelete: Boolean = false
+    private var canConvertToList: Boolean = false
+    private var canConvertToText: Boolean = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?,
-    ): View = inflater.inflate(R.layout.bottomsheet_child_text_viewer, container, false)
+    ): View = inflater.inflate(R.layout.sheet_postit, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         postitText = view.findViewById(R.id.postitText)
         postitScroll = view.findViewById(R.id.postitScroll)
+        view.findViewById<View>(R.id.editorContainer)?.visibility = View.GONE
+        view.findViewById<View>(R.id.editorActions)?.visibility = View.GONE
+        view.findViewById<View>(R.id.viewerActions)?.visibility = View.VISIBLE
+        view.findViewById<TextView>(R.id.badgeChild)?.text = getString(R.string.postit_label)
         btnEdit = view.findViewById<Button>(R.id.btnEdit).also { button ->
             button.setOnClickListener { openEditor() }
             button.isEnabled = false
         }
         view.findViewById<Button>(R.id.btnClose).setOnClickListener { dismiss() }
-        btnShare = view.findViewById<ImageButton>(R.id.btnShare).also { button ->
-            button.setOnClickListener { shareCurrentContent() }
+        menuButton = view.findViewById<ImageButton>(R.id.btnMenu)?.also { button ->
+            button.setOnClickListener { showOverflowMenu(it) }
             button.isEnabled = false
-        }
-        btnDelete = view.findViewById<ImageButton>(R.id.btnDelete).also { button ->
-            button.setOnClickListener { confirmDelete() }
-            button.isEnabled = false
-        }
-        btnConvert = view.findViewById<ImageButton>(R.id.btnConvert)?.also { button ->
-            button.setOnClickListener { showConvertMenu(it) }
-            button.visibility = if (FeatureFlags.listsEnabled) View.VISIBLE else View.GONE
-            button.isEnabled = false
-            ViewCompat.setTooltipText(button, button.contentDescription)
+            button.alpha = 0.4f
         }
 
         checklistContainer = view.findViewById(R.id.checklistContainer)
@@ -182,14 +180,16 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 currentContent = ""
                 postitText?.text = ""
                 btnEdit?.isEnabled = false
-                btnShare?.isEnabled = false
-                btnDelete?.isEnabled = false
-                btnConvert?.isEnabled = false
-                btnConvert?.visibility = View.GONE
+                isListMode = false
                 currentBlockId = null
                 currentBlockMimeType = null
+                canShare = false
+                canDelete = false
+                canConvertToList = false
+                canConvertToText = false
                 updateChecklistVisibility(false)
                 stopChecklistObservation()
+                updateOverflowMenuState()
                 context?.let { ctx ->
                     Toast.makeText(ctx, ctx.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
                 }
@@ -201,12 +201,14 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
             isListMode = listMode
             currentBlockId = block.id
             currentBlockMimeType = block.mimeType
-            btnDelete?.isEnabled = true
+            canDelete = true
             if (listMode) {
                 currentContent = ""
                 btnEdit?.visibility = View.GONE
                 btnEdit?.isEnabled = false
-                btnShare?.isEnabled = latestChecklistItems.any { it.text.isNotBlank() }
+                canShare = latestChecklistItems.any { it.text.isNotBlank() }
+                canConvertToList = false
+                canConvertToText = FeatureFlags.listsEnabled && block.mimeType != "text/transcript"
                 updateChecklistVisibility(true)
                 startChecklistObservation(block.id)
             } else {
@@ -215,7 +217,9 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 postitText?.text = currentContent
                 btnEdit?.visibility = View.VISIBLE
                 btnEdit?.isEnabled = true
-                btnShare?.isEnabled = currentContent.isNotBlank()
+                canShare = currentContent.isNotBlank()
+                canConvertToList = FeatureFlags.listsEnabled && block.mimeType != "text/transcript"
+                canConvertToText = false
                 updateChecklistVisibility(false)
             }
 
@@ -236,61 +240,54 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 linkedAudioContainer?.visibility = View.GONE
             }
 
-            updateConvertButtonState()
+            updateOverflowMenuState()
         }
     }
 
-    private fun updateConvertButtonState() {
-        val button = btnConvert ?: return
-        if (!FeatureFlags.listsEnabled) {
-            button.visibility = View.GONE
-            button.isEnabled = false
-            ViewCompat.setTooltipText(button, null)
-            button.contentDescription = null
-            return
-        }
-
-        val mimeType = currentBlockMimeType
-        val convertible = mimeType != "text/transcript" && currentBlockId != null
-        button.visibility = if (convertible) View.VISIBLE else View.GONE
-        button.isEnabled = convertible
-
-        if (convertible) {
-            val nextActionLabel = if (isListMode) {
-                getString(R.string.note_menu_convert_to_text)
-            } else {
-                getString(R.string.note_menu_convert_to_list)
-            }
-            button.contentDescription = nextActionLabel
-            ViewCompat.setTooltipText(button, nextActionLabel)
-        } else {
-            button.contentDescription = null
-            ViewCompat.setTooltipText(button, null)
-        }
+    private fun updateOverflowMenuState() {
+        val button = menuButton ?: return
+        val hasActions = canShare || canDelete || canConvertToList || canConvertToText
+        button.isEnabled = hasActions
+        button.alpha = if (hasActions) 1f else 0.4f
     }
 
-    private fun showConvertMenu(anchor: View) {
-        if (!FeatureFlags.listsEnabled) return
-        val blockId = currentBlockId ?: return
-        if (currentBlockMimeType == "text/transcript") return
-
+    private fun showOverflowMenu(anchor: View) {
         val popup = PopupMenu(requireContext(), anchor)
-        if (!isListMode) {
-            popup.menu.add(0, MENU_CONVERT_TO_LIST, 0, getString(R.string.note_menu_convert_to_list))
+        val blockId = currentBlockId
+        if (blockId != null) {
+            if (canConvertToList) {
+                popup.menu.add(0, MENU_CONVERT_TO_LIST, 0, getString(R.string.note_menu_convert_to_list))
+            }
+            if (canConvertToText) {
+                popup.menu.add(0, MENU_CONVERT_TO_TEXT, 1, getString(R.string.note_menu_convert_to_text))
+            }
+            val shareItem = popup.menu.add(0, MENU_SHARE, 10, getString(R.string.media_action_share))
+            shareItem.isEnabled = canShare
+            val deleteItem = popup.menu.add(0, MENU_DELETE, 20, getString(R.string.media_action_delete))
+            deleteItem.isEnabled = canDelete
+        } else {
+            val shareItem = popup.menu.add(0, MENU_SHARE, 0, getString(R.string.media_action_share))
+            shareItem.isEnabled = canShare
         }
-        if (isListMode) {
-            popup.menu.add(0, MENU_CONVERT_TO_TEXT, 1, getString(R.string.note_menu_convert_to_text))
-        }
+
         if (popup.menu.size() == 0) return
 
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_CONVERT_TO_LIST -> {
-                    convertCurrentBlock(blockId, ConvertAction.TO_LIST)
+                    blockId?.let { convertCurrentBlock(it, ConvertAction.TO_LIST) }
                     true
                 }
                 MENU_CONVERT_TO_TEXT -> {
-                    convertCurrentBlock(blockId, ConvertAction.TO_TEXT)
+                    blockId?.let { convertCurrentBlock(it, ConvertAction.TO_TEXT) }
+                    true
+                }
+                MENU_SHARE -> {
+                    shareCurrentContent()
+                    true
+                }
+                MENU_DELETE -> {
+                    confirmDelete()
                     true
                 }
                 else -> false
@@ -300,7 +297,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     }
 
     private fun convertCurrentBlock(blockId: Long, action: ConvertAction) {
-        btnConvert?.isEnabled = false
+        menuButton?.isEnabled = false
         viewLifecycleOwner.lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 when (action) {
@@ -309,7 +306,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 }
             }
             handleConversionResult(result, action)
-            updateConvertButtonState()
+            updateOverflowMenuState()
         }
     }
 
@@ -335,7 +332,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                     R.string.block_convert_already_text
                 }
                 Toast.makeText(ctx, res, Toast.LENGTH_SHORT).show()
-                btnConvert?.isEnabled = true
+                menuButton?.isEnabled = true
             }
             BlocksRepository.BlockConversionResult.EmptySource -> {
                 Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
@@ -343,16 +340,17 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
             }
             BlocksRepository.BlockConversionResult.Incomplete -> {
                 Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
-                btnConvert?.isEnabled = true
+                menuButton?.isEnabled = true
             }
             BlocksRepository.BlockConversionResult.NotFound -> {
                 Toast.makeText(ctx, R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
-                btnConvert?.isEnabled = true
+                menuButton?.isEnabled = true
             }
             BlocksRepository.BlockConversionResult.Unsupported -> {
                 Toast.makeText(ctx, R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
-                btnConvert?.isEnabled = false
-                btnConvert?.visibility = View.GONE
+                canConvertToList = false
+                canConvertToText = false
+                menuButton?.isEnabled = canShare || canDelete
             }
         }
     }
@@ -380,7 +378,8 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
     private fun startChecklistObservation(targetBlockId: Long) {
         checklistJob?.cancel()
-        btnShare?.isEnabled = false
+        canShare = false
+        updateOverflowMenuState()
         checklistJob = viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 blocksRepo.observeItemsForBlock(targetBlockId).collectLatest { items ->
@@ -402,7 +401,8 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                         "$prefix ${item.text}".trimEnd()
                     }.filter { it.isNotBlank() }
                     currentContent = if (shareLines.isEmpty()) "" else shareLines.joinToString("\n")
-                    btnShare?.isEnabled = shareLines.isNotEmpty()
+                    canShare = shareLines.isNotEmpty()
+                    updateOverflowMenuState()
                 }
             }
         }
@@ -415,7 +415,8 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
         pendingScrollItemId = null
         checklistAdapter.submitList(emptyList())
         checklistEmptyView?.visibility = View.GONE
-        btnShare?.isEnabled = false
+        canShare = false
+        updateOverflowMenuState()
     }
 
     private fun addChecklistItem() {
@@ -496,6 +497,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     }
 
     private fun performDelete() {
+        menuButton?.isEnabled = false
         viewLifecycleOwner.lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching { blocksRepo.deleteBlock(blockId) }.isSuccess
@@ -506,6 +508,8 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 dismiss()
             } else {
                 Toast.makeText(ctx, ctx.getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
+                canDelete = true
+                updateOverflowMenuState()
             }
         }
     }
