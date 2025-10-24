@@ -36,6 +36,9 @@ import kotlinx.coroutines.withContext
 private const val MENU_SHARE = 1000
 private const val MENU_DELETE = 1001
 private const val MENU_CONVERT_TO_LIST = 1002
+private const val MENU_CONVERT_TO_TEXT = 1003
+
+private enum class DesiredFormat { TEXT, LIST }
 
 class ChildTextEditorSheet : BottomSheetDialogFragment() {
 
@@ -43,6 +46,7 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val ARG_BLOCK_ID = "arg_block_id"
         private const val ARG_INITIAL_CONTENT = "arg_initial_content"
+        private const val STATE_DESIRED_FORMAT = "state_desired_format"
 
         fun new(noteId: Long): ChildTextEditorSheet =
             ChildTextEditorSheet().apply {
@@ -64,9 +68,24 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
 
     private val uiScope = CoroutineScope(Dispatchers.Main + Job())
 
+    private var desiredFormat: DesiredFormat = DesiredFormat.TEXT
+    private var badgeView: TextView? = null
+
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(requireContext())
-        BlocksRepository(db.blockDao(), db.noteDao())
+        BlocksRepository(
+            blockDao = db.blockDao(),
+            noteDao = db.noteDao(),
+            listItemDao = db.listItemDao(),
+        )
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val restoredFormat = savedInstanceState?.getString(STATE_DESIRED_FORMAT)
+        desiredFormat = restoredFormat?.let { value ->
+            runCatching { DesiredFormat.valueOf(value) }.getOrNull()
+        } ?: DesiredFormat.TEXT
     }
 
     override fun onCreateView(
@@ -80,7 +99,7 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         val input = view.findViewById<EditText>(R.id.inputText)
         val btnCancel = view.findViewById<Button>(R.id.btnCancel)
         val btnValidate = view.findViewById<Button>(R.id.btnValidate)
-        val badge = view.findViewById<TextView>(R.id.badgeChild)
+        val badge = view.findViewById<TextView>(R.id.badgeChild).also { badgeView = it }
         val menuButton = view.findViewById<ImageButton>(R.id.btnMenu)
 
         view.findViewById<View>(R.id.postitScroll)?.visibility = View.GONE
@@ -89,7 +108,7 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         view.findViewById<View>(R.id.viewerActions)?.visibility = View.GONE
         view.findViewById<View>(R.id.editorActions)?.visibility = View.VISIBLE
 
-        badge.text = getString(R.string.postit_label)
+        updateFormatUi()
         btnValidate.isEnabled = false
 
         val existingBlockId = arguments?.getLong(ARG_BLOCK_ID)?.takeIf { it > 0 }
@@ -127,12 +146,27 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
 
         fun updateMenuState() {
             val (_, bodyContent) = currentContent()
-            val hasActions = existingBlockId != null || bodyContent.isNotBlank()
+            val hasFormatActions = FeatureFlags.listsEnabled
+            val hasActions = existingBlockId != null || bodyContent.isNotBlank() || hasFormatActions
             menuButton.isEnabled = hasActions
             menuButton.alpha = if (hasActions) 1f else 0.4f
         }
 
         updateMenuState()
+
+        val blockIdForEdit = existingBlockId
+        if (blockIdForEdit != null) {
+            uiScope.launch {
+                val isList = withContext(Dispatchers.IO) {
+                    val block = blocksRepo.getBlock(blockIdForEdit)
+                    block?.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST
+                }
+                if (isList) {
+                    desiredFormat = DesiredFormat.LIST
+                    updateFormatUi()
+                }
+            }
+        }
 
         menuButton.setOnClickListener {
             showOverflowMenu(
@@ -160,14 +194,21 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
             }
 
             uiScope.launch {
-                val savedBlockId = withContext(Dispatchers.IO) {
+                val saveResult = withContext(Dispatchers.IO) {
                     existingBlockId?.let { blockId ->
                         blocksRepo.updateText(blockId, content)
-                        blockId
-                    } ?: blocksRepo.appendText(noteId, content)
+                        SaveResult(blockId, null)
+                    } ?: run {
+                        val newBlockId = blocksRepo.appendText(noteId, content)
+                        val conversion = if (desiredFormat == DesiredFormat.LIST) {
+                            blocksRepo.convertTextBlockToList(newBlockId)
+                        } else {
+                            null
+                        }
+                        SaveResult(newBlockId, conversion)
+                    }
                 }
-                onSaved?.invoke(noteId, savedBlockId)
-                dismiss()
+                handleSaveResult(noteId, saveResult)
             }
         }
     }
@@ -186,12 +227,20 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         val shareItem = popup.menu.add(0, MENU_SHARE, 0, getString(R.string.media_action_share))
         shareItem.isEnabled = combinedContent.isNotBlank()
 
+        if (FeatureFlags.listsEnabled) {
+            val convertToList = popup.menu.add(0, MENU_CONVERT_TO_LIST, 1, getString(R.string.note_menu_convert_to_list))
+            convertToList.isEnabled = blockId == null || hasBody
+            convertToList.isCheckable = true
+            convertToList.isChecked = desiredFormat == DesiredFormat.LIST
+
+            val convertToText = popup.menu.add(0, MENU_CONVERT_TO_TEXT, 2, getString(R.string.note_menu_convert_to_text))
+            convertToText.isEnabled = blockId == null || hasBody
+            convertToText.isCheckable = true
+            convertToText.isChecked = desiredFormat == DesiredFormat.TEXT
+        }
+
         if (blockId != null) {
-            if (FeatureFlags.listsEnabled) {
-                val convertItem = popup.menu.add(0, MENU_CONVERT_TO_LIST, 1, getString(R.string.note_menu_convert_to_list))
-                convertItem.isEnabled = hasBody
-            }
-            popup.menu.add(0, MENU_DELETE, 2, getString(R.string.media_action_delete))
+            popup.menu.add(0, MENU_DELETE, 3, getString(R.string.media_action_delete))
         }
 
         if (popup.menu.size() == 0) return
@@ -207,15 +256,73 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
                     true
                 }
                 MENU_CONVERT_TO_LIST -> {
-                    if (blockId != null) {
-                        convertToList(noteId, blockId, combinedContent)
-                    }
+                    handleConvertToList(noteId, blockId, combinedContent)
+                    true
+                }
+                MENU_CONVERT_TO_TEXT -> {
+                    handleConvertToText(noteId, blockId, combinedContent)
                     true
                 }
                 else -> false
             }
         }
         popup.show()
+    }
+
+    private fun handleConvertToList(
+        noteId: Long,
+        blockId: Long?,
+        combinedContent: String,
+    ) {
+        if (!FeatureFlags.listsEnabled) return
+        if (blockId != null) {
+            convertToList(noteId, blockId, combinedContent)
+            return
+        }
+        desiredFormat = DesiredFormat.LIST
+        updateFormatUi()
+        Toast.makeText(requireContext(), R.string.postit_format_list_selected, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun handleConvertToText(
+        noteId: Long,
+        blockId: Long?,
+        combinedContent: String,
+    ) {
+        if (blockId != null) {
+            convertToText(noteId, blockId, combinedContent)
+            return
+        }
+        desiredFormat = DesiredFormat.TEXT
+        updateFormatUi()
+        Toast.makeText(requireContext(), R.string.postit_format_text_selected, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun handleSaveResult(noteId: Long, result: SaveResult) {
+        val ctx = context ?: return
+        val conversion = result.conversion
+        if (conversion != null) {
+            when (conversion) {
+                is BlocksRepository.BlockConversionResult.Converted -> {
+                    Toast.makeText(ctx, ctx.getString(R.string.block_convert_to_list_success, conversion.itemCount), Toast.LENGTH_SHORT).show()
+                }
+                BlocksRepository.BlockConversionResult.AlreadyTarget -> {
+                    Toast.makeText(ctx, R.string.block_convert_already_list, Toast.LENGTH_SHORT).show()
+                }
+                BlocksRepository.BlockConversionResult.EmptySource,
+                BlocksRepository.BlockConversionResult.Incomplete -> {
+                    Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+                }
+                BlocksRepository.BlockConversionResult.NotFound -> {
+                    Toast.makeText(ctx, R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
+                }
+                BlocksRepository.BlockConversionResult.Unsupported -> {
+                    Toast.makeText(ctx, R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        onSaved?.invoke(noteId, result.blockId)
+        dismiss()
     }
 
     private fun buildContent(title: String, body: String): String =
@@ -297,8 +404,65 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         }
     }
 
+    private fun convertToText(noteId: Long, blockId: Long, content: String) {
+        if (content.isBlank()) {
+            Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+            return
+        }
+        uiScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                blocksRepo.updateText(blockId, content)
+                blocksRepo.convertListBlockToText(blockId)
+            }
+            when (result) {
+                is BlocksRepository.BlockConversionResult.Converted -> {
+                    Toast.makeText(requireContext(), getString(R.string.block_convert_to_text_success, result.itemCount), Toast.LENGTH_SHORT).show()
+                    onSaved?.invoke(noteId, blockId)
+                    dismiss()
+                }
+                BlocksRepository.BlockConversionResult.AlreadyTarget -> {
+                    Toast.makeText(requireContext(), R.string.block_convert_already_text, Toast.LENGTH_SHORT).show()
+                }
+                BlocksRepository.BlockConversionResult.EmptySource -> {
+                    Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+                }
+                BlocksRepository.BlockConversionResult.Incomplete -> {
+                    Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+                }
+                BlocksRepository.BlockConversionResult.NotFound -> {
+                    Toast.makeText(requireContext(), R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
+                }
+                BlocksRepository.BlockConversionResult.Unsupported -> {
+                    Toast.makeText(requireContext(), R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun updateFormatUi() {
+        val badge = badgeView ?: return
+        val ctx = badge.context
+        val labelRes = if (desiredFormat == DesiredFormat.LIST) {
+            R.string.postit_list_label
+        } else {
+            R.string.postit_label
+        }
+        badge.text = ctx.getString(labelRes)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_DESIRED_FORMAT, desiredFormat.name)
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
+        badgeView = null
         uiScope.coroutineContext[Job]?.cancel()
     }
+
+    private data class SaveResult(
+        val blockId: Long,
+        val conversion: BlocksRepository.BlockConversionResult?,
+    )
 }
