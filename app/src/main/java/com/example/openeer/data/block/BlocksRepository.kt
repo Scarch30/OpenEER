@@ -1,5 +1,6 @@
 package com.example.openeer.data.block
 
+import android.util.Log
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
 import com.example.openeer.data.Note
@@ -13,6 +14,7 @@ import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 
 fun generateGroupId(): String = UUID.randomUUID().toString()
@@ -42,10 +44,20 @@ class BlocksRepository(
         return null
     }
 
+    private suspend fun <T> runInRoomTransaction(block: suspend () -> T): T {
+        val database = roomDatabase
+        return if (database != null) {
+            database.withTransaction { block() }
+        } else {
+            block()
+        }
+    }
+
     companion object {
         const val LINK_AUDIO_TRANSCRIPTION = "AUDIO_TRANSCRIPTION"
         const val LINK_VIDEO_TRANSCRIPTION = "VIDEO_TRANSCRIPTION"
         const val MIME_TYPE_TEXT_BLOCK_LIST = "text/x-openeer-list"
+        private const val BLOCK_LIST_LOG_TAG = "BlockListUI"
     }
 
     sealed interface BlockConversionResult {
@@ -237,6 +249,114 @@ class BlocksRepository(
 
             BlockConversionResult.Converted(items.size)
         }
+    }
+
+    fun observeItemsForBlock(blockId: Long): Flow<List<ListItemEntity>> {
+        val dao = listItemDao ?: return flowOf(emptyList())
+        return dao.listForBlockFlow(blockId)
+    }
+
+    suspend fun getItemsForBlock(blockId: Long): List<ListItemEntity> = withContext(io) {
+        val dao = listItemDao ?: return@withContext emptyList()
+        dao.listForBlock(blockId)
+    }
+
+    suspend fun addItemForBlock(blockId: Long, text: String): Long {
+        val dao = listItemDao ?: return -1L
+        return withContext(io) {
+            runInRoomTransaction {
+                val nextOrder = (dao.maxOrderForBlock(blockId) ?: -1) + 1
+                val trimmed = text.trim()
+                val isBlank = trimmed.isEmpty()
+                val entity = ListItemEntity(
+                    noteId = null,
+                    ownerBlockId = blockId,
+                    text = if (isBlank) "" else trimmed,
+                    order = nextOrder,
+                    createdAt = System.currentTimeMillis(),
+                    provisional = isBlank,
+                )
+                val id = dao.insert(entity)
+                Log.i(BLOCK_LIST_LOG_TAG, "add block=$blockId item=$id")
+                updateBlockTextFromItems(blockId)
+                id
+            }
+        }
+    }
+
+    suspend fun updateItemTextForBlock(itemId: Long, text: String) {
+        val dao = listItemDao ?: return
+        withContext(io) {
+            runInRoomTransaction {
+                val current = dao.findById(itemId) ?: return@runInRoomTransaction
+                val blockId = current.ownerBlockId ?: return@runInRoomTransaction
+                val sanitized = text.trim()
+                if (sanitized.isEmpty()) {
+                    dao.delete(itemId)
+                    Log.i(BLOCK_LIST_LOG_TAG, "remove block=$blockId item=$itemId")
+                    updateBlockTextFromItems(blockId)
+                    return@runInRoomTransaction
+                }
+
+                val changed = current.provisional || current.text != sanitized
+                if (!changed) {
+                    return@runInRoomTransaction
+                }
+
+                if (current.provisional) {
+                    dao.finalizeText(itemId, sanitized)
+                } else {
+                    dao.updateText(itemId, sanitized)
+                }
+                Log.i(BLOCK_LIST_LOG_TAG, "edit block=$blockId item=$itemId")
+                updateBlockTextFromItems(blockId)
+            }
+        }
+    }
+
+    suspend fun toggleItemForBlock(itemId: Long) {
+        val dao = listItemDao ?: return
+        withContext(io) {
+            runInRoomTransaction {
+                val current = dao.findById(itemId) ?: return@runInRoomTransaction
+                val blockId = current.ownerBlockId ?: return@runInRoomTransaction
+                val newValue = !current.done
+                if (newValue == current.done) {
+                    return@runInRoomTransaction
+                }
+                dao.updateDone(itemId, newValue)
+                Log.i(BLOCK_LIST_LOG_TAG, "toggle block=$blockId item=$itemId")
+            }
+        }
+    }
+
+    suspend fun removeItemForBlock(itemId: Long) {
+        val dao = listItemDao ?: return
+        withContext(io) {
+            runInRoomTransaction {
+                val current = dao.findById(itemId) ?: return@runInRoomTransaction
+                val blockId = current.ownerBlockId ?: return@runInRoomTransaction
+                dao.delete(itemId)
+                Log.i(BLOCK_LIST_LOG_TAG, "remove block=$blockId item=$itemId")
+                updateBlockTextFromItems(blockId)
+            }
+        }
+    }
+
+    private suspend fun updateBlockTextFromItems(blockId: Long) {
+        val dao = listItemDao ?: return
+        val block = blockDao.getById(blockId) ?: return
+        if (block.type != BlockType.TEXT || block.mimeType != MIME_TYPE_TEXT_BLOCK_LIST) {
+            return
+        }
+        val items = dao.listForBlock(blockId)
+        val joined = items.joinToString(separator = "\n") { it.text }
+        blockDao.update(
+            block.copy(
+                text = joined,
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
     }
 
     /** Crée explicitement une “note-fille” texte (transcription immuable et indexable). */

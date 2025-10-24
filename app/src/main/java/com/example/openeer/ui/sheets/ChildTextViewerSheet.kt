@@ -1,5 +1,6 @@
 package com.example.openeer.ui.sheets
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.*
@@ -8,16 +9,23 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.list.ListItemEntity
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.view.inputmethod.InputMethodManager
 
 class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
@@ -47,22 +55,41 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
         BlocksRepository(
             blockDao = db.blockDao(),
             noteDao  = db.noteDao(),
-            linkDao  = db.blockLinkDao()
+            linkDao  = db.blockLinkDao(),
+            listItemDao = db.listItemDao(),
         )
     }
 
     private var currentContent: String = ""
 
     private var postitText: TextView? = null
+    private var postitScroll: ScrollView? = null
     private var btnEdit: Button? = null
     private var btnShare: ImageButton? = null
     private var btnDelete: ImageButton? = null
+    private var checklistContainer: LinearLayout? = null
+    private var checklistRecycler: RecyclerView? = null
+    private var checklistEmptyView: TextView? = null
+    private var checklistAddButton: TextView? = null
 
     // UI dynamique pour l'audio lié
     private var linkedAudioContainer: LinearLayout? = null
     private var linkedAudioBtn: Button? = null
     private var linkedAudioBlockId: Long? = null
     private var linkedAudioUri: String? = null
+
+    private val checklistAdapter by lazy {
+        BlockChecklistAdapter(
+            onToggle = { itemId -> toggleChecklistItem(itemId) },
+            onCommitText = { itemId, text -> commitChecklistItem(itemId, text) },
+            onDelete = { itemId -> deleteChecklistItem(itemId) },
+            onFocusRequested = { editText -> showIme(editText) },
+        )
+    }
+    private var checklistJob: Job? = null
+    private var pendingScrollItemId: Long? = null
+    private var latestChecklistItems: List<ListItemEntity> = emptyList()
+    private var isListMode: Boolean = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -74,6 +101,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
         super.onViewCreated(view, savedInstanceState)
 
         postitText = view.findViewById(R.id.postitText)
+        postitScroll = view.findViewById(R.id.postitScroll)
         btnEdit = view.findViewById<Button>(R.id.btnEdit).also { button ->
             button.setOnClickListener { openEditor() }
             button.isEnabled = false
@@ -86,6 +114,16 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
         btnDelete = view.findViewById<ImageButton>(R.id.btnDelete).also { button ->
             button.setOnClickListener { confirmDelete() }
             button.isEnabled = false
+        }
+
+        checklistContainer = view.findViewById(R.id.checklistContainer)
+        checklistEmptyView = view.findViewById(R.id.checklistEmptyPlaceholder)
+        checklistAddButton = view.findViewById<TextView>(R.id.checklistAddButton)?.also { textView ->
+            textView.setOnClickListener { addChecklistItem() }
+        }
+        checklistRecycler = view.findViewById<RecyclerView>(R.id.checklistRecycler)?.also { recycler ->
+            recycler.layoutManager = LinearLayoutManager(requireContext())
+            recycler.adapter = checklistAdapter
         }
 
         // ✅ Injecte un header si un audio est lié (pas besoin de modifier le layout XML)
@@ -132,6 +170,8 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 btnEdit?.isEnabled = false
                 btnShare?.isEnabled = false
                 btnDelete?.isEnabled = false
+                updateChecklistVisibility(false)
+                stopChecklistObservation()
                 context?.let { ctx ->
                     Toast.makeText(ctx, ctx.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
                 }
@@ -139,11 +179,25 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 return@launch
             }
 
-            currentContent = block.text.orEmpty()
-            postitText?.text = currentContent
-            btnEdit?.isEnabled = true
-            btnShare?.isEnabled = currentContent.isNotBlank()
+            val listMode = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST
+            isListMode = listMode
             btnDelete?.isEnabled = true
+            if (listMode) {
+                currentContent = ""
+                btnEdit?.visibility = View.GONE
+                btnEdit?.isEnabled = false
+                btnShare?.isEnabled = latestChecklistItems.any { it.text.isNotBlank() }
+                updateChecklistVisibility(true)
+                startChecklistObservation(block.id)
+            } else {
+                stopChecklistObservation()
+                currentContent = block.text.orEmpty()
+                postitText?.text = currentContent
+                btnEdit?.visibility = View.VISIBLE
+                btnEdit?.isEnabled = true
+                btnShare?.isEnabled = currentContent.isNotBlank()
+                updateChecklistVisibility(false)
+            }
 
             // 2) ✅ tente de résoudre l’audio lié et prépare le bouton d’accès
             val audioId = withContext(Dispatchers.IO) {
@@ -161,6 +215,95 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 linkedAudioUri = null
                 linkedAudioContainer?.visibility = View.GONE
             }
+        }
+    }
+
+    private fun updateChecklistVisibility(listMode: Boolean) {
+        val scroll = postitScroll
+        val container = checklistContainer
+        if (listMode) {
+            scroll?.visibility = View.GONE
+            container?.visibility = View.VISIBLE
+            checklistAddButton?.visibility = View.VISIBLE
+        } else {
+            scroll?.visibility = View.VISIBLE
+            container?.visibility = View.GONE
+        }
+    }
+
+    private fun startChecklistObservation(targetBlockId: Long) {
+        checklistJob?.cancel()
+        btnShare?.isEnabled = false
+        checklistJob = viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                blocksRepo.observeItemsForBlock(targetBlockId).collectLatest { items ->
+                    latestChecklistItems = items
+                    checklistEmptyView?.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+                    checklistAdapter.submitList(items) {
+                        pendingScrollItemId?.let { pendingId ->
+                            val position = items.indexOfFirst { it.id == pendingId }
+                            if (position >= 0) {
+                                checklistRecycler?.post {
+                                    checklistRecycler?.smoothScrollToPosition(position)
+                                }
+                                pendingScrollItemId = null
+                            }
+                        }
+                    }
+                    val shareLines = items.map { item ->
+                        val prefix = if (item.done) "[x]" else "[ ]"
+                        "$prefix ${item.text}".trimEnd()
+                    }.filter { it.isNotBlank() }
+                    currentContent = if (shareLines.isEmpty()) "" else shareLines.joinToString("\n")
+                    btnShare?.isEnabled = shareLines.isNotEmpty()
+                }
+            }
+        }
+    }
+
+    private fun stopChecklistObservation() {
+        checklistJob?.cancel()
+        checklistJob = null
+        latestChecklistItems = emptyList()
+        pendingScrollItemId = null
+        checklistAdapter.submitList(emptyList())
+        checklistEmptyView?.visibility = View.GONE
+        btnShare?.isEnabled = false
+    }
+
+    private fun addChecklistItem() {
+        if (!isListMode) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val newId = withContext(Dispatchers.IO) { blocksRepo.addItemForBlock(blockId, "") }
+            if (newId > 0) {
+                pendingScrollItemId = newId
+                checklistAdapter.requestFocusOn(newId)
+            }
+        }
+    }
+
+    private fun toggleChecklistItem(itemId: Long) {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            blocksRepo.toggleItemForBlock(itemId)
+        }
+    }
+
+    private fun commitChecklistItem(itemId: Long, text: String) {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            blocksRepo.updateItemTextForBlock(itemId, text)
+        }
+    }
+
+    private fun deleteChecklistItem(itemId: Long) {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            blocksRepo.removeItemForBlock(itemId)
+        }
+    }
+
+    private fun showIme(target: EditText) {
+        target.post {
+            val imm = context?.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 
@@ -221,4 +364,9 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    override fun onDestroyView() {
+        stopChecklistObservation()
+        super.onDestroyView()
+    }
 }
