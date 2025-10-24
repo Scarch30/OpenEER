@@ -43,6 +43,7 @@ sealed class MediaStripItem {
         override val blockId: Long,
         val noteId: Long,
         val content: String,
+        val isList: Boolean,
     ) : MediaStripItem() {
         override val mediaUri: String? = null
         override val mimeType: String? = null
@@ -52,6 +53,7 @@ sealed class MediaStripItem {
                 .lineSequence()
                 .firstOrNull()
                 ?.trim()
+                ?.let { line -> if (isList && line.isNotEmpty()) "• $line" else line }
                 .orEmpty()
     }
 }

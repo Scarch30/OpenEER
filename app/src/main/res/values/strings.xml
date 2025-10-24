@@ -76,6 +76,16 @@
     <string name="note_convert_already_plain">Déjà du texte</string>
     <string name="note_convert_error_missing">Note introuvable</string>
     <string name="note_convert_error_generic">Conversion impossible</string>
+    <string name="block_convert_to_list_success">Bloc converti en liste (%1$d éléments)</string>
+    <string name="block_convert_to_text_success">Bloc converti en texte (%1$d lignes)</string>
+    <string name="block_convert_already_list">Le bloc est déjà une liste.</string>
+    <string name="block_convert_already_text">Le bloc est déjà en texte.</string>
+    <string name="block_convert_empty_source">Impossible de convertir : contenu vide.</string>
+    <string name="block_convert_error_missing">Bloc introuvable.</string>
+    <string name="block_convert_error_unsupported">Conversion non disponible pour ce bloc.</string>
+    <string name="media_text_badge_note">POST-IT</string>
+    <string name="media_text_badge_list">LISTE</string>
+    <string name="media_text_menu_content_description">Plus d’options pour ce bloc</string>
     <string name="note_list_add_placeholder">+ Ajouter un élément</string>
     <string name="note_list_empty_placeholder">Aucune entrée. Ajoutez un élément…</string>
     <string name="note_list_delete_title">Supprimer l’élément ?</string>
