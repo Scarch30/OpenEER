@@ -3,7 +3,6 @@ package com.example.openeer.ui.sheets
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
-import android.content.res.ColorStateList
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.net.Uri
@@ -14,16 +13,13 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import android.util.TypedValue
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.os.bundleOf
-import androidx.core.view.ViewCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
@@ -598,38 +594,13 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         isVisible = false
                     }
 
-                    val menu = ImageButton(ctx).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            dp(ctx, 36),
-                            dp(ctx, 36),
-                            Gravity.TOP or Gravity.END
-                        ).apply {
-                            topMargin = dp(ctx, 2)
-                            rightMargin = dp(ctx, 2)
-                        }
-                        val outValue = TypedValue()
-                        if (ctx.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, outValue, true)) {
-                            if (outValue.resourceId != 0) {
-                                setBackgroundResource(outValue.resourceId)
-                            }
-                        }
-                        setPadding(dp(ctx, 4), dp(ctx, 4), dp(ctx, 4), dp(ctx, 4))
-                        setImageResource(android.R.drawable.ic_menu_more)
-                        imageTintList = ColorStateList.valueOf(0xFF424242.toInt())
-                        contentDescription = ctx.getString(R.string.media_text_menu_content_description)
-                        isFocusable = true
-                        isFocusableInTouchMode = true
-                        setOnLongClickListener { true }
-                    }
-
                     root.addView(text)
                     root.addView(badge)
                     root.addView(counter)
                     root.addView(rightStrip)
                     root.addView(listBadge)
-                    root.addView(menu)
                     card.addView(root)
-                    TextHolder(card, text, badge, counter, rightStrip, menu, listBadge)
+                    TextHolder(card, text, badge, counter, rightStrip, listBadge)
                 }
 
                 else -> throw IllegalStateException("Unknown view type $viewType")
@@ -712,7 +683,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             private val badge: ImageView,
             private val counter: TextView,
             private val rightStrip: View,
-            private val menu: ImageButton,
             private val listBadge: ImageView,
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Text) {
@@ -733,10 +703,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 }
 
                 listBadge.isVisible = item.isList
-                menu.isVisible = false
-                menu.isEnabled = false
-                menu.setOnClickListener(null)
-                ViewCompat.setTooltipText(menu, null)
 
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {

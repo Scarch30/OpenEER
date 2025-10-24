@@ -65,7 +65,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
                 arguments = bundleOf(ARG_NOTE_ID to noteId)
             }
 
-        fun edit(noteId: Long, blockId: Long): ChildPostitSheet =
+        fun open(noteId: Long, blockId: Long): ChildPostitSheet =
             ChildPostitSheet().apply {
                 arguments = bundleOf(
                     ARG_NOTE_ID to noteId,

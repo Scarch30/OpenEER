@@ -1,20 +1,15 @@
 package com.example.openeer.ui.panel.media
 
 import android.content.Context
-import android.content.res.ColorStateList
 import android.graphics.PorterDuff
 import android.graphics.Typeface
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.widget.PopupMenu
-import androidx.core.view.ViewCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -40,18 +35,13 @@ class MediaStripAdapter(
     private val onClick: (MediaStripItem) -> Unit,
     private val onPileClick: (MediaCategory) -> Unit,
     private val onLongPress: (View, MediaStripItem) -> Unit,
-    private val onTextMenuAction: (MediaStripItem.Text, TextMenuAction) -> Unit,
 ) : ListAdapter<MediaStripItem, RecyclerView.ViewHolder>(DIFF) {
-
-    enum class TextMenuAction { CONVERT_TO_LIST, CONVERT_TO_TEXT }
 
     companion object {
         private const val TYPE_IMAGE = 0
         private const val TYPE_AUDIO = 1
         private const val TYPE_TEXT  = 2
         private const val TYPE_PILE  = 3
-        private const val MENU_CONVERT_TO_LIST = 1001
-        private const val MENU_CONVERT_TO_TEXT = 1002
 
         private val DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
             override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
@@ -237,39 +227,14 @@ class MediaStripAdapter(
             isVisible = false
         }
 
-        val menuButton = ImageButton(ctx).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                dp(ctx, 36),
-                dp(ctx, 36),
-                Gravity.TOP or Gravity.END
-            ).apply {
-                topMargin = dp(ctx, 2)
-                rightMargin = dp(ctx, 2)
-            }
-            val outValue = TypedValue()
-            if (ctx.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, outValue, true)) {
-                if (outValue.resourceId != 0) {
-                    setBackgroundResource(outValue.resourceId)
-                }
-            }
-            setPadding(dp(ctx, 4), dp(ctx, 4), dp(ctx, 4), dp(ctx, 4))
-            setImageResource(android.R.drawable.ic_menu_more)
-            imageTintList = ColorStateList.valueOf(0xFF424242.toInt())
-            contentDescription = ctx.getString(R.string.media_text_menu_content_description)
-            isFocusable = true
-            isFocusableInTouchMode = true
-            setOnLongClickListener { true }
-        }
-
         column.addView(badgeLabel)
         column.addView(preview)
         container.addView(column)
         container.addView(pileBadge)
         container.addView(listBadge)
-        container.addView(menuButton)
         card.addView(container)
 
-        return TextHolder(card, preview, badgeLabel, pileBadge, menuButton, listBadge)
+        return TextHolder(card, preview, badgeLabel, pileBadge, listBadge)
     }
 
     private fun createPileHolder(parent: ViewGroup): PileHolder {
@@ -432,7 +397,6 @@ class MediaStripAdapter(
         private val preview: TextView,
         private val label: TextView,
         private val badge: TextView,
-        private val menu: ImageButton,
         private val listBadge: ImageView,
     ) : RecyclerView.ViewHolder(card) {
         fun bind(item: MediaStripItem) {
@@ -445,7 +409,6 @@ class MediaStripAdapter(
             if (display == null) {
                 preview.text = ""
                 label.text = card.context.getString(R.string.media_text_badge_note)
-                menu.isVisible = false
                 listBadge.isVisible = false
                 bindBadge(badge, item)
                 return
@@ -459,15 +422,6 @@ class MediaStripAdapter(
                 ctx.getString(R.string.media_text_badge_note)
             }
 
-            val isTextItem = item is MediaStripItem.Text
-            menu.isVisible = isTextItem
-            menu.isEnabled = isTextItem
-            menu.setOnClickListener(null)
-            if (isTextItem) {
-                menu.setOnClickListener { showMenu(display) }
-                ViewCompat.setTooltipText(menu, ctx.getString(R.string.media_text_menu_content_description))
-            }
-
             listBadge.isVisible = display.isList
             bindBadge(badge, item)
 
@@ -476,32 +430,6 @@ class MediaStripAdapter(
                 onLongPress(it, item)
                 true
             }
-        }
-
-        private fun showMenu(display: MediaStripItem.Text) {
-            val popup = PopupMenu(menu.context, menu)
-            if (!display.isList) {
-                popup.menu.add(0, MENU_CONVERT_TO_LIST, 0, menu.context.getString(R.string.note_menu_convert_to_list))
-            }
-            if (display.isList) {
-                popup.menu.add(0, MENU_CONVERT_TO_TEXT, 1, menu.context.getString(R.string.note_menu_convert_to_text))
-            }
-            if (popup.menu.size() == 0) return
-
-            popup.setOnMenuItemClickListener { menuItem ->
-                when (menuItem.itemId) {
-                    MENU_CONVERT_TO_LIST -> {
-                        onTextMenuAction(display, TextMenuAction.CONVERT_TO_LIST)
-                        true
-                    }
-                    MENU_CONVERT_TO_TEXT -> {
-                        onTextMenuAction(display, TextMenuAction.CONVERT_TO_TEXT)
-                        true
-                    }
-                    else -> false
-                }
-            }
-            popup.show()
         }
     }
 

@@ -64,7 +64,7 @@ class MediaActions(
                             val linkedTextId = ctx.second
 
                             if (noteId != null && linkedTextId != null) {
-                                ChildPostitSheet.edit(noteId, linkedTextId)
+                                ChildPostitSheet.open(noteId, linkedTextId)
                                     .show(activity.supportFragmentManager, "child_text_edit_$linkedTextId")
                                 return@launch
                             }
@@ -165,7 +165,7 @@ class MediaActions(
                     val linkedTextId = triple.second
 
                     if (noteId != null && linkedTextId != null) {
-                        ChildPostitSheet.edit(noteId, linkedTextId)
+                        ChildPostitSheet.open(noteId, linkedTextId)
                             .show(activity.supportFragmentManager, "child_text_edit_$linkedTextId")
                         return@launch
                     }
@@ -193,7 +193,7 @@ class MediaActions(
             }
 
             is MediaStripItem.Text -> {
-                ChildPostitSheet.edit(item.noteId, item.blockId)
+                ChildPostitSheet.open(item.noteId, item.blockId)
                     .show(activity.supportFragmentManager, "child_text_edit_${item.blockId}")
             }
         }
