@@ -27,6 +27,7 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository.ChecklistItemDraft
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.core.FeatureFlags
+import com.example.openeer.voice.SmartListSplitter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -218,6 +219,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         if (container != null) {
             container.visibility = if (isList) View.VISIBLE else View.GONE
         }
+        checklistAddButton?.visibility = if (isList) View.VISIBLE else View.GONE
         if (isList) {
             val hasItems = currentChecklistItems().isNotEmpty()
             checklistEmptyView?.visibility = if (hasItems) View.GONE else View.VISIBLE
@@ -304,14 +306,11 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         localListItems.clear()
         localListId = -1L
         currentBody = ""
-        val lines = body.lines()
-            .map { it.trim() }
+        val whitespaceRegex = "\\s+".toRegex()
+        val items = SmartListSplitter.splitAllCandidates(body)
+            .map { candidate -> whitespaceRegex.replace(candidate.trim(), " ") }
             .filter { it.isNotEmpty() }
-        if (lines.isEmpty()) {
-            addChecklistItem()
-            return
-        }
-        lines.forEach { line ->
+        items.forEach { line ->
             val id = localListId--
             localListItems.add(
                 ListItemEntity(
@@ -576,8 +575,23 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             convertToList(noteId, blockId, content)
             return
         }
+        val source = inputBody?.text?.toString().orEmpty()
+        if (source.isBlank()) {
+            Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+            return
+        }
         isListMode = true
-        populateLocalListFromBody(content.body)
+        populateLocalListFromBody(source)
+        if (localListItems.isEmpty()) {
+            isListMode = false
+            listContext = ListContext.NONE
+            Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+            updateFormatUi()
+            updateMenuState()
+            updateValidateButtonState()
+            return
+        }
+        inputBody?.setText("")
         updateFormatUi()
         updateMenuState()
         updateValidateButtonState()
@@ -593,18 +607,18 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             convertToText(noteId, blockId, content)
             return
         }
+        val text = currentChecklistItems()
+            .map { it.text.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString(separator = "\n")
         isListMode = false
-        val text = if (content.body.isBlank()) {
-            ""
-        } else {
-            content.body
-        }
         inputBody?.setText(text)
         inputBody?.setSelection(text.length)
         currentBody = text
         listContext = ListContext.NONE
         localListItems.clear()
         localListId = -1L
+        checklistAdapter.submitList(emptyList())
         updateFormatUi()
         updateMenuState()
         updateValidateButtonState()
