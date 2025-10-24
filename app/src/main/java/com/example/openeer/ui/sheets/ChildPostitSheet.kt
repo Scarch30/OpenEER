@@ -8,12 +8,13 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.util.Log
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
 import androidx.core.widget.addTextChangedListener
@@ -51,6 +52,7 @@ private const val MENU_CONVERT_TO_TEXT = 1003
 private const val STATE_IS_LIST_MODE = "state_is_list_mode"
 private const val STATE_CURRENT_TITLE = "state_current_title"
 private const val STATE_CURRENT_BODY = "state_current_body"
+private const val LOG_TAG = "PostitSheet"
 
 class ChildPostitSheet : BottomSheetDialogFragment() {
 
@@ -156,6 +158,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             validateButton?.isEnabled = true
             val ctx = context ?: return@launch
             result.onSuccess { savedBlockId ->
+                Log.d(LOG_TAG, if (blockId == null) "Postit save new" else "Postit save update")
                 Toast.makeText(ctx, ctx.getString(R.string.postit_save_success), Toast.LENGTH_SHORT).show()
                 onSaved?.invoke(noteId, savedBlockId)
                 dismiss()
@@ -663,26 +666,33 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     ) {
         val popup = PopupMenu(requireContext(), anchor)
         val content = contentProvider()
-        val combinedContent = composeShareText(content.title, content.body)
+        val combinedContent = composeShareText(content)
         val hasBody = content.body.isNotBlank()
-
         val shareItem = popup.menu.add(0, MENU_SHARE, 0, getString(R.string.media_action_share))
         shareItem.isEnabled = combinedContent.isNotBlank()
 
         if (FeatureFlags.listsEnabled) {
-            val convertToList = popup.menu.add(0, MENU_CONVERT_TO_LIST, 1, getString(R.string.note_menu_convert_to_list))
-            convertToList.isEnabled = blockId == null || hasBody
-            convertToList.isCheckable = true
-            convertToList.isChecked = isListMode
-
-            val convertToText = popup.menu.add(0, MENU_CONVERT_TO_TEXT, 2, getString(R.string.note_menu_convert_to_text))
-            convertToText.isEnabled = blockId == null || hasBody
-            convertToText.isCheckable = true
-            convertToText.isChecked = isListMode.not()
+            if (!isListMode) {
+                val convertToList = popup.menu.add(
+                    0,
+                    MENU_CONVERT_TO_LIST,
+                    1,
+                    getString(R.string.note_menu_convert_to_list),
+                )
+                convertToList.isEnabled = blockId != null || hasBody
+            } else {
+                val convertToText = popup.menu.add(
+                    0,
+                    MENU_CONVERT_TO_TEXT,
+                    1,
+                    getString(R.string.note_menu_convert_to_text),
+                )
+                convertToText.isEnabled = blockId != null || hasBody
+            }
         }
 
         if (blockId != null) {
-            popup.menu.add(0, MENU_DELETE, 3, getString(R.string.media_action_delete))
+            popup.menu.add(0, MENU_DELETE, 2, getString(R.string.media_action_delete))
         }
 
         if (popup.menu.size() == 0) return
@@ -741,6 +751,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         updateFormatUi()
         updateMenuState()
         updateValidateButtonState()
+        Log.d(LOG_TAG, "Postit convert local TEXT->LIST")
         Toast.makeText(requireContext(), R.string.postit_format_list_selected, Toast.LENGTH_SHORT).show()
     }
 
@@ -768,12 +779,35 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         updateFormatUi()
         updateMenuState()
         updateValidateButtonState()
+        Log.d(LOG_TAG, "Postit convert local LIST->TEXT")
         Toast.makeText(requireContext(), R.string.postit_format_text_selected, Toast.LENGTH_SHORT).show()
     }
 
-    private fun composeShareText(title: String, body: String): String {
-        val trimmedTitle = title.trim()
-        val trimmedBody = body.trim()
+    private fun composeShareText(content: EditorContent): String {
+        val trimmedTitle = content.title.trim()
+        if (isListMode) {
+            val formattedItems = currentChecklistItems()
+                .mapNotNull { item ->
+                    val text = item.text.trim()
+                    if (text.isEmpty()) {
+                        null
+                    } else {
+                        val prefix = if (item.done) "[x]" else "[ ]"
+                        "$prefix $text"
+                    }
+                }
+            if (formattedItems.isEmpty()) {
+                return trimmedTitle
+            }
+            return buildString {
+                if (trimmedTitle.isNotEmpty()) {
+                    append(trimmedTitle)
+                    append('\n')
+                }
+                append(formattedItems.joinToString(separator = "\n"))
+            }
+        }
+        val trimmedBody = content.body.trim()
         if (trimmedTitle.isEmpty()) return trimmedBody
         if (trimmedBody.isEmpty()) return trimmedTitle
         return "$trimmedTitle\n\n$trimmedBody"
@@ -781,6 +815,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
     private fun shareContent(content: String) {
         if (content.isBlank()) return
+        Log.d(LOG_TAG, "Postit share")
         val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(android.content.Intent.EXTRA_TEXT, content)
@@ -811,6 +846,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             }
             val ctx = context ?: return@launch
             if (result) {
+                Log.d(LOG_TAG, "Postit delete")
                 Toast.makeText(ctx, ctx.getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
                 onSaved?.invoke(noteId, blockId)
                 dismiss()
