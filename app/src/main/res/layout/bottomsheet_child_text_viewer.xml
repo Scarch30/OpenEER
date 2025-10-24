@@ -45,6 +45,18 @@
                 android:src="@android:drawable/ic_menu_delete"
                 android:tint="?attr/colorControlNormal" />
 
+            <ImageButton
+                android:id="@+id/btnConvert"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/block_convert_menu_content_description"
+                android:padding="4dp"
+                android:src="@android:drawable/ic_menu_manage"
+                android:tint="?attr/colorControlNormal"
+                android:visibility="gone" />
+
             <Button
                 android:id="@+id/btnEdit"
                 android:layout_width="wrap_content"

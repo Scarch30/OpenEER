@@ -7,12 +7,14 @@ import android.view.*
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
+import androidx.core.view.ViewCompat
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.R
+import com.example.openeer.core.FeatureFlags
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
@@ -26,6 +28,9 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.view.inputmethod.InputMethodManager
+
+private const val MENU_CONVERT_TO_LIST = 2001
+private const val MENU_CONVERT_TO_TEXT = 2002
 
 class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
@@ -67,6 +72,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     private var btnEdit: Button? = null
     private var btnShare: ImageButton? = null
     private var btnDelete: ImageButton? = null
+    private var btnConvert: ImageButton? = null
     private var checklistContainer: LinearLayout? = null
     private var checklistRecycler: RecyclerView? = null
     private var checklistEmptyView: TextView? = null
@@ -90,6 +96,8 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     private var pendingScrollItemId: Long? = null
     private var latestChecklistItems: List<ListItemEntity> = emptyList()
     private var isListMode: Boolean = false
+    private var currentBlockMimeType: String? = null
+    private var currentBlockId: Long? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -114,6 +122,12 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
         btnDelete = view.findViewById<ImageButton>(R.id.btnDelete).also { button ->
             button.setOnClickListener { confirmDelete() }
             button.isEnabled = false
+        }
+        btnConvert = view.findViewById<ImageButton>(R.id.btnConvert)?.also { button ->
+            button.setOnClickListener { showConvertMenu(it) }
+            button.visibility = if (FeatureFlags.listsEnabled) View.VISIBLE else View.GONE
+            button.isEnabled = false
+            ViewCompat.setTooltipText(button, button.contentDescription)
         }
 
         checklistContainer = view.findViewById(R.id.checklistContainer)
@@ -170,6 +184,10 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 btnEdit?.isEnabled = false
                 btnShare?.isEnabled = false
                 btnDelete?.isEnabled = false
+                btnConvert?.isEnabled = false
+                btnConvert?.visibility = View.GONE
+                currentBlockId = null
+                currentBlockMimeType = null
                 updateChecklistVisibility(false)
                 stopChecklistObservation()
                 context?.let { ctx ->
@@ -181,6 +199,8 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
             val listMode = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST
             isListMode = listMode
+            currentBlockId = block.id
+            currentBlockMimeType = block.mimeType
             btnDelete?.isEnabled = true
             if (listMode) {
                 currentContent = ""
@@ -215,8 +235,129 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 linkedAudioUri = null
                 linkedAudioContainer?.visibility = View.GONE
             }
+
+            updateConvertButtonState()
         }
     }
+
+    private fun updateConvertButtonState() {
+        val button = btnConvert ?: return
+        if (!FeatureFlags.listsEnabled) {
+            button.visibility = View.GONE
+            button.isEnabled = false
+            ViewCompat.setTooltipText(button, null)
+            button.contentDescription = null
+            return
+        }
+
+        val mimeType = currentBlockMimeType
+        val convertible = mimeType != "text/transcript" && currentBlockId != null
+        button.visibility = if (convertible) View.VISIBLE else View.GONE
+        button.isEnabled = convertible
+
+        if (convertible) {
+            val nextActionLabel = if (isListMode) {
+                getString(R.string.note_menu_convert_to_text)
+            } else {
+                getString(R.string.note_menu_convert_to_list)
+            }
+            button.contentDescription = nextActionLabel
+            ViewCompat.setTooltipText(button, nextActionLabel)
+        } else {
+            button.contentDescription = null
+            ViewCompat.setTooltipText(button, null)
+        }
+    }
+
+    private fun showConvertMenu(anchor: View) {
+        if (!FeatureFlags.listsEnabled) return
+        val blockId = currentBlockId ?: return
+        if (currentBlockMimeType == "text/transcript") return
+
+        val popup = PopupMenu(requireContext(), anchor)
+        if (!isListMode) {
+            popup.menu.add(0, MENU_CONVERT_TO_LIST, 0, getString(R.string.note_menu_convert_to_list))
+        }
+        if (isListMode) {
+            popup.menu.add(0, MENU_CONVERT_TO_TEXT, 1, getString(R.string.note_menu_convert_to_text))
+        }
+        if (popup.menu.size() == 0) return
+
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_CONVERT_TO_LIST -> {
+                    convertCurrentBlock(blockId, ConvertAction.TO_LIST)
+                    true
+                }
+                MENU_CONVERT_TO_TEXT -> {
+                    convertCurrentBlock(blockId, ConvertAction.TO_TEXT)
+                    true
+                }
+                else -> false
+            }
+        }
+        popup.show()
+    }
+
+    private fun convertCurrentBlock(blockId: Long, action: ConvertAction) {
+        btnConvert?.isEnabled = false
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                when (action) {
+                    ConvertAction.TO_LIST -> blocksRepo.convertTextBlockToList(blockId)
+                    ConvertAction.TO_TEXT -> blocksRepo.convertListBlockToText(blockId)
+                }
+            }
+            handleConversionResult(result, action)
+            updateConvertButtonState()
+        }
+    }
+
+    private fun handleConversionResult(
+        result: BlocksRepository.BlockConversionResult,
+        action: ConvertAction,
+    ) {
+        val ctx = context ?: return
+        when (result) {
+            is BlocksRepository.BlockConversionResult.Converted -> {
+                val messageRes = if (action == ConvertAction.TO_LIST) {
+                    R.string.block_convert_to_list_success
+                } else {
+                    R.string.block_convert_to_text_success
+                }
+                Toast.makeText(ctx, ctx.getString(messageRes, result.itemCount), Toast.LENGTH_SHORT).show()
+                refreshContent()
+            }
+            BlocksRepository.BlockConversionResult.AlreadyTarget -> {
+                val res = if (action == ConvertAction.TO_LIST) {
+                    R.string.block_convert_already_list
+                } else {
+                    R.string.block_convert_already_text
+                }
+                Toast.makeText(ctx, res, Toast.LENGTH_SHORT).show()
+                btnConvert?.isEnabled = true
+            }
+            BlocksRepository.BlockConversionResult.EmptySource -> {
+                Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+                refreshContent()
+            }
+            BlocksRepository.BlockConversionResult.Incomplete -> {
+                Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+                btnConvert?.isEnabled = true
+            }
+            BlocksRepository.BlockConversionResult.NotFound -> {
+                Toast.makeText(ctx, R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
+                btnConvert?.isEnabled = true
+            }
+            BlocksRepository.BlockConversionResult.Unsupported -> {
+                Toast.makeText(ctx, R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
+                btnConvert?.isEnabled = false
+                btnConvert?.visibility = View.GONE
+            }
+        }
+    }
+
+    private enum class ConvertAction { TO_LIST, TO_TEXT }
 
     fun requestContentRefresh() {
         if (view != null) {
