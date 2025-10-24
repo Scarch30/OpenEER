@@ -55,6 +55,7 @@ import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.library.LibraryFragment
 import com.example.openeer.ui.library.MapPreviewStorage
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
+import com.example.openeer.ui.sheets.ChildTextViewerSheet
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.util.toast
 import com.google.android.material.snackbar.Snackbar
