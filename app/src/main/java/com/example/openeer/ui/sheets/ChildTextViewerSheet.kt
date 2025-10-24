@@ -71,6 +71,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
     private var postitTitle: TextView? = null
     private var postitText: TextView? = null
+    private var postitTitleDivider: View? = null
     private var postitScroll: ScrollView? = null
     private var btnEdit: Button? = null
     private var menuButton: ImageButton? = null
@@ -115,6 +116,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
         postitTitle = view.findViewById(R.id.postitTitle)
         postitText = view.findViewById(R.id.postitText)
+        postitTitleDivider = view.findViewById(R.id.postitTitleDivider)
         postitScroll = view.findViewById(R.id.postitScroll)
         view.findViewById<View>(R.id.editorContainer)?.visibility = View.GONE
         view.findViewById<View>(R.id.editorActions)?.visibility = View.GONE
@@ -237,6 +239,8 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 canConvertToText = false
                 updateChecklistVisibility(false)
             }
+
+            updateTitleDivider()
 
             // 2) ✅ tente de résoudre l’audio lié et prépare le bouton d’accès
             val audioId = withContext(Dispatchers.IO) {
@@ -389,6 +393,13 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
             scroll?.visibility = View.VISIBLE
             container?.visibility = View.GONE
         }
+        updateTitleDivider()
+    }
+
+    private fun updateTitleDivider() {
+        val hasTitle = currentTitle.isNotBlank()
+        val shouldShow = hasTitle && isListMode
+        postitTitleDivider?.visibility = if (shouldShow) View.VISIBLE else View.GONE
     }
 
     private fun startChecklistObservation(targetBlockId: Long) {
@@ -543,6 +554,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
         postitTitle = null
         postitText = null
         postitScroll = null
+        postitTitleDivider = null
         btnEdit = null
         menuButton = null
         checklistContainer = null
