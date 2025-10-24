@@ -179,6 +179,9 @@ class NotePanelController(
             BlocksRepository.BlockConversionResult.EmptySource -> {
                 Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
             }
+            BlocksRepository.BlockConversionResult.Incomplete -> {
+                Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+            }
             BlocksRepository.BlockConversionResult.NotFound -> {
                 Toast.makeText(ctx, R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
             }
