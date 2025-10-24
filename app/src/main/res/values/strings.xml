@@ -91,6 +91,7 @@
     <string name="note_list_empty_placeholder">Aucune entrée. Ajoutez un élément…</string>
     <string name="block_checklist_add_item">+ Ajouter un élément…</string>
     <string name="block_checklist_empty_content">Élément sans texte</string>
+    <string name="block_checklist_add_error">Impossible d’ajouter un élément.</string>
     <string name="note_list_delete_title">Supprimer l’élément ?</string>
     <string name="note_list_delete_message">Cette action retirera l’élément de la liste.</string>
     <string name="note_list_delete_positive">Supprimer</string>

@@ -31,6 +31,7 @@ import com.example.openeer.voice.SmartListSplitter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -95,17 +96,20 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
             localListItems.clear()
             localListId = -1L
+            pendingBlockCreations.clear()
+            blockItemsObservation?.cancel()
 
             val isListBlock = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST
             isListMode = isListBlock
 
             if (isListBlock) {
                 val existingItems = withContext(Dispatchers.IO) { blocksRepo.getItemsForBlock(blockId) }
-                populateLocalListFromEntities(existingItems)
+                populateLocalListFromEntities(existingItems, ListContext.BLOCK)
+                startObservingBlockItems(blockId)
             } else {
                 listContext = if (isListMode) ListContext.LOCAL else ListContext.NONE
                 if (isListMode) {
-                    populateLocalListFromBody(currentBody)
+                    populateLocalListFromBody(currentBody, ListContext.LOCAL)
                 }
             }
 
@@ -240,23 +244,54 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         val newId = localListId--
         val item = ListItemEntity(
             id = newId,
-            ownerBlockId = null,
+            ownerBlockId = existingBlockId,
             text = "",
             order = localListItems.size,
             provisional = true,
         )
+        if (listContext == ListContext.BLOCK) {
+            pendingBlockCreations[newId] = PendingBlockItem()
+        }
         localListItems.add(item)
         submitLocalList(focusId = newId)
         updateChecklistVisibility()
         updateValidateButtonState()
         updateMenuState()
+
+        if (listContext == ListContext.BLOCK) {
+            val blockId = existingBlockId ?: return
+            val tempId = newId
+            uiScope.launch {
+                val createdId = withContext(Dispatchers.IO) {
+                    blocksRepo.addItemForBlock(blockId, "")
+                }
+                if (createdId > 0) {
+                    finalizePendingBlockCreation(tempId, createdId)
+                } else {
+                    pendingBlockCreations.remove(tempId)
+                    val index = localListItems.indexOfFirst { it.id == tempId }
+                    if (index >= 0) {
+                        localListItems.removeAt(index)
+                        submitLocalList()
+                        updateChecklistVisibility()
+                        updateValidateButtonState()
+                        updateMenuState()
+                    }
+                    context?.let { ctx ->
+                        Toast.makeText(ctx, R.string.block_checklist_add_error, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
     }
 
     private fun submitLocalList(focusId: Long? = null) {
-        localListItems.indices.forEach { index ->
-            val current = localListItems[index]
-            if (current.order != index) {
-                localListItems[index] = current.copy(order = index)
+        if (listContext != ListContext.BLOCK) {
+            localListItems.indices.forEach { index ->
+                val current = localListItems[index]
+                if (current.order != index) {
+                    localListItems[index] = current.copy(order = index)
+                }
             }
         }
         val snapshot = localListItems.map { it.copy() }
@@ -272,8 +307,20 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         val index = localListItems.indexOfFirst { it.id == itemId }
         if (index >= 0) {
             val current = localListItems[index]
-            localListItems[index] = current.copy(done = !current.done)
+            val updated = current.copy(done = !current.done)
+            localListItems[index] = updated
             submitLocalList()
+            if (listContext == ListContext.BLOCK) {
+                if (itemId > 0) {
+                    uiScope.launch {
+                        withContext(Dispatchers.IO) {
+                            blocksRepo.toggleItemForBlock(itemId)
+                        }
+                    }
+                } else {
+                    pendingBlockCreations.getOrPut(itemId) { PendingBlockItem() }.done = updated.done
+                }
+            }
         }
     }
 
@@ -282,10 +329,22 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         val index = localListItems.indexOfFirst { it.id == itemId }
         if (index >= 0) {
             val current = localListItems[index]
-            localListItems[index] = current.copy(text = text.trim())
+            val trimmed = text.trim()
+            localListItems[index] = current.copy(text = trimmed)
             submitLocalList()
             updateValidateButtonState()
             updateMenuState()
+            if (listContext == ListContext.BLOCK) {
+                if (itemId > 0) {
+                    uiScope.launch {
+                        withContext(Dispatchers.IO) {
+                            blocksRepo.updateItemTextForBlock(itemId, trimmed)
+                        }
+                    }
+                } else {
+                    pendingBlockCreations.getOrPut(itemId) { PendingBlockItem() }.text = trimmed
+                }
+            }
         }
     }
 
@@ -298,13 +357,28 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             updateChecklistVisibility()
             updateValidateButtonState()
             updateMenuState()
+            if (listContext == ListContext.BLOCK) {
+                if (itemId > 0) {
+                    uiScope.launch {
+                        withContext(Dispatchers.IO) {
+                            blocksRepo.removeItemForBlock(itemId)
+                        }
+                    }
+                } else {
+                    pendingBlockCreations.remove(itemId)
+                }
+            }
         }
     }
 
-    private fun populateLocalListFromBody(body: String) {
-        listContext = ListContext.LOCAL
+    private fun populateLocalListFromBody(body: String, targetContext: ListContext = ListContext.LOCAL) {
+        listContext = targetContext
         localListItems.clear()
         localListId = -1L
+        if (targetContext != ListContext.BLOCK) {
+            pendingBlockCreations.clear()
+            blockItemsObservation?.cancel()
+        }
         currentBody = ""
         val whitespaceRegex = "\\s+".toRegex()
         val items = SmartListSplitter.splitAllCandidates(body)
@@ -315,7 +389,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             localListItems.add(
                 ListItemEntity(
                     id = id,
-                    ownerBlockId = null,
+                    ownerBlockId = existingBlockId,
                     text = line,
                     order = localListItems.size,
                     provisional = false,
@@ -328,10 +402,17 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         updateMenuState()
     }
 
-    private fun populateLocalListFromEntities(items: List<ListItemEntity>) {
-        listContext = ListContext.LOCAL
+    private fun populateLocalListFromEntities(
+        items: List<ListItemEntity>,
+        targetContext: ListContext = ListContext.LOCAL,
+    ) {
+        listContext = targetContext
         localListItems.clear()
         localListId = -1L
+        if (targetContext != ListContext.BLOCK) {
+            pendingBlockCreations.clear()
+            blockItemsObservation?.cancel()
+        }
         items.forEach { entity ->
             localListItems.add(entity.copy())
         }
@@ -340,6 +421,69 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         updateValidateButtonState()
         updateMenuState()
     }
+
+    private fun startObservingBlockItems(blockId: Long) {
+        blockItemsObservation?.cancel()
+        blockItemsObservation = uiScope.launch {
+            blocksRepo.observeItemsForBlock(blockId)
+                .collectLatest { items ->
+                    applyObservedBlockItems(items)
+                }
+        }
+    }
+
+    private fun applyObservedBlockItems(items: List<ListItemEntity>) {
+        if (listContext != ListContext.BLOCK) return
+        val placeholders = localListItems.filter { it.id <= 0 }.sortedBy { it.order }
+        val sorted = items.sortedBy { it.order }
+        localListItems.clear()
+        sorted.forEach { entity ->
+            localListItems.add(entity.copy())
+        }
+        placeholders.forEach { placeholder ->
+            if (pendingBlockCreations.containsKey(placeholder.id)) {
+                localListItems.add(placeholder)
+            }
+        }
+        submitLocalList()
+        updateChecklistVisibility()
+        updateValidateButtonState()
+        updateMenuState()
+    }
+
+    private suspend fun finalizePendingBlockCreation(tempId: Long, newId: Long) {
+        if (listContext != ListContext.BLOCK) return
+        val index = localListItems.indexOfFirst { it.id == tempId }
+        val pending = pendingBlockCreations.remove(tempId)
+        if (index >= 0) {
+            val current = localListItems[index]
+            val updated = current.copy(id = newId, ownerBlockId = existingBlockId)
+            localListItems[index] = updated
+            submitLocalList(focusId = newId)
+        } else {
+            withContext(Dispatchers.IO) {
+                blocksRepo.removeItemForBlock(newId)
+            }
+        }
+        pending?.let { pendingData ->
+            val trimmed = pendingData.text.trim()
+            if (trimmed.isNotEmpty()) {
+                withContext(Dispatchers.IO) {
+                    blocksRepo.updateItemTextForBlock(newId, trimmed)
+                }
+            }
+            if (pendingData.done) {
+                withContext(Dispatchers.IO) {
+                    blocksRepo.toggleItemForBlock(newId)
+                }
+            }
+        }
+    }
+
+    private data class PendingBlockItem(
+        var text: String = "",
+        var done: Boolean = false,
+    )
 
     private fun showIme(target: EditText) {
         target.post {
@@ -370,8 +514,10 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private var existingBlockId: Long? = null
     private val localListItems = mutableListOf<ListItemEntity>()
     private var localListId = -1L
+    private var blockItemsObservation: Job? = null
+    private val pendingBlockCreations = mutableMapOf<Long, PendingBlockItem>()
 
-    private enum class ListContext { NONE, LOCAL }
+    private enum class ListContext { NONE, LOCAL, BLOCK }
 
     private var listContext: ListContext = ListContext.NONE
     private var contentRestoredFromState = false
@@ -778,6 +924,9 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         checklistRecycler = null
         checklistEmptyView = null
         checklistAddButton = null
+        blockItemsObservation?.cancel()
+        blockItemsObservation = null
+        pendingBlockCreations.clear()
         uiScope.coroutineContext[Job]?.cancel()
     }
 

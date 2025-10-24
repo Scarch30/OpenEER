@@ -26,6 +26,7 @@
         android:gravity="center_vertical|start"
         android:imeOptions="actionDone"
         android:inputType="textCapSentences|textAutoCorrect"
+        android:hint="@string/block_checklist_empty_content"
         android:maxLines="1"
         android:singleLine="true"
         android:padding="0dp"
