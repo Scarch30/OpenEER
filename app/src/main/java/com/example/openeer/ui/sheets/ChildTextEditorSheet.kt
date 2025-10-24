@@ -1,5 +1,6 @@
 package com.example.openeer.ui.sheets
 
+import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -7,20 +8,30 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
+import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
 import androidx.core.widget.addTextChangedListener
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.block.BlockType
+import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.core.FeatureFlags
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -45,7 +56,6 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val ARG_BLOCK_ID = "arg_block_id"
-        private const val ARG_INITIAL_CONTENT = "arg_initial_content"
         private const val STATE_DESIRED_FORMAT = "state_desired_format"
 
         fun new(noteId: Long): ChildTextEditorSheet =
@@ -53,16 +63,291 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
                 arguments = bundleOf(ARG_NOTE_ID to noteId)
             }
 
-        fun edit(noteId: Long, blockId: Long, initialContent: String): ChildTextEditorSheet =
+        fun edit(noteId: Long, blockId: Long): ChildTextEditorSheet =
             ChildTextEditorSheet().apply {
                 arguments = bundleOf(
                     ARG_NOTE_ID to noteId,
                     ARG_BLOCK_ID to blockId,
-                    ARG_INITIAL_CONTENT to initialContent,
                 )
             }
     }
 
+    private fun loadExistingBlock(blockId: Long) {
+        uiScope.launch {
+            val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(blockId) }
+            if (block == null || block.type != BlockType.TEXT) {
+                Toast.makeText(requireContext(), R.string.media_missing_file, Toast.LENGTH_SHORT).show()
+                dismiss()
+                return@launch
+            }
+
+            val content = blocksRepo.extractTextContent(block)
+
+            inputTitle?.setText(content.title)
+            inputTitle?.setSelection(content.title.length)
+            inputBody?.setText(content.body)
+            inputBody?.setSelection(content.body.length)
+
+            localListItems.clear()
+            localListId = -1L
+
+            val isListBlock = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST
+            if (!formatRestoredFromState) {
+                desiredFormat = if (isListBlock) DesiredFormat.LIST else DesiredFormat.TEXT
+            }
+            listContext = if (desiredFormat == DesiredFormat.LIST && isListBlock) {
+                startExistingChecklistObservation(blockId)
+                ListContext.EXISTING
+            } else {
+                stopExistingChecklistObservation()
+                ListContext.NONE
+            }
+
+            updateFormatUi()
+            updateChecklistVisibility()
+            updateMenuState()
+            updateValidateButtonState()
+        }
+    }
+
+    private fun startExistingChecklistObservation(blockId: Long) {
+        stopExistingChecklistObservation()
+        val owner = viewLifecycleOwner
+        checklistJob = owner.lifecycleScope.launch {
+            owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                blocksRepo.observeItemsForBlock(blockId).collectLatest { items ->
+                    latestChecklistItems = items
+                    checklistEmptyView?.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+                    checklistAdapter.submitList(items)
+                    updateValidateButtonState()
+                }
+            }
+        }
+    }
+
+    private fun stopExistingChecklistObservation() {
+        checklistJob?.cancel()
+        checklistJob = null
+        latestChecklistItems = emptyList()
+    }
+
+    private fun handleSave(noteId: Long) {
+        val content = currentContent()
+        if (desiredFormat == DesiredFormat.LIST && content.body.isBlank()) {
+            Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val blockId = existingBlockId
+        validateButton?.isEnabled = false
+        uiScope.launch {
+            val saveResult = withContext(Dispatchers.IO) {
+                blockId?.let { existingId ->
+                    val combined = buildContent(content.title, content.body)
+                    blocksRepo.updateText(existingId, combined, content.title)
+                    SaveResult(existingId, null)
+                } ?: run {
+                    val combined = buildContent(content.title, content.body)
+                    val newBlockId = blocksRepo.appendText(noteId, combined, title = content.title)
+                    val conversion = if (desiredFormat == DesiredFormat.LIST) {
+                        blocksRepo.convertTextBlockToList(newBlockId)
+                    } else {
+                        null
+                    }
+                    SaveResult(newBlockId, conversion)
+                }
+            }
+            handleSaveResult(noteId, saveResult)
+        }
+    }
+
+    private fun currentContent(): EditorContent {
+        val titleContent = inputTitle?.text?.toString()?.trim().orEmpty()
+        val bodyContent = if (desiredFormat == DesiredFormat.LIST) {
+            val items = currentChecklistItems()
+            items.map { it.text.trim() }
+                .filter { it.isNotEmpty() }
+                .joinToString(separator = "\n")
+        } else {
+            inputBody?.text?.toString()?.trim().orEmpty()
+        }
+        return EditorContent(titleContent, bodyContent)
+    }
+
+    private fun currentChecklistItems(): List<ListItemEntity> = when (listContext) {
+        ListContext.EXISTING -> latestChecklistItems
+        ListContext.LOCAL -> localListItems
+        ListContext.NONE -> emptyList()
+    }
+
+    private fun updateMenuState() {
+        val content = currentContent()
+        val hasFormatActions = FeatureFlags.listsEnabled
+        val hasContent = content.body.isNotBlank()
+        val hasActions = existingBlockId != null || hasContent || hasFormatActions
+        menuButton?.isEnabled = hasActions
+        menuButton?.alpha = if (hasActions) 1f else 0.4f
+    }
+
+    private fun updateValidateButtonState() {
+        val enabled = when (desiredFormat) {
+            DesiredFormat.TEXT -> inputBody?.text?.toString()?.trim().isNullOrEmpty().not()
+            DesiredFormat.LIST -> when (listContext) {
+                ListContext.EXISTING -> existingListHasContent()
+                ListContext.LOCAL -> localListHasContent()
+                ListContext.NONE -> false
+            }
+        }
+        validateButton?.isEnabled = enabled
+    }
+
+    private fun existingListHasContent(): Boolean =
+        latestChecklistItems.any { it.text.trim().isNotEmpty() }
+
+    private fun localListHasContent(): Boolean =
+        localListItems.any { it.text.trim().isNotEmpty() }
+
+    private fun updateChecklistVisibility() {
+        val isList = desiredFormat == DesiredFormat.LIST
+        inputBody?.visibility = if (isList) View.GONE else View.VISIBLE
+        val container = checklistContainer
+        if (container != null) {
+            container.visibility = if (isList) View.VISIBLE else View.GONE
+        }
+        if (isList) {
+            val hasItems = currentChecklistItems().isNotEmpty()
+            checklistEmptyView?.visibility = if (hasItems) View.GONE else View.VISIBLE
+        } else {
+            checklistEmptyView?.visibility = View.GONE
+        }
+    }
+
+    private fun addChecklistItem() {
+        if (desiredFormat != DesiredFormat.LIST) {
+            desiredFormat = DesiredFormat.LIST
+            updateFormatUi()
+        }
+        if (listContext == ListContext.EXISTING) {
+            val blockId = existingBlockId ?: return
+            uiScope.launch {
+                withContext(Dispatchers.IO) { blocksRepo.addItemForBlock(blockId, "") }
+            }
+            return
+        }
+        listContext = ListContext.LOCAL
+        val newId = localListId--
+        val item = ListItemEntity(
+            id = newId,
+            ownerBlockId = null,
+            text = "",
+            order = localListItems.size,
+            provisional = true,
+        )
+        localListItems.add(item)
+        submitLocalList(focusId = newId)
+        updateChecklistVisibility()
+        updateValidateButtonState()
+    }
+
+    private fun submitLocalList(focusId: Long? = null) {
+        val snapshot = localListItems.mapIndexed { index, item ->
+            item.copy(order = index)
+        }
+        if (focusId != null) {
+            checklistAdapter.requestFocusOn(focusId)
+        }
+        checklistAdapter.submitList(snapshot)
+        checklistEmptyView?.visibility = if (snapshot.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private fun onChecklistToggle(itemId: Long) {
+        when (listContext) {
+            ListContext.EXISTING -> uiScope.launch {
+                withContext(Dispatchers.IO) { blocksRepo.toggleItemForBlock(itemId) }
+            }
+            ListContext.LOCAL -> {
+                val index = localListItems.indexOfFirst { it.id == itemId }
+                if (index >= 0) {
+                    val current = localListItems[index]
+                    localListItems[index] = current.copy(done = !current.done)
+                    submitLocalList()
+                }
+            }
+            ListContext.NONE -> Unit
+        }
+    }
+
+    private fun onChecklistCommitText(itemId: Long, text: String) {
+        when (listContext) {
+            ListContext.EXISTING -> uiScope.launch {
+                withContext(Dispatchers.IO) { blocksRepo.updateItemTextForBlock(itemId, text) }
+            }
+            ListContext.LOCAL -> {
+                val index = localListItems.indexOfFirst { it.id == itemId }
+                if (index >= 0) {
+                    val current = localListItems[index]
+                    localListItems[index] = current.copy(text = text.trim())
+                    submitLocalList()
+                    updateValidateButtonState()
+                }
+            }
+            ListContext.NONE -> Unit
+        }
+    }
+
+    private fun onChecklistDelete(itemId: Long) {
+        when (listContext) {
+            ListContext.EXISTING -> uiScope.launch {
+                withContext(Dispatchers.IO) { blocksRepo.removeItemForBlock(itemId) }
+            }
+            ListContext.LOCAL -> {
+                val index = localListItems.indexOfFirst { it.id == itemId }
+                if (index >= 0) {
+                    localListItems.removeAt(index)
+                    submitLocalList()
+                    updateChecklistVisibility()
+                    updateValidateButtonState()
+                }
+            }
+            ListContext.NONE -> Unit
+        }
+    }
+
+    private fun populateLocalListFromBody(body: String) {
+        listContext = ListContext.LOCAL
+        localListItems.clear()
+        localListId = -1L
+        val lines = body.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (lines.isEmpty()) {
+            addChecklistItem()
+            return
+        }
+        lines.forEach { line ->
+            val id = localListId--
+            localListItems.add(
+                ListItemEntity(
+                    id = id,
+                    ownerBlockId = null,
+                    text = line,
+                    order = localListItems.size,
+                    provisional = false,
+                )
+            )
+        }
+        submitLocalList()
+        updateChecklistVisibility()
+        updateValidateButtonState()
+    }
+
+    private fun showIme(target: EditText) {
+        target.post {
+            target.requestFocus()
+            val imm = context?.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
     /** Callback facultatif pour remonter l’ID créé à l’hôte. */
     var onSaved: ((noteId: Long, blockId: Long) -> Unit)? = null
 
@@ -70,6 +355,38 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
 
     private var desiredFormat: DesiredFormat = DesiredFormat.TEXT
     private var badgeView: TextView? = null
+    private var inputTitle: EditText? = null
+    private var inputBody: EditText? = null
+    private var cancelButton: Button? = null
+    private var validateButton: Button? = null
+    private var menuButton: ImageButton? = null
+    private var checklistContainer: LinearLayout? = null
+    private var checklistRecycler: RecyclerView? = null
+    private var checklistEmptyView: TextView? = null
+    private var checklistAddButton: TextView? = null
+
+    private var existingBlockId: Long? = null
+    private var latestChecklistItems: List<ListItemEntity> = emptyList()
+    private var checklistJob: Job? = null
+
+    private val localListItems = mutableListOf<ListItemEntity>()
+    private var localListId = -1L
+
+    private enum class ListContext { NONE, LOCAL, EXISTING }
+
+    private var listContext: ListContext = ListContext.NONE
+    private var formatRestoredFromState = false
+
+    private val checklistAdapter: BlockChecklistAdapter by lazy {
+        BlockChecklistAdapter(
+            onToggle = ::onChecklistToggle,
+            onCommitText = ::onChecklistCommitText,
+            onDelete = ::onChecklistDelete,
+            onFocusRequested = ::showIme,
+        )
+    }
+
+    private data class EditorContent(val title: String, val body: String)
 
     private val blocksRepo: BlocksRepository by lazy {
         val db = AppDatabase.get(requireContext())
@@ -86,6 +403,7 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         desiredFormat = restoredFormat?.let { value ->
             runCatching { DesiredFormat.valueOf(value) }.getOrNull()
         } ?: DesiredFormat.TEXT
+        formatRestoredFromState = savedInstanceState != null
     }
 
     override fun onCreateView(
@@ -95,80 +413,41 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
     ): View = inflater.inflate(R.layout.sheet_postit, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        val inputTitle = view.findViewById<EditText>(R.id.inputTitle)
-        val input = view.findViewById<EditText>(R.id.inputText)
-        val btnCancel = view.findViewById<Button>(R.id.btnCancel)
-        val btnValidate = view.findViewById<Button>(R.id.btnValidate)
-        val badge = view.findViewById<TextView>(R.id.badgeChild).also { badgeView = it }
-        val menuButton = view.findViewById<ImageButton>(R.id.btnMenu)
+        super.onViewCreated(view, savedInstanceState)
+
+        inputTitle = view.findViewById(R.id.inputTitle)
+        inputBody = view.findViewById(R.id.inputText)
+        cancelButton = view.findViewById(R.id.btnCancel)
+        validateButton = view.findViewById(R.id.btnValidate)
+        badgeView = view.findViewById<TextView>(R.id.badgeChild)
+        menuButton = view.findViewById(R.id.btnMenu)
+        checklistContainer = view.findViewById(R.id.checklistContainer) as? LinearLayout
+        checklistRecycler = view.findViewById(R.id.checklistRecycler)
+        checklistEmptyView = view.findViewById(R.id.checklistEmptyPlaceholder)
+        checklistAddButton = view.findViewById(R.id.checklistAddButton)
 
         view.findViewById<View>(R.id.postitScroll)?.visibility = View.GONE
-        view.findViewById<View>(R.id.checklistContainer)?.visibility = View.GONE
         view.findViewById<View>(R.id.editorContainer)?.visibility = View.VISIBLE
         view.findViewById<View>(R.id.viewerActions)?.visibility = View.GONE
         view.findViewById<View>(R.id.editorActions)?.visibility = View.VISIBLE
 
-        updateFormatUi()
-        btnValidate.isEnabled = false
+        checklistRecycler?.apply {
+            layoutManager = LinearLayoutManager(requireContext())
+            adapter = checklistAdapter
+        }
+        checklistAddButton?.setOnClickListener { addChecklistItem() }
 
-        val existingBlockId = arguments?.getLong(ARG_BLOCK_ID)?.takeIf { it > 0 }
-        val initialContent = arguments?.getString(ARG_INITIAL_CONTENT).orEmpty()
-        val hasSeparator = initialContent.contains("\n\n")
-        val initialTitle = if (hasSeparator) {
-            initialContent.substringBefore("\n\n")
-        } else {
-            ""
-        }
-        val initialBody = if (hasSeparator) {
-            initialContent.substringAfter("\n\n")
-        } else {
-            initialContent
-        }
+        cancelButton?.setOnClickListener { dismiss() }
+
         val noteId = requireArguments().getLong(ARG_NOTE_ID)
+        existingBlockId = arguments?.getLong(ARG_BLOCK_ID)?.takeIf { it > 0 }
 
-        if (initialTitle.isNotBlank()) {
-            inputTitle.setText(initialTitle)
-            inputTitle.setSelection(initialTitle.length)
+        validateButton?.apply {
+            isEnabled = false
+            setOnClickListener { handleSave(noteId) }
         }
 
-        if (initialBody.isNotBlank()) {
-            input.setText(initialBody)
-            input.setSelection(initialBody.length)
-        }
-
-        btnValidate.isEnabled = initialBody.isNotBlank()
-
-        fun currentContent(): Pair<String, String> {
-            val titleContent = inputTitle.text?.toString()?.trim().orEmpty()
-            val bodyContent = input.text?.toString()?.trim().orEmpty()
-            return titleContent to bodyContent
-        }
-
-        fun updateMenuState() {
-            val (_, bodyContent) = currentContent()
-            val hasFormatActions = FeatureFlags.listsEnabled
-            val hasActions = existingBlockId != null || bodyContent.isNotBlank() || hasFormatActions
-            menuButton.isEnabled = hasActions
-            menuButton.alpha = if (hasActions) 1f else 0.4f
-        }
-
-        updateMenuState()
-
-        val blockIdForEdit = existingBlockId
-        if (blockIdForEdit != null) {
-            uiScope.launch {
-                val isList = withContext(Dispatchers.IO) {
-                    val block = blocksRepo.getBlock(blockIdForEdit)
-                    block?.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST
-                }
-                if (isList) {
-                    desiredFormat = DesiredFormat.LIST
-                    updateFormatUi()
-                }
-            }
-        }
-
-        menuButton.setOnClickListener {
+        menuButton?.setOnClickListener {
             showOverflowMenu(
                 anchor = it,
                 noteId = noteId,
@@ -177,39 +456,26 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
             )
         }
 
-        input.addTextChangedListener {
-            btnValidate.isEnabled = !it.isNullOrBlank()
+        inputBody?.addTextChangedListener {
+            updateValidateButtonState()
             updateMenuState()
         }
-        inputTitle.addTextChangedListener { updateMenuState() }
-        btnCancel.setOnClickListener { dismiss() }
+        inputTitle?.addTextChangedListener {
+            updateValidateButtonState()
+            updateMenuState()
+        }
 
-        btnValidate.setOnClickListener {
-            val (titleContent, bodyContent) = currentContent()
-            if (bodyContent.isBlank()) return@setOnClickListener
-            val content = if (titleContent.isBlank()) {
-                bodyContent
-            } else {
-                "$titleContent\n\n$bodyContent"
-            }
+        updateFormatUi()
+        updateMenuState()
+        updateChecklistVisibility()
 
-            uiScope.launch {
-                val saveResult = withContext(Dispatchers.IO) {
-                    existingBlockId?.let { blockId ->
-                        blocksRepo.updateText(blockId, content)
-                        SaveResult(blockId, null)
-                    } ?: run {
-                        val newBlockId = blocksRepo.appendText(noteId, content)
-                        val conversion = if (desiredFormat == DesiredFormat.LIST) {
-                            blocksRepo.convertTextBlockToList(newBlockId)
-                        } else {
-                            null
-                        }
-                        SaveResult(newBlockId, conversion)
-                    }
-                }
-                handleSaveResult(noteId, saveResult)
-            }
+        val blockId = existingBlockId
+        if (blockId != null) {
+            loadExistingBlock(blockId)
+        } else {
+            listContext = if (desiredFormat == DesiredFormat.LIST) ListContext.LOCAL else ListContext.NONE
+            updateFormatUi()
+            updateValidateButtonState()
         }
     }
 
@@ -217,12 +483,12 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         anchor: View,
         noteId: Long,
         blockId: Long?,
-        contentProvider: () -> Pair<String, String>,
+        contentProvider: () -> EditorContent,
     ) {
         val popup = PopupMenu(requireContext(), anchor)
-        val (titleContent, bodyContent) = contentProvider()
-        val combinedContent = buildContent(titleContent, bodyContent)
-        val hasBody = bodyContent.isNotBlank()
+        val content = contentProvider()
+        val combinedContent = buildContent(content.title, content.body)
+        val hasBody = content.body.isNotBlank()
 
         val shareItem = popup.menu.add(0, MENU_SHARE, 0, getString(R.string.media_action_share))
         shareItem.isEnabled = combinedContent.isNotBlank()
@@ -256,11 +522,11 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
                     true
                 }
                 MENU_CONVERT_TO_LIST -> {
-                    handleConvertToList(noteId, blockId, combinedContent)
+                    handleConvertToList(noteId, blockId, content)
                     true
                 }
                 MENU_CONVERT_TO_TEXT -> {
-                    handleConvertToText(noteId, blockId, combinedContent)
+                    handleConvertToText(noteId, blockId, content)
                     true
                 }
                 else -> false
@@ -272,29 +538,44 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
     private fun handleConvertToList(
         noteId: Long,
         blockId: Long?,
-        combinedContent: String,
+        content: EditorContent,
     ) {
         if (!FeatureFlags.listsEnabled) return
         if (blockId != null) {
-            convertToList(noteId, blockId, combinedContent)
+            convertToList(noteId, blockId, content)
             return
         }
         desiredFormat = DesiredFormat.LIST
+        populateLocalListFromBody(content.body)
         updateFormatUi()
+        updateMenuState()
+        updateValidateButtonState()
         Toast.makeText(requireContext(), R.string.postit_format_list_selected, Toast.LENGTH_SHORT).show()
     }
 
     private fun handleConvertToText(
         noteId: Long,
         blockId: Long?,
-        combinedContent: String,
+        content: EditorContent,
     ) {
         if (blockId != null) {
-            convertToText(noteId, blockId, combinedContent)
+            convertToText(noteId, blockId, content)
             return
         }
         desiredFormat = DesiredFormat.TEXT
+        val text = if (content.body.isBlank()) {
+            ""
+        } else {
+            content.body
+        }
+        inputBody?.setText(text)
+        inputBody?.setSelection(text.length)
+        listContext = ListContext.NONE
+        localListItems.clear()
+        localListId = -1L
         updateFormatUi()
+        updateMenuState()
+        updateValidateButtonState()
         Toast.makeText(requireContext(), R.string.postit_format_text_selected, Toast.LENGTH_SHORT).show()
     }
 
@@ -325,8 +606,13 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         dismiss()
     }
 
-    private fun buildContent(title: String, body: String): String =
-        if (title.isBlank()) body else "$title\n\n$body"
+    private fun buildContent(title: String, body: String): String {
+        val trimmedTitle = title.trim()
+        val trimmedBody = body.trim()
+        if (trimmedTitle.isEmpty()) return trimmedBody
+        if (trimmedBody.isEmpty()) return trimmedTitle
+        return "$trimmedTitle\n\n$trimmedBody"
+    }
 
     private fun shareContent(content: String) {
         if (content.isBlank()) return
@@ -369,14 +655,15 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private fun convertToList(noteId: Long, blockId: Long, content: String) {
-        if (content.isBlank()) {
+    private fun convertToList(noteId: Long, blockId: Long, content: EditorContent) {
+        val combined = buildContent(content.title, content.body)
+        if (combined.isBlank()) {
             Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
             return
         }
         uiScope.launch {
             val result = withContext(Dispatchers.IO) {
-                blocksRepo.updateText(blockId, content)
+                blocksRepo.updateText(blockId, combined, content.title)
                 blocksRepo.convertTextBlockToList(blockId)
             }
             when (result) {
@@ -404,14 +691,15 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private fun convertToText(noteId: Long, blockId: Long, content: String) {
-        if (content.isBlank()) {
+    private fun convertToText(noteId: Long, blockId: Long, content: EditorContent) {
+        val combined = buildContent(content.title, content.body)
+        if (combined.isBlank()) {
             Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
             return
         }
         uiScope.launch {
             val result = withContext(Dispatchers.IO) {
-                blocksRepo.updateText(blockId, content)
+                blocksRepo.updateText(blockId, combined, content.title)
                 blocksRepo.convertListBlockToText(blockId)
             }
             when (result) {
@@ -448,6 +736,7 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
             R.string.postit_label
         }
         badge.text = ctx.getString(labelRes)
+        updateChecklistVisibility()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -457,7 +746,18 @@ class ChildTextEditorSheet : BottomSheetDialogFragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        stopExistingChecklistObservation()
         badgeView = null
+        inputTitle = null
+        inputBody = null
+        cancelButton = null
+        validateButton = null
+        menuButton = null
+        checklistRecycler?.adapter = null
+        checklistContainer = null
+        checklistRecycler = null
+        checklistEmptyView = null
+        checklistAddButton = null
         uiScope.coroutineContext[Job]?.cancel()
     }
 

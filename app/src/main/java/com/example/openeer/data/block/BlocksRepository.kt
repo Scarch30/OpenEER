@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 fun generateGroupId(): String = UUID.randomUUID().toString()
 
@@ -58,6 +59,80 @@ class BlocksRepository(
         const val LINK_VIDEO_TRANSCRIPTION = "VIDEO_TRANSCRIPTION"
         const val MIME_TYPE_TEXT_BLOCK_LIST = "text/x-openeer-list"
         private const val BLOCK_LIST_LOG_TAG = "BlockListUI"
+        private const val EXTRA_KEY_TITLE = "title"
+    }
+
+    data class TextBlockContent(
+        val title: String,
+        val body: String,
+    ) {
+        fun combinedText(): String = if (title.isBlank()) body else "$title\n\n$body".trimEnd()
+    }
+
+    private data class TextBlockMetadata(val title: String) {
+        fun toJson(): String = JSONObject().apply {
+            put(EXTRA_KEY_TITLE, title)
+        }.toString()
+
+        companion object {
+            fun from(json: String?): TextBlockMetadata? {
+                if (json.isNullOrBlank()) return null
+                return runCatching {
+                    val obj = JSONObject(json)
+                    val stored = obj.optString(EXTRA_KEY_TITLE, "").trim()
+                    if (stored.isEmpty()) null else TextBlockMetadata(stored)
+                }.getOrNull()
+            }
+        }
+    }
+
+    private fun decodeTitle(extra: String?, fallback: String = ""): String {
+        val meta = TextBlockMetadata.from(extra)
+        if (meta != null) {
+            return meta.title
+        }
+        return fallback
+    }
+
+    private fun encodeTitle(title: String): String? {
+        val sanitized = title.trim()
+        return if (sanitized.isEmpty()) {
+            null
+        } else {
+            TextBlockMetadata(sanitized).toJson()
+        }
+    }
+
+    private fun splitCombinedText(raw: String): TextBlockContent {
+        if (raw.isBlank()) return TextBlockContent(title = "", body = "")
+        val parts = raw.split("\n\n", limit = 2)
+        return if (parts.size == 2) {
+            val title = parts[0].trim()
+            val body = parts[1].trim()
+            if (title.isNotEmpty()) {
+                TextBlockContent(title, body)
+            } else {
+                TextBlockContent(title = "", body = raw.trim())
+            }
+        } else {
+            TextBlockContent(title = "", body = raw.trim())
+        }
+    }
+
+    fun extractTextContent(block: BlockEntity): TextBlockContent {
+        val combined = block.text.orEmpty()
+        val fallback = splitCombinedText(combined)
+        val title = decodeTitle(block.extra, fallback.title).trim()
+        val body = fallback.body
+        return TextBlockContent(title = title, body = body)
+    }
+
+    private fun buildCombinedText(title: String, body: String): String {
+        val trimmedBody = body.trim()
+        val trimmedTitle = title.trim()
+        if (trimmedTitle.isEmpty()) return trimmedBody
+        if (trimmedBody.isEmpty()) return trimmedTitle
+        return "$trimmedTitle\n\n$trimmedBody"
     }
 
     sealed interface BlockConversionResult {
@@ -131,15 +206,18 @@ class BlocksRepository(
     suspend fun appendText(
         noteId: Long,
         text: String,
-        groupId: String? = null
+        groupId: String? = null,
+        title: String = "",
     ): Long {
         val now = System.currentTimeMillis()
+        val extra = encodeTitle(title)
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.TEXT,
             position = 0,
             groupId = groupId,
             text = text,
+            extra = extra,
             createdAt = now,
             updatedAt = now
         )
@@ -160,7 +238,8 @@ class BlocksRepository(
                 return@withContext BlockConversionResult.Unsupported
             }
 
-            val sanitized = block.text.orEmpty()
+            val content = extractTextContent(block)
+            val sanitized = content.body
                 .lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
@@ -185,7 +264,9 @@ class BlocksRepository(
                     createdAt = now + index,
                 )
             }
-            val updatedText = itemsTexts.joinToString(separator = "\n")
+            val updatedBody = itemsTexts.joinToString(separator = "\n")
+            val updatedText = buildCombinedText(content.title, updatedBody)
+            val extra = encodeTitle(content.title)
 
             suspend fun performConversion(): BlockConversionResult {
                 dao.deleteForBlock(blockId)
@@ -196,6 +277,7 @@ class BlocksRepository(
                     block.copy(
                         mimeType = MIME_TYPE_TEXT_BLOCK_LIST,
                         text = updatedText,
+                        extra = extra,
                         updatedAt = now,
                     )
                 )
@@ -224,25 +306,28 @@ class BlocksRepository(
 
             val items = dao.listForBlock(blockId)
             val now = System.currentTimeMillis()
+            val content = extractTextContent(block)
 
             if (items.isEmpty()) {
                 dao.deleteForBlock(blockId)
                 blockDao.update(
                     block.copy(
                         mimeType = null,
-                        text = block.text.orEmpty(),
+                        text = buildCombinedText(content.title, ""),
+                        extra = encodeTitle(content.title),
                         updatedAt = now,
                     )
                 )
                 return@withContext BlockConversionResult.EmptySource
             }
 
-            val text = items.joinToString(separator = "\n") { it.text }
+            val body = items.joinToString(separator = "\n") { it.text }
             dao.deleteForBlock(blockId)
             blockDao.update(
                 block.copy(
                     mimeType = null,
-                    text = text,
+                    text = buildCombinedText(content.title, body),
+                    extra = encodeTitle(content.title),
                     updatedAt = now,
                 )
             )
@@ -350,10 +435,12 @@ class BlocksRepository(
             return
         }
         val items = dao.listForBlock(blockId)
+        val content = extractTextContent(block)
         val joined = items.joinToString(separator = "\n") { it.text }
         blockDao.update(
             block.copy(
-                text = joined,
+                text = buildCombinedText(content.title, joined),
+                extra = encodeTitle(content.title),
                 updatedAt = System.currentTimeMillis(),
             )
         )
@@ -537,11 +624,16 @@ class BlocksRepository(
         }
     }
 
-    suspend fun updateText(blockId: Long, text: String) {
+    suspend fun updateText(blockId: Long, text: String, title: String? = null) {
         withContext(io) {
             val current = blockDao.getById(blockId) ?: return@withContext
             val now = System.currentTimeMillis()
-            blockDao.update(current.copy(text = text, updatedAt = now))
+            val extra = if (title == null) {
+                current.extra
+            } else {
+                encodeTitle(title)
+            }
+            blockDao.update(current.copy(text = text, extra = extra, updatedAt = now))
         }
     }
 

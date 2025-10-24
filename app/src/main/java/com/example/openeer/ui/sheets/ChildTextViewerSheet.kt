@@ -467,7 +467,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
     private fun openEditor() {
         val content = currentContent
-        ChildTextEditorSheet.edit(noteId, blockId, content).apply {
+        ChildTextEditorSheet.edit(noteId, blockId).apply {
             onSaved = { _, _ -> refreshContent() }
         }.show(parentFragmentManager, "child_text_edit_$blockId")
     }

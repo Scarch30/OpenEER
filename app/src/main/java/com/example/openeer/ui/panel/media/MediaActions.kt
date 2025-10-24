@@ -16,7 +16,7 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.SimplePlayer
-import com.example.openeer.ui.sheets.ChildTextViewerSheet
+import com.example.openeer.ui.sheets.ChildTextEditorSheet
 import com.example.openeer.ui.sheets.LocationPreviewSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import com.example.openeer.ui.viewer.VideoPlayerActivity
@@ -64,11 +64,8 @@ class MediaActions(
                             val linkedTextId = ctx.second
 
                             if (noteId != null && linkedTextId != null) {
-                                ChildTextViewerSheet.show(
-                                    activity.supportFragmentManager,
-                                    noteId,
-                                    linkedTextId
-                                )
+                                ChildTextEditorSheet.edit(noteId, linkedTextId)
+                                    .show(activity.supportFragmentManager, "child_text_edit_$linkedTextId")
                                 return@launch
                             }
 
@@ -168,11 +165,8 @@ class MediaActions(
                     val linkedTextId = triple.second
 
                     if (noteId != null && linkedTextId != null) {
-                        ChildTextViewerSheet.show(
-                            activity.supportFragmentManager,
-                            noteId,
-                            linkedTextId
-                        )
+                        ChildTextEditorSheet.edit(noteId, linkedTextId)
+                            .show(activity.supportFragmentManager, "child_text_edit_$linkedTextId")
                         return@launch
                     }
 
@@ -199,11 +193,8 @@ class MediaActions(
             }
 
             is MediaStripItem.Text -> {
-                ChildTextViewerSheet.show(
-                    activity.supportFragmentManager,
-                    item.noteId,
-                    item.blockId,
-                )
+                ChildTextEditorSheet.edit(item.noteId, item.blockId)
+                    .show(activity.supportFragmentManager, "child_text_edit_${item.blockId}")
             }
         }
     }

@@ -55,7 +55,6 @@ import com.example.openeer.ui.panel.blocks.BlockRenderers
 import com.example.openeer.ui.library.LibraryFragment
 import com.example.openeer.ui.library.MapPreviewStorage
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
-import com.example.openeer.ui.sheets.ChildTextViewerSheet
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.util.toast
 import com.google.android.material.snackbar.Snackbar
@@ -224,7 +223,6 @@ class NotePanelController(
             else -> null
         } ?: return
         updateMediaStripTextItem(updatedItem)
-        refreshChildTextViewer(updatedItem.blockId)
     }
 
     private fun updateMediaStripTextItem(updatedItem: MediaStripItem.Text) {
@@ -263,12 +261,6 @@ class NotePanelController(
         if (changed) {
             mediaAdapter.submitList(patched)
         }
-    }
-
-    private fun refreshChildTextViewer(blockId: Long) {
-        val tag = "child_text_viewer_$blockId"
-        val sheet = activity.supportFragmentManager.findFragmentByTag(tag) as? ChildTextViewerSheet
-        sheet?.requestContentRefresh()
     }
 
     private val listItemsAdapter = NoteListItemsAdapter(
