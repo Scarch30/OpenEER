@@ -224,7 +224,17 @@ class BlocksRepository(
         return insert(noteId, block)
     }
 
-    suspend fun convertTextBlockToList(blockId: Long): BlockConversionResult {
+    data class ChecklistItemDraft(
+        val id: Long?,
+        val text: String,
+        val done: Boolean,
+        val order: Int,
+    )
+
+    suspend fun convertTextBlockToList(
+        blockId: Long,
+        allowEmpty: Boolean = false,
+    ): BlockConversionResult {
         val dao = listItemDao ?: return BlockConversionResult.Unsupported
         return withContext(io) {
             val block = blockDao.getById(blockId) ?: return@withContext BlockConversionResult.NotFound
@@ -250,11 +260,26 @@ class BlocksRepository(
             val itemsTexts = rawItems.map { it.replace(whitespaceRegex, " ").trim() }
                 .filter { it.isNotEmpty() }
 
+            val now = System.currentTimeMillis()
+
             if (itemsTexts.isEmpty()) {
-                return@withContext BlockConversionResult.Incomplete
+                if (!allowEmpty) {
+                    return@withContext BlockConversionResult.Incomplete
+                }
+
+                dao.deleteForBlock(blockId)
+                blockDao.update(
+                    block.copy(
+                        mimeType = MIME_TYPE_TEXT_BLOCK_LIST,
+                        text = buildCombinedText(content.title, ""),
+                        extra = encodeTitle(content.title),
+                        updatedAt = now,
+                    )
+                )
+
+                return@withContext BlockConversionResult.Converted(0)
             }
 
-            val now = System.currentTimeMillis()
             val entities = itemsTexts.mapIndexed { index, textLine ->
                 ListItemEntity(
                     noteId = null,
@@ -333,6 +358,71 @@ class BlocksRepository(
             )
 
             BlockConversionResult.Converted(items.size)
+        }
+    }
+
+    suspend fun upsertChecklistItems(blockId: Long, drafts: List<ChecklistItemDraft>) {
+        val dao = listItemDao ?: return
+        withContext(io) {
+            runInRoomTransaction {
+                val block = blockDao.getById(blockId) ?: return@runInRoomTransaction
+                if (block.type != BlockType.TEXT || block.mimeType != MIME_TYPE_TEXT_BLOCK_LIST) {
+                    return@runInRoomTransaction
+                }
+
+                val existing = dao.listForBlock(blockId)
+                val existingById = existing.associateBy { it.id }
+                val retainedIds = mutableSetOf<Long>()
+
+                drafts.forEach { draft ->
+                    val trimmed = draft.text.trim()
+                    if (trimmed.isEmpty()) {
+                        return@forEach
+                    }
+
+                    val targetId = draft.id?.takeIf { it > 0 }
+                    val current = targetId?.let { existingById[it] }
+
+                    if (current == null) {
+                        val entity = ListItemEntity(
+                            noteId = null,
+                            ownerBlockId = blockId,
+                            text = trimmed,
+                            done = draft.done,
+                            order = draft.order,
+                            provisional = false,
+                        )
+                        val newId = dao.insert(entity)
+                        retainedIds.add(newId)
+                    } else {
+                        val itemId = current.id
+                        retainedIds.add(itemId)
+
+                        if (current.text != trimmed || current.provisional) {
+                            if (current.provisional) {
+                                dao.finalizeText(itemId, trimmed)
+                            } else {
+                                dao.updateText(itemId, trimmed)
+                            }
+                        }
+
+                        if (current.done != draft.done) {
+                            dao.updateDone(itemId, draft.done)
+                        }
+
+                        if (current.order != draft.order) {
+                            dao.updateOrdering(itemId, draft.order)
+                        }
+                    }
+                }
+
+                val toDelete = existing.map { it.id }.filter { it !in retainedIds }
+                if (toDelete.isNotEmpty()) {
+                    dao.deleteMany(toDelete)
+                }
+
+                updateBlockTextFromItems(blockId)
+            }
         }
     }
 

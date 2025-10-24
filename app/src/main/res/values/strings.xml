@@ -196,6 +196,8 @@
     <string name="postit_format_list_selected">Création en mode liste activée.</string>
     <string name="postit_format_text_selected">Création en mode texte activée.</string>
     <string name="postit_menu_content_description">Menu du post-it</string>
+    <string name="postit_save_success">Post-it enregistré</string>
+    <string name="postit_save_error">Enregistrement impossible</string>
     <string name="postit_title_hint">Titre du post-it</string>
     <string name="postit_body_hint">Écrivez ici…</string>
 
