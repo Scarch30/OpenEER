@@ -218,6 +218,12 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
         }
     }
 
+    fun requestContentRefresh() {
+        if (view != null) {
+            refreshContent()
+        }
+    }
+
     private fun updateChecklistVisibility(listMode: Boolean) {
         val scroll = postitScroll
         val container = checklistContainer
