@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
@@ -48,14 +49,15 @@ private const val MENU_DELETE = 1001
 private const val MENU_CONVERT_TO_LIST = 1002
 private const val MENU_CONVERT_TO_TEXT = 1003
 
-private enum class DesiredFormat { TEXT, LIST }
+private const val STATE_IS_LIST_MODE = "state_is_list_mode"
+private const val STATE_CURRENT_TITLE = "state_current_title"
+private const val STATE_CURRENT_BODY = "state_current_body"
 
 class ChildPostitSheet : BottomSheetDialogFragment() {
 
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val ARG_BLOCK_ID = "arg_block_id"
-        private const val STATE_DESIRED_FORMAT = "state_desired_format"
 
         fun new(noteId: Long): ChildPostitSheet =
             ChildPostitSheet().apply {
@@ -82,28 +84,32 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
             val content = blocksRepo.extractTextContent(block)
 
-            inputTitle?.setText(content.title)
-            inputTitle?.setSelection(content.title.length)
-            inputBody?.setText(content.body)
-            inputBody?.setSelection(content.body.length)
+            if (!contentRestoredFromState) {
+                currentTitle = content.title
+                currentBody = content.body
+            }
+            contentRestoredFromState = false
+
+            inputTitle?.setText(currentTitle)
+            inputTitle?.setSelection(currentTitle.length)
+            inputBody?.setText(currentBody)
+            inputBody?.setSelection(currentBody.length)
 
             localListItems.clear()
             localListId = -1L
 
             val isListBlock = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST
-            if (!formatRestoredFromState) {
-                desiredFormat = if (isListBlock) DesiredFormat.LIST else DesiredFormat.TEXT
-            }
-            listContext = if (desiredFormat == DesiredFormat.LIST && isListBlock) {
+            isListMode = isListBlock
+
+            listContext = if (isListMode && isListBlock) {
                 startExistingChecklistObservation(blockId)
                 ListContext.EXISTING
             } else {
                 stopExistingChecklistObservation()
-                ListContext.NONE
+                if (isListMode) ListContext.LOCAL else ListContext.NONE
             }
 
             updateFormatUi()
-            updateChecklistVisibility()
             updateMenuState()
             updateValidateButtonState()
         }
@@ -132,7 +138,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
     private fun handleSave(noteId: Long) {
         val content = currentContent()
-        if (desiredFormat == DesiredFormat.LIST && content.body.isBlank()) {
+        if (isListMode && content.body.isBlank()) {
             Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
             return
         }
@@ -142,13 +148,11 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         uiScope.launch {
             val saveResult = withContext(Dispatchers.IO) {
                 blockId?.let { existingId ->
-                    val combined = buildContent(content.title, content.body)
-                    blocksRepo.updateText(existingId, combined, content.title)
+                    blocksRepo.updateText(existingId, content.body, content.title)
                     SaveResult(existingId, null)
                 } ?: run {
-                    val combined = buildContent(content.title, content.body)
-                    val newBlockId = blocksRepo.appendText(noteId, combined, title = content.title)
-                    val conversion = if (desiredFormat == DesiredFormat.LIST) {
+                    val newBlockId = blocksRepo.appendText(noteId, content.body, title = content.title)
+                    val conversion = if (isListMode) {
                         blocksRepo.convertTextBlockToList(newBlockId)
                     } else {
                         null
@@ -161,14 +165,14 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     }
 
     private fun currentContent(): EditorContent {
-        val titleContent = inputTitle?.text?.toString()?.trim().orEmpty()
-        val bodyContent = if (desiredFormat == DesiredFormat.LIST) {
+        val titleContent = currentTitle.trim()
+        val bodyContent = if (isListMode) {
             val items = currentChecklistItems()
             items.map { it.text.trim() }
                 .filter { it.isNotEmpty() }
                 .joinToString(separator = "\n")
         } else {
-            inputBody?.text?.toString()?.trim().orEmpty()
+            currentBody.trim()
         }
         return EditorContent(titleContent, bodyContent)
     }
@@ -189,13 +193,14 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     }
 
     private fun updateValidateButtonState() {
-        val enabled = when (desiredFormat) {
-            DesiredFormat.TEXT -> inputBody?.text?.toString()?.trim().isNullOrEmpty().not()
-            DesiredFormat.LIST -> when (listContext) {
+        val enabled = if (isListMode) {
+            when (listContext) {
                 ListContext.EXISTING -> existingListHasContent()
                 ListContext.LOCAL -> localListHasContent()
                 ListContext.NONE -> false
             }
+        } else {
+            currentBody.trim().isNotEmpty()
         }
         validateButton?.isEnabled = enabled
     }
@@ -207,7 +212,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         localListItems.any { it.text.trim().isNotEmpty() }
 
     private fun updateChecklistVisibility() {
-        val isList = desiredFormat == DesiredFormat.LIST
+        val isList = isListMode
         inputBody?.visibility = if (isList) View.GONE else View.VISIBLE
         val container = checklistContainer
         if (container != null) {
@@ -222,8 +227,8 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     }
 
     private fun addChecklistItem() {
-        if (desiredFormat != DesiredFormat.LIST) {
-            desiredFormat = DesiredFormat.LIST
+        if (!isListMode) {
+            isListMode = true
             updateFormatUi()
         }
         if (listContext == ListContext.EXISTING) {
@@ -316,6 +321,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         listContext = ListContext.LOCAL
         localListItems.clear()
         localListId = -1L
+        currentBody = ""
         val lines = body.lines()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
@@ -352,7 +358,9 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
     private val uiScope = CoroutineScope(Dispatchers.Main + Job())
 
-    private var desiredFormat: DesiredFormat = DesiredFormat.TEXT
+    private var isListMode: Boolean = false
+    private var currentTitle: String = ""
+    private var currentBody: String = ""
     private var badgeView: TextView? = null
     private var inputTitle: EditText? = null
     private var inputBody: EditText? = null
@@ -374,7 +382,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private enum class ListContext { NONE, LOCAL, EXISTING }
 
     private var listContext: ListContext = ListContext.NONE
-    private var formatRestoredFromState = false
+    private var contentRestoredFromState = false
 
     private val checklistAdapter: BlockChecklistAdapter by lazy {
         BlockChecklistAdapter(
@@ -398,11 +406,10 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val restoredFormat = savedInstanceState?.getString(STATE_DESIRED_FORMAT)
-        desiredFormat = restoredFormat?.let { value ->
-            runCatching { DesiredFormat.valueOf(value) }.getOrNull()
-        } ?: DesiredFormat.TEXT
-        formatRestoredFromState = savedInstanceState != null
+        isListMode = savedInstanceState?.getBoolean(STATE_IS_LIST_MODE) ?: false
+        currentTitle = savedInstanceState?.getString(STATE_CURRENT_TITLE).orEmpty()
+        currentBody = savedInstanceState?.getString(STATE_CURRENT_BODY).orEmpty()
+        contentRestoredFromState = savedInstanceState != null
     }
 
     override fun onCreateView(
@@ -426,6 +433,21 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         checklistRecycler = view.findViewById(R.id.checklistRecycler)
         checklistEmptyView = view.findViewById(R.id.checklistEmptyPlaceholder)
         checklistAddButton = view.findViewById(R.id.checklistAddButton)
+
+        inputTitle?.setText(currentTitle)
+        inputTitle?.setSelection(currentTitle.length)
+        inputBody?.setText(currentBody)
+        inputBody?.setSelection(currentBody.length)
+
+        inputTitle?.imeOptions = EditorInfo.IME_ACTION_NEXT
+        inputTitle?.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_NEXT || actionId == EditorInfo.IME_ACTION_DONE) {
+                inputBody?.let { body -> showIme(body) }
+                true
+            } else {
+                false
+            }
+        }
 
         view.findViewById<View>(R.id.postitScroll)?.visibility = View.GONE
         view.findViewById<View>(R.id.editorContainer)?.visibility = View.VISIBLE
@@ -458,24 +480,39 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         }
 
         inputBody?.addTextChangedListener {
+            if (!isListMode) {
+                currentBody = it?.toString().orEmpty()
+            }
             updateValidateButtonState()
             updateMenuState()
         }
         inputTitle?.addTextChangedListener {
+            currentTitle = it?.toString().orEmpty()
             updateValidateButtonState()
             updateMenuState()
         }
-
-        updateFormatUi()
-        updateMenuState()
-        updateChecklistVisibility()
 
         val blockId = existingBlockId
         if (blockId != null) {
             loadExistingBlock(blockId)
         } else {
-            listContext = if (desiredFormat == DesiredFormat.LIST) ListContext.LOCAL else ListContext.NONE
+            listContext = if (isListMode) ListContext.LOCAL else ListContext.NONE
+            if (savedInstanceState == null) {
+                currentTitle = ""
+                currentBody = ""
+                inputTitle?.setText("")
+                inputBody?.setText("")
+                inputTitle?.let { titleField ->
+                    titleField.post { showIme(titleField) }
+                }
+                if (!isListMode) {
+                    inputBody?.let { bodyField ->
+                        bodyField.post { showIme(bodyField) }
+                    }
+                }
+            }
             updateFormatUi()
+            updateMenuState()
             updateValidateButtonState()
         }
     }
@@ -488,7 +525,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     ) {
         val popup = PopupMenu(requireContext(), anchor)
         val content = contentProvider()
-        val combinedContent = buildContent(content.title, content.body)
+        val combinedContent = composeShareText(content.title, content.body)
         val hasBody = content.body.isNotBlank()
 
         val shareItem = popup.menu.add(0, MENU_SHARE, 0, getString(R.string.media_action_share))
@@ -498,12 +535,12 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             val convertToList = popup.menu.add(0, MENU_CONVERT_TO_LIST, 1, getString(R.string.note_menu_convert_to_list))
             convertToList.isEnabled = blockId == null || hasBody
             convertToList.isCheckable = true
-            convertToList.isChecked = desiredFormat == DesiredFormat.LIST
+            convertToList.isChecked = isListMode
 
             val convertToText = popup.menu.add(0, MENU_CONVERT_TO_TEXT, 2, getString(R.string.note_menu_convert_to_text))
             convertToText.isEnabled = blockId == null || hasBody
             convertToText.isCheckable = true
-            convertToText.isChecked = desiredFormat == DesiredFormat.TEXT
+            convertToText.isChecked = isListMode.not()
         }
 
         if (blockId != null) {
@@ -546,7 +583,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             convertToList(noteId, blockId, content)
             return
         }
-        desiredFormat = DesiredFormat.LIST
+        isListMode = true
         populateLocalListFromBody(content.body)
         updateFormatUi()
         updateMenuState()
@@ -563,7 +600,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             convertToText(noteId, blockId, content)
             return
         }
-        desiredFormat = DesiredFormat.TEXT
+        isListMode = false
         val text = if (content.body.isBlank()) {
             ""
         } else {
@@ -571,6 +608,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         }
         inputBody?.setText(text)
         inputBody?.setSelection(text.length)
+        currentBody = text
         listContext = ListContext.NONE
         localListItems.clear()
         localListId = -1L
@@ -607,7 +645,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         dismiss()
     }
 
-    private fun buildContent(title: String, body: String): String {
+    private fun composeShareText(title: String, body: String): String {
         val trimmedTitle = title.trim()
         val trimmedBody = body.trim()
         if (trimmedTitle.isEmpty()) return trimmedBody
@@ -657,14 +695,14 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     }
 
     private fun convertToList(noteId: Long, blockId: Long, content: EditorContent) {
-        val combined = buildContent(content.title, content.body)
-        if (combined.isBlank()) {
+        val bodyContent = content.body
+        if (bodyContent.isBlank()) {
             Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
             return
         }
         uiScope.launch {
             val result = withContext(Dispatchers.IO) {
-                blocksRepo.updateText(blockId, combined, content.title)
+                blocksRepo.updateText(blockId, bodyContent, content.title)
                 blocksRepo.convertTextBlockToList(blockId)
             }
             when (result) {
@@ -693,14 +731,14 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     }
 
     private fun convertToText(noteId: Long, blockId: Long, content: EditorContent) {
-        val combined = buildContent(content.title, content.body)
-        if (combined.isBlank()) {
+        val bodyContent = content.body
+        if (bodyContent.isBlank()) {
             Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
             return
         }
         uiScope.launch {
             val result = withContext(Dispatchers.IO) {
-                blocksRepo.updateText(blockId, combined, content.title)
+                blocksRepo.updateText(blockId, bodyContent, content.title)
                 blocksRepo.convertListBlockToText(blockId)
             }
             when (result) {
@@ -731,7 +769,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private fun updateFormatUi() {
         val badge = badgeView ?: return
         val ctx = badge.context
-        val labelRes = if (desiredFormat == DesiredFormat.LIST) {
+        val labelRes = if (isListMode) {
             R.string.postit_list_label
         } else {
             R.string.postit_label
@@ -742,7 +780,9 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putString(STATE_DESIRED_FORMAT, desiredFormat.name)
+        outState.putBoolean(STATE_IS_LIST_MODE, isListMode)
+        outState.putString(STATE_CURRENT_TITLE, currentTitle)
+        outState.putString(STATE_CURRENT_BODY, currentBody)
     }
 
     override fun onDestroyView() {
