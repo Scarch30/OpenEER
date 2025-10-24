@@ -43,7 +43,7 @@ import com.example.openeer.ui.library.LibraryActivity
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
-import com.example.openeer.ui.sheets.ChildTextEditorSheet
+import com.example.openeer.ui.sheets.ChildPostitSheet
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
@@ -410,7 +410,7 @@ class MainActivity : AppCompatActivity() {
                 if (openId != null) {
                     // NOTE OUVERTE -> éditeur de post-it (BottomSheet)
                     editorBody.commitInlineEdit(openId)
-                    val sheet = ChildTextEditorSheet.new(openId).apply {
+                    val sheet = ChildPostitSheet.new(openId).apply {
                         onSaved = { noteId, blockId ->
                             onChildBlockSaved(
                                 noteId,

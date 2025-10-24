@@ -36,11 +36,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * BottomSheet permettant d’ajouter rapidement un BLOC TEXTE enfant (“post-it”)
- * à la note mère ouverte.
+ * BottomSheet permettant d’ajouter ou modifier rapidement un BLOC TEXTE enfant (“post-it”).
  *
  * Utilisation :
- *   ChildTextEditorSheet.new(noteId).apply {
+ *   ChildPostitSheet.new(noteId).apply {
  *     onSaved = { nid, bid -> /* ex: snackbar + highlight */ }
  *   }.show(supportFragmentManager, "child_text")
  */
@@ -51,20 +50,20 @@ private const val MENU_CONVERT_TO_TEXT = 1003
 
 private enum class DesiredFormat { TEXT, LIST }
 
-class ChildTextEditorSheet : BottomSheetDialogFragment() {
+class ChildPostitSheet : BottomSheetDialogFragment() {
 
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val ARG_BLOCK_ID = "arg_block_id"
         private const val STATE_DESIRED_FORMAT = "state_desired_format"
 
-        fun new(noteId: Long): ChildTextEditorSheet =
-            ChildTextEditorSheet().apply {
+        fun new(noteId: Long): ChildPostitSheet =
+            ChildPostitSheet().apply {
                 arguments = bundleOf(ARG_NOTE_ID to noteId)
             }
 
-        fun edit(noteId: Long, blockId: Long): ChildTextEditorSheet =
-            ChildTextEditorSheet().apply {
+        fun edit(noteId: Long, blockId: Long): ChildPostitSheet =
+            ChildPostitSheet().apply {
                 arguments = bundleOf(
                     ARG_NOTE_ID to noteId,
                     ARG_BLOCK_ID to blockId,
