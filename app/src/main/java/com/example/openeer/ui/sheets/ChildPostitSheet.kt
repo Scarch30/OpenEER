@@ -8,18 +8,15 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
 import androidx.core.widget.addTextChangedListener
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -27,12 +24,12 @@ import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.BlockType
+import com.example.openeer.data.block.BlocksRepository.ChecklistItemDraft
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.core.FeatureFlags
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -101,12 +98,14 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             val isListBlock = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST
             isListMode = isListBlock
 
-            listContext = if (isListMode && isListBlock) {
-                startExistingChecklistObservation(blockId)
-                ListContext.EXISTING
+            if (isListBlock) {
+                val existingItems = withContext(Dispatchers.IO) { blocksRepo.getItemsForBlock(blockId) }
+                populateLocalListFromEntities(existingItems)
             } else {
-                stopExistingChecklistObservation()
-                if (isListMode) ListContext.LOCAL else ListContext.NONE
+                listContext = if (isListMode) ListContext.LOCAL else ListContext.NONE
+                if (isListMode) {
+                    populateLocalListFromBody(currentBody)
+                }
             }
 
             updateFormatUi()
@@ -115,52 +114,49 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private fun startExistingChecklistObservation(blockId: Long) {
-        stopExistingChecklistObservation()
-        val owner = viewLifecycleOwner
-        checklistJob = owner.lifecycleScope.launch {
-            owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                blocksRepo.observeItemsForBlock(blockId).collectLatest { items ->
-                    latestChecklistItems = items
-                    checklistEmptyView?.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
-                    checklistAdapter.submitList(items)
-                    updateValidateButtonState()
-                }
-            }
-        }
-    }
-
-    private fun stopExistingChecklistObservation() {
-        checklistJob?.cancel()
-        checklistJob = null
-        latestChecklistItems = emptyList()
-    }
-
     private fun handleSave(noteId: Long) {
-        val content = currentContent()
-        if (isListMode && content.body.isBlank()) {
-            Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
-            return
-        }
-
         val blockId = existingBlockId
+        val titleContent = currentTitle.trim()
+        val bodyContent = currentBody.trim()
+        val checklistDrafts = if (isListMode) buildChecklistDraft() else emptyList()
+
         validateButton?.isEnabled = false
         uiScope.launch {
-            val saveResult = withContext(Dispatchers.IO) {
-                blockId?.let { existingId ->
-                    blocksRepo.updateText(existingId, content.body, content.title)
-                    SaveResult(existingId, null)
-                } ?: run {
-                    val newBlockId = blocksRepo.appendText(noteId, content.body, title = content.title)
-                    val conversion = if (isListMode) {
-                        blocksRepo.convertTextBlockToList(newBlockId)
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (blockId == null) {
+                        if (isListMode) {
+                            val newBlockId = blocksRepo.appendText(noteId, "", title = titleContent)
+                            val conversion = blocksRepo.convertTextBlockToList(newBlockId, allowEmpty = true)
+                            if (conversion !is BlocksRepository.BlockConversionResult.Converted) {
+                                throw IllegalStateException("Unable to convert block $newBlockId to list: $conversion")
+                            }
+                            blocksRepo.upsertChecklistItems(newBlockId, checklistDrafts)
+                            newBlockId
+                        } else {
+                            blocksRepo.appendText(noteId, bodyContent, title = titleContent)
+                        }
                     } else {
-                        null
+                        if (isListMode) {
+                            blocksRepo.upsertChecklistItems(blockId, checklistDrafts)
+                            blockId
+                        } else {
+                            blocksRepo.updateText(blockId, bodyContent, titleContent)
+                            blockId
+                        }
                     }
-                    SaveResult(newBlockId, conversion)
                 }
             }
-            handleSaveResult(noteId, saveResult)
+
+            validateButton?.isEnabled = true
+            val ctx = context ?: return@launch
+            result.onSuccess { savedBlockId ->
+                Toast.makeText(ctx, ctx.getString(R.string.postit_save_success), Toast.LENGTH_SHORT).show()
+                onSaved?.invoke(noteId, savedBlockId)
+                dismiss()
+            }.onFailure {
+                Toast.makeText(ctx, ctx.getString(R.string.postit_save_error), Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -177,11 +173,25 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         return EditorContent(titleContent, bodyContent)
     }
 
-    private fun currentChecklistItems(): List<ListItemEntity> = when (listContext) {
-        ListContext.EXISTING -> latestChecklistItems
-        ListContext.LOCAL -> localListItems
-        ListContext.NONE -> emptyList()
+    private fun buildChecklistDraft(): List<ChecklistItemDraft> {
+        if (!isListMode || listContext == ListContext.NONE) return emptyList()
+        return localListItems.mapIndexedNotNull { index, item ->
+            val trimmed = item.text.trim()
+            if (trimmed.isEmpty()) {
+                null
+            } else {
+                ChecklistItemDraft(
+                    id = item.id.takeIf { it > 0 },
+                    text = trimmed,
+                    done = item.done,
+                    order = index,
+                )
+            }
+        }
     }
+
+    private fun currentChecklistItems(): List<ListItemEntity> =
+        if (!isListMode || listContext == ListContext.NONE) emptyList() else localListItems
 
     private fun updateMenuState() {
         val content = currentContent()
@@ -194,22 +204,12 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
     private fun updateValidateButtonState() {
         val enabled = if (isListMode) {
-            when (listContext) {
-                ListContext.EXISTING -> existingListHasContent()
-                ListContext.LOCAL -> localListHasContent()
-                ListContext.NONE -> false
-            }
+            currentChecklistItems().any { it.text.trim().isNotEmpty() }
         } else {
             currentBody.trim().isNotEmpty()
         }
         validateButton?.isEnabled = enabled
     }
-
-    private fun existingListHasContent(): Boolean =
-        latestChecklistItems.any { it.text.trim().isNotEmpty() }
-
-    private fun localListHasContent(): Boolean =
-        localListItems.any { it.text.trim().isNotEmpty() }
 
     private fun updateChecklistVisibility() {
         val isList = isListMode
@@ -229,16 +229,12 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private fun addChecklistItem() {
         if (!isListMode) {
             isListMode = true
+            listContext = ListContext.LOCAL
             updateFormatUi()
         }
-        if (listContext == ListContext.EXISTING) {
-            val blockId = existingBlockId ?: return
-            uiScope.launch {
-                withContext(Dispatchers.IO) { blocksRepo.addItemForBlock(blockId, "") }
-            }
-            return
+        if (listContext == ListContext.NONE) {
+            listContext = ListContext.LOCAL
         }
-        listContext = ListContext.LOCAL
         val newId = localListId--
         val item = ListItemEntity(
             id = newId,
@@ -251,12 +247,17 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         submitLocalList(focusId = newId)
         updateChecklistVisibility()
         updateValidateButtonState()
+        updateMenuState()
     }
 
     private fun submitLocalList(focusId: Long? = null) {
-        val snapshot = localListItems.mapIndexed { index, item ->
-            item.copy(order = index)
+        localListItems.indices.forEach { index ->
+            val current = localListItems[index]
+            if (current.order != index) {
+                localListItems[index] = current.copy(order = index)
+            }
         }
+        val snapshot = localListItems.map { it.copy() }
         if (focusId != null) {
             checklistAdapter.requestFocusOn(focusId)
         }
@@ -265,55 +266,36 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     }
 
     private fun onChecklistToggle(itemId: Long) {
-        when (listContext) {
-            ListContext.EXISTING -> uiScope.launch {
-                withContext(Dispatchers.IO) { blocksRepo.toggleItemForBlock(itemId) }
-            }
-            ListContext.LOCAL -> {
-                val index = localListItems.indexOfFirst { it.id == itemId }
-                if (index >= 0) {
-                    val current = localListItems[index]
-                    localListItems[index] = current.copy(done = !current.done)
-                    submitLocalList()
-                }
-            }
-            ListContext.NONE -> Unit
+        if (listContext == ListContext.NONE) return
+        val index = localListItems.indexOfFirst { it.id == itemId }
+        if (index >= 0) {
+            val current = localListItems[index]
+            localListItems[index] = current.copy(done = !current.done)
+            submitLocalList()
         }
     }
 
     private fun onChecklistCommitText(itemId: Long, text: String) {
-        when (listContext) {
-            ListContext.EXISTING -> uiScope.launch {
-                withContext(Dispatchers.IO) { blocksRepo.updateItemTextForBlock(itemId, text) }
-            }
-            ListContext.LOCAL -> {
-                val index = localListItems.indexOfFirst { it.id == itemId }
-                if (index >= 0) {
-                    val current = localListItems[index]
-                    localListItems[index] = current.copy(text = text.trim())
-                    submitLocalList()
-                    updateValidateButtonState()
-                }
-            }
-            ListContext.NONE -> Unit
+        if (listContext == ListContext.NONE) return
+        val index = localListItems.indexOfFirst { it.id == itemId }
+        if (index >= 0) {
+            val current = localListItems[index]
+            localListItems[index] = current.copy(text = text.trim())
+            submitLocalList()
+            updateValidateButtonState()
+            updateMenuState()
         }
     }
 
     private fun onChecklistDelete(itemId: Long) {
-        when (listContext) {
-            ListContext.EXISTING -> uiScope.launch {
-                withContext(Dispatchers.IO) { blocksRepo.removeItemForBlock(itemId) }
-            }
-            ListContext.LOCAL -> {
-                val index = localListItems.indexOfFirst { it.id == itemId }
-                if (index >= 0) {
-                    localListItems.removeAt(index)
-                    submitLocalList()
-                    updateChecklistVisibility()
-                    updateValidateButtonState()
-                }
-            }
-            ListContext.NONE -> Unit
+        if (listContext == ListContext.NONE) return
+        val index = localListItems.indexOfFirst { it.id == itemId }
+        if (index >= 0) {
+            localListItems.removeAt(index)
+            submitLocalList()
+            updateChecklistVisibility()
+            updateValidateButtonState()
+            updateMenuState()
         }
     }
 
@@ -344,6 +326,20 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         submitLocalList()
         updateChecklistVisibility()
         updateValidateButtonState()
+        updateMenuState()
+    }
+
+    private fun populateLocalListFromEntities(items: List<ListItemEntity>) {
+        listContext = ListContext.LOCAL
+        localListItems.clear()
+        localListId = -1L
+        items.forEach { entity ->
+            localListItems.add(entity.copy())
+        }
+        submitLocalList()
+        updateChecklistVisibility()
+        updateValidateButtonState()
+        updateMenuState()
     }
 
     private fun showIme(target: EditText) {
@@ -373,13 +369,10 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private var checklistAddButton: TextView? = null
 
     private var existingBlockId: Long? = null
-    private var latestChecklistItems: List<ListItemEntity> = emptyList()
-    private var checklistJob: Job? = null
-
     private val localListItems = mutableListOf<ListItemEntity>()
     private var localListId = -1L
 
-    private enum class ListContext { NONE, LOCAL, EXISTING }
+    private enum class ListContext { NONE, LOCAL }
 
     private var listContext: ListContext = ListContext.NONE
     private var contentRestoredFromState = false
@@ -618,33 +611,6 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         Toast.makeText(requireContext(), R.string.postit_format_text_selected, Toast.LENGTH_SHORT).show()
     }
 
-    private fun handleSaveResult(noteId: Long, result: SaveResult) {
-        val ctx = context ?: return
-        val conversion = result.conversion
-        if (conversion != null) {
-            when (conversion) {
-                is BlocksRepository.BlockConversionResult.Converted -> {
-                    Toast.makeText(ctx, ctx.getString(R.string.block_convert_to_list_success, conversion.itemCount), Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.AlreadyTarget -> {
-                    Toast.makeText(ctx, R.string.block_convert_already_list, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.EmptySource,
-                BlocksRepository.BlockConversionResult.Incomplete -> {
-                    Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.NotFound -> {
-                    Toast.makeText(ctx, R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.Unsupported -> {
-                    Toast.makeText(ctx, R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-        onSaved?.invoke(noteId, result.blockId)
-        dismiss()
-    }
-
     private fun composeShareText(title: String, body: String): String {
         val trimmedTitle = title.trim()
         val trimmedBody = body.trim()
@@ -787,7 +753,6 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        stopExistingChecklistObservation()
         badgeView = null
         inputTitle = null
         inputBody = null
@@ -802,8 +767,4 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         uiScope.coroutineContext[Job]?.cancel()
     }
 
-    private data class SaveResult(
-        val blockId: Long,
-        val conversion: BlocksRepository.BlockConversionResult?,
-    )
 }
