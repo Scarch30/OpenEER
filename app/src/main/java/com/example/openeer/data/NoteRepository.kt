@@ -446,6 +446,12 @@ class NoteRepository(
             val lines = note.body.split('\n')
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
+                .toMutableList()
+
+            val title = note.title?.trim()?.takeIf { it.isNotEmpty() }
+            if (!title.isNullOrEmpty() && lines.isNotEmpty() && lines.first() == title) {
+                lines.removeAt(0)
+            }
 
             listItemDao.deleteForNote(noteId)
 

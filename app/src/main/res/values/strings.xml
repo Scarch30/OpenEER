@@ -83,6 +83,7 @@
     <string name="block_convert_empty_source">Impossible de convertir : contenu vide.</string>
     <string name="block_convert_error_missing">Bloc introuvable.</string>
     <string name="block_convert_error_unsupported">Conversion non disponible pour ce bloc.</string>
+    <string name="block_convert_menu_content_description">Options de conversion</string>
     <string name="media_text_badge_note">POST-IT</string>
     <string name="media_text_badge_list">LISTE</string>
     <string name="media_text_menu_content_description">Plus d’options pour ce bloc</string>

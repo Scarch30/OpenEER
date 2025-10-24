@@ -31,7 +31,6 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.snackbar.Snackbar
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.example.openeer.R
@@ -59,9 +58,6 @@ import java.util.Locale
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
-private const val MENU_CONVERT_TO_LIST = 1001
-private const val MENU_CONVERT_TO_TEXT = 1002
-
 private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
     override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
         oldItem.blockId == newItem.blockId
@@ -71,8 +67,6 @@ private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
 }
 
 class MediaGridSheet : BottomSheetDialogFragment() {
-
-    private enum class TextMenuAction { CONVERT_TO_LIST, CONVERT_TO_TEXT }
 
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
@@ -739,10 +733,10 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 }
 
                 listBadge.isVisible = item.isList
-                menu.isVisible = true
-                menu.isEnabled = true
-                menu.setOnClickListener { showTextMenu(menu, item) }
-                ViewCompat.setTooltipText(menu, card.context.getString(R.string.media_text_menu_content_description))
+                menu.isVisible = false
+                menu.isEnabled = false
+                menu.setOnClickListener(null)
+                ViewCompat.setTooltipText(menu, null)
 
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {
@@ -754,88 +748,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
     }
 
     // --- Long-press “Google Maps” pour la pile Carte ---
-    private fun showTextMenu(anchor: View, item: MediaStripItem.Text) {
-        if (!isAdded) return
-
-        val popup = PopupMenu(requireContext(), anchor)
-        if (!item.isList) {
-            popup.menu.add(0, MENU_CONVERT_TO_LIST, 0, getString(R.string.note_menu_convert_to_list))
-        }
-        if (item.isList) {
-            popup.menu.add(0, MENU_CONVERT_TO_TEXT, 1, getString(R.string.note_menu_convert_to_text))
-        }
-        if (popup.menu.size() == 0) return
-
-        popup.setOnMenuItemClickListener { menuItem ->
-            when (menuItem.itemId) {
-                MENU_CONVERT_TO_LIST -> {
-                    convertTextBlock(item, TextMenuAction.CONVERT_TO_LIST)
-                    true
-                }
-                MENU_CONVERT_TO_TEXT -> {
-                    convertTextBlock(item, TextMenuAction.CONVERT_TO_TEXT)
-                    true
-                }
-                else -> false
-            }
-        }
-        popup.show()
-    }
-
-    private fun convertTextBlock(item: MediaStripItem.Text, action: TextMenuAction) {
-        viewLifecycleOwner.lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                when (action) {
-                    TextMenuAction.CONVERT_TO_LIST -> blocksRepo.convertTextBlockToList(item.blockId)
-                    TextMenuAction.CONVERT_TO_TEXT -> blocksRepo.convertListBlockToText(item.blockId)
-                }
-            }
-            handleTextBlockConversionResult(result, action)
-        }
-    }
-
-    private fun handleTextBlockConversionResult(
-        result: BlocksRepository.BlockConversionResult,
-        action: TextMenuAction,
-    ) {
-        val ctx = context ?: return
-        when (result) {
-            is BlocksRepository.BlockConversionResult.Converted -> {
-                val messageRes = if (action == TextMenuAction.CONVERT_TO_LIST) {
-                    R.string.block_convert_to_list_success
-                } else {
-                    R.string.block_convert_to_text_success
-                }
-                val message = ctx.getString(messageRes, result.itemCount)
-                val rootView = view
-                if (rootView != null) {
-                    Snackbar.make(rootView, message, Snackbar.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(ctx, message, Toast.LENGTH_SHORT).show()
-                }
-                reloadItems()
-            }
-            BlocksRepository.BlockConversionResult.AlreadyTarget -> {
-                val res = if (action == TextMenuAction.CONVERT_TO_LIST) {
-                    R.string.block_convert_already_list
-                } else {
-                    R.string.block_convert_already_text
-                }
-                Toast.makeText(ctx, res, Toast.LENGTH_SHORT).show()
-            }
-            BlocksRepository.BlockConversionResult.EmptySource,
-            BlocksRepository.BlockConversionResult.Incomplete -> {
-                Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
-            }
-            BlocksRepository.BlockConversionResult.NotFound -> {
-                Toast.makeText(ctx, R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
-            }
-            BlocksRepository.BlockConversionResult.Unsupported -> {
-                Toast.makeText(ctx, R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     private fun showMapsMenuForMapItem(anchor: View, item: MediaStripItem) {
         val popup = PopupMenu(requireContext(), anchor)
         popup.menu.add(0, 1, 0, getString(R.string.block_open_in_google_maps))
