@@ -67,7 +67,9 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     }
 
     private var currentContent: String = ""
+    private var currentTitle: String = ""
 
+    private var postitTitle: TextView? = null
     private var postitText: TextView? = null
     private var postitScroll: ScrollView? = null
     private var btnEdit: Button? = null
@@ -111,6 +113,7 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        postitTitle = view.findViewById(R.id.postitTitle)
         postitText = view.findViewById(R.id.postitText)
         postitScroll = view.findViewById(R.id.postitScroll)
         view.findViewById<View>(R.id.editorContainer)?.visibility = View.GONE
@@ -178,7 +181,9 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
             val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(blockId) }
             if (block == null || block.type != BlockType.TEXT) {
                 currentContent = ""
+                currentTitle = ""
                 postitText?.text = ""
+                postitTitle?.visibility = View.GONE
                 btnEdit?.isEnabled = false
                 isListMode = false
                 currentBlockId = null
@@ -197,6 +202,15 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 return@launch
             }
 
+            val content = blocksRepo.extractTextContent(block)
+            currentTitle = content.title
+            if (currentTitle.isNotBlank()) {
+                postitTitle?.text = currentTitle
+                postitTitle?.visibility = View.VISIBLE
+            } else {
+                postitTitle?.visibility = View.GONE
+            }
+
             val listMode = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST
             isListMode = listMode
             currentBlockId = block.id
@@ -211,10 +225,11 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                 canConvertToText = FeatureFlags.listsEnabled && block.mimeType != "text/transcript"
                 updateChecklistVisibility(true)
                 startChecklistObservation(block.id)
+                postitText?.text = ""
             } else {
                 stopChecklistObservation()
                 currentContent = block.text.orEmpty()
-                postitText?.text = currentContent
+                postitText?.text = content.body
                 btnEdit?.visibility = View.VISIBLE
                 btnEdit?.isEnabled = true
                 canShare = currentContent.isNotBlank()
@@ -400,7 +415,14 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
                         val prefix = if (item.done) "[x]" else "[ ]"
                         "$prefix ${item.text}".trimEnd()
                     }.filter { it.isNotBlank() }
-                    currentContent = if (shareLines.isEmpty()) "" else shareLines.joinToString("\n")
+                    currentContent = if (shareLines.isEmpty()) {
+                        if (currentTitle.isNotBlank()) currentTitle else ""
+                    } else {
+                        buildList {
+                            if (currentTitle.isNotBlank()) add(currentTitle)
+                            addAll(shareLines)
+                        }.joinToString("\n")
+                    }
                     canShare = shareLines.isNotEmpty()
                     updateOverflowMenuState()
                 }
@@ -518,6 +540,17 @@ class ChildTextViewerSheet : BottomSheetDialogFragment() {
 
     override fun onDestroyView() {
         stopChecklistObservation()
+        postitTitle = null
+        postitText = null
+        postitScroll = null
+        btnEdit = null
+        menuButton = null
+        checklistContainer = null
+        checklistRecycler = null
+        checklistEmptyView = null
+        checklistAddButton = null
+        linkedAudioContainer = null
+        linkedAudioBtn = null
         super.onDestroyView()
     }
 }
