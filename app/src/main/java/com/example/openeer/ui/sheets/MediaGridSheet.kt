@@ -3,6 +3,7 @@ package com.example.openeer.ui.sheets
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.net.Uri
@@ -13,13 +14,16 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.util.TypedValue
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.os.bundleOf
+import androidx.core.view.ViewCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
@@ -27,6 +31,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.snackbar.Snackbar
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.example.openeer.R
@@ -45,13 +50,17 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.card.MaterialCardView
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
+private const val MENU_CONVERT_TO_LIST = 1001
+private const val MENU_CONVERT_TO_TEXT = 1002
 
 private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
     override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
@@ -62,6 +71,8 @@ private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
 }
 
 class MediaGridSheet : BottomSheetDialogFragment() {
+
+    private enum class TextMenuAction { CONVERT_TO_LIST, CONVERT_TO_TEXT }
 
     companion object {
         private const val ARG_NOTE_ID = "arg_note_id"
@@ -104,6 +115,9 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         val host = requireActivity() as AppCompatActivity
         MediaActions(host, blocksRepo)
     }
+
+    private var titleView: TextView? = null
+    private var mediaGridAdapter: MediaGridAdapter? = null
 
     // Pour la pile Carte
     private val routeGson = Gson()
@@ -222,18 +236,18 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         recycler.setHasFixedSize(true)
         recycler.addItemDecoration(GridSpacingDecoration(dp(requireContext(), 8)))
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            val blocks = blocksRepo.observeBlocks(noteId).first()
-            val items = buildItems(blocks, category) // met à jour linkedBlockIds / pairIndex maps / mapBlockIds
-            adapter.submitList(items)
-            title.text = getString(
-                R.string.media_grid_title_format,
-                categoryTitle(category),
-                items.size,
-            )
-        }
+        titleView = title
+        mediaGridAdapter = adapter
+
+        reloadItems()
 
         return view
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        titleView = null
+        mediaGridAdapter = null
     }
 
     private fun computeSpanCount(): Int {
@@ -250,6 +264,21 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             MediaCategory.TEXT   -> getString(R.string.media_category_text)
             MediaCategory.LOCATION -> getString(R.string.pile_label_locations)
         }
+
+    private fun reloadItems() {
+        val adapter = mediaGridAdapter ?: return
+        val title = titleView ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val blocks = withContext(Dispatchers.IO) { blocksRepo.observeBlocks(noteId).first() }
+            val items = buildItems(blocks, category) // met à jour linkedBlockIds / pairIndex maps / mapBlockIds
+            adapter.submitList(items)
+            title.text = getString(
+                R.string.media_grid_title_format,
+                categoryTitle(category),
+                items.size,
+            )
+        }
+    }
 
     /**
      * Grille :
@@ -541,7 +570,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             dp(ctx, 18),
                             dp(ctx, 18),
                             Gravity.TOP or Gravity.END
-                        ).apply { setMargins(0, dp(ctx, 6), dp(ctx, 6), 0) }
+                        ).apply { setMargins(0, dp(ctx, 6), dp(ctx, 44), 0) }
                         alpha = 0.9f
                         isVisible = false
                     }
@@ -553,7 +582,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             ViewGroup.LayoutParams.WRAP_CONTENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT,
                             Gravity.TOP or Gravity.END
-                        ).apply { setMargins(0, dp(ctx, 6), dp(ctx, 28), 0) }
+                        ).apply { setMargins(0, dp(ctx, 6), dp(ctx, 62), 0) }
                         isVisible = false
                     }
 
@@ -562,12 +591,51 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         isVisible = false
                     }
 
+                    val listBadge = ImageView(ctx).apply {
+                        setImageResource(R.drawable.ic_checklist_badge)
+                        layoutParams = FrameLayout.LayoutParams(
+                            dp(ctx, 20),
+                            dp(ctx, 20),
+                            Gravity.TOP or Gravity.START
+                        ).apply {
+                            topMargin = dp(ctx, 6)
+                            leftMargin = dp(ctx, 6)
+                        }
+                        isVisible = false
+                    }
+
+                    val menu = ImageButton(ctx).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            dp(ctx, 36),
+                            dp(ctx, 36),
+                            Gravity.TOP or Gravity.END
+                        ).apply {
+                            topMargin = dp(ctx, 2)
+                            rightMargin = dp(ctx, 2)
+                        }
+                        val outValue = TypedValue()
+                        if (ctx.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, outValue, true)) {
+                            if (outValue.resourceId != 0) {
+                                setBackgroundResource(outValue.resourceId)
+                            }
+                        }
+                        setPadding(dp(ctx, 4), dp(ctx, 4), dp(ctx, 4), dp(ctx, 4))
+                        setImageResource(android.R.drawable.ic_menu_more)
+                        imageTintList = ColorStateList.valueOf(0xFF424242.toInt())
+                        contentDescription = ctx.getString(R.string.media_text_menu_content_description)
+                        isFocusable = true
+                        isFocusableInTouchMode = true
+                        setOnLongClickListener { true }
+                    }
+
                     root.addView(text)
                     root.addView(badge)
                     root.addView(counter)
                     root.addView(rightStrip)
+                    root.addView(listBadge)
+                    root.addView(menu)
                     card.addView(root)
-                    TextHolder(card, text, badge, counter, rightStrip)
+                    TextHolder(card, text, badge, counter, rightStrip, menu, listBadge)
                 }
 
                 else -> throw IllegalStateException("Unknown view type $viewType")
@@ -650,6 +718,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             private val badge: ImageView,
             private val counter: TextView,
             private val rightStrip: View,
+            private val menu: ImageButton,
+            private val listBadge: ImageView,
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Text) {
                 preview.text = item.preview.ifBlank { "…" }
@@ -668,6 +738,12 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     rightStrip.isVisible = false
                 }
 
+                listBadge.isVisible = item.isList
+                menu.isVisible = true
+                menu.isEnabled = true
+                menu.setOnClickListener { showTextMenu(menu, item) }
+                ViewCompat.setTooltipText(menu, card.context.getString(R.string.media_text_menu_content_description))
+
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {
                     onLongClick(it, item)
@@ -678,6 +754,88 @@ class MediaGridSheet : BottomSheetDialogFragment() {
     }
 
     // --- Long-press “Google Maps” pour la pile Carte ---
+    private fun showTextMenu(anchor: View, item: MediaStripItem.Text) {
+        if (!isAdded) return
+
+        val popup = PopupMenu(requireContext(), anchor)
+        if (!item.isList) {
+            popup.menu.add(0, MENU_CONVERT_TO_LIST, 0, getString(R.string.note_menu_convert_to_list))
+        }
+        if (item.isList) {
+            popup.menu.add(0, MENU_CONVERT_TO_TEXT, 1, getString(R.string.note_menu_convert_to_text))
+        }
+        if (popup.menu.size() == 0) return
+
+        popup.setOnMenuItemClickListener { menuItem ->
+            when (menuItem.itemId) {
+                MENU_CONVERT_TO_LIST -> {
+                    convertTextBlock(item, TextMenuAction.CONVERT_TO_LIST)
+                    true
+                }
+                MENU_CONVERT_TO_TEXT -> {
+                    convertTextBlock(item, TextMenuAction.CONVERT_TO_TEXT)
+                    true
+                }
+                else -> false
+            }
+        }
+        popup.show()
+    }
+
+    private fun convertTextBlock(item: MediaStripItem.Text, action: TextMenuAction) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                when (action) {
+                    TextMenuAction.CONVERT_TO_LIST -> blocksRepo.convertTextBlockToList(item.blockId)
+                    TextMenuAction.CONVERT_TO_TEXT -> blocksRepo.convertListBlockToText(item.blockId)
+                }
+            }
+            handleTextBlockConversionResult(result, action)
+        }
+    }
+
+    private fun handleTextBlockConversionResult(
+        result: BlocksRepository.BlockConversionResult,
+        action: TextMenuAction,
+    ) {
+        val ctx = context ?: return
+        when (result) {
+            is BlocksRepository.BlockConversionResult.Converted -> {
+                val messageRes = if (action == TextMenuAction.CONVERT_TO_LIST) {
+                    R.string.block_convert_to_list_success
+                } else {
+                    R.string.block_convert_to_text_success
+                }
+                val message = ctx.getString(messageRes, result.itemCount)
+                val rootView = view
+                if (rootView != null) {
+                    Snackbar.make(rootView, message, Snackbar.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(ctx, message, Toast.LENGTH_SHORT).show()
+                }
+                reloadItems()
+            }
+            BlocksRepository.BlockConversionResult.AlreadyTarget -> {
+                val res = if (action == TextMenuAction.CONVERT_TO_LIST) {
+                    R.string.block_convert_already_list
+                } else {
+                    R.string.block_convert_already_text
+                }
+                Toast.makeText(ctx, res, Toast.LENGTH_SHORT).show()
+            }
+            BlocksRepository.BlockConversionResult.EmptySource,
+            BlocksRepository.BlockConversionResult.Incomplete -> {
+                Toast.makeText(ctx, R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
+            }
+            BlocksRepository.BlockConversionResult.NotFound -> {
+                Toast.makeText(ctx, R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
+            }
+            BlocksRepository.BlockConversionResult.Unsupported -> {
+                Toast.makeText(ctx, R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun showMapsMenuForMapItem(anchor: View, item: MediaStripItem) {
         val popup = PopupMenu(requireContext(), anchor)
         popup.menu.add(0, 1, 0, getString(R.string.block_open_in_google_maps))
