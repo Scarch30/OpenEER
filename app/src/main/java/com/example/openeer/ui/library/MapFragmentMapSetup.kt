@@ -1,5 +1,6 @@
 package com.example.openeer.ui.library
 
+import androidx.core.view.isVisible
 import com.example.openeer.ui.map.MapClusters
 import com.example.openeer.ui.map.MapIcons
 import com.example.openeer.ui.map.MapManagers
