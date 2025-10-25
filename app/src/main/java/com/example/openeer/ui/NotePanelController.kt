@@ -1,6 +1,7 @@
 // app/src/main/java/com/example/openeer/ui/NotePanelController.kt
 package com.example.openeer.ui
 
+import android.content.Intent
 import android.graphics.Typeface
 import android.text.Spanned
 import android.text.style.StyleSpan
@@ -352,18 +353,16 @@ class NotePanelController(
     }
 
     private fun notifyLibrarySourcesMerged(mergedIds: List<Long>) {
-        val fragment = activity.supportFragmentManager
-            .primaryNavigationFragment
-            ?.childFragmentManager
-            ?.fragments
-            ?.filterIsInstance<LibraryFragment>()
-            ?.firstOrNull()
-
-        fragment?.onNotesMerged(mergedIds)
+        val context = activity.applicationContext
+        val intent = Intent(LibraryFragment.ACTION_SOURCES_MERGED).apply {
+            putExtra(LibraryFragment.EXTRA_MERGED_SOURCE_IDS, mergedIds.toLongArray())
+        }
+        context.sendBroadcast(intent)
     }
 
     private fun formatMergeLabel(note: Note): String {
-        val title = note.title?.takeIf { it.isNotBlank() } ?: activity.getString(R.string.note_no_title)
+        val title = note.title?.takeIf { it.isNotBlank() }
+            ?: activity.getString(R.string.note_no_title)
         val meta = note.formatMeta()
         return if (meta.isBlank()) title else "$title — $meta"
     }
