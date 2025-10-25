@@ -77,7 +77,7 @@ internal fun BottomSheetReminderPicker.updateRepeatControlsVisibility(checkedId:
 }
 
 internal fun BottomSheetReminderPicker.updateWhenSummary() {
-    if (!this::textWhenSummary.isInitialized) return
+    val summaryView = textWhenSummary ?: return
     val timeMillis = selectedDateTimeMillis
     val summaryText = when {
         timeMillis == null && repeatEveryMinutes != null && repeatSelectionValid -> {
@@ -101,13 +101,13 @@ internal fun BottomSheetReminderPicker.updateWhenSummary() {
             getString(R.string.reminder_when_summary_time_repeat, whenText, repeatLabel)
         }
     }
-    textWhenSummary.text = summaryText
+    summaryView.text = summaryText
     updatePlanTimeButtonState()
 }
 
 internal fun BottomSheetReminderPicker.updatePlanTimeButtonState() {
-    if (!this::planTimeButton.isInitialized) return
-    planTimeButton.isEnabled = selectedDateTimeMillis != null ||
+    val button = planTimeButton ?: return
+    button.isEnabled = selectedDateTimeMillis != null ||
         (repeatEveryMinutes != null && repeatSelectionValid)
 }
 

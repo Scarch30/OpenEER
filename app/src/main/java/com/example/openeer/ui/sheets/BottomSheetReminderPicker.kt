@@ -123,11 +123,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     internal lateinit var radiusInput: TextInputLayout
     internal lateinit var cooldownInput: TextInputLayout
     internal lateinit var locationPreview: TextView
-    internal lateinit var planTimeButton: MaterialButton
-    internal lateinit var planGeoButton: MaterialButton
+    internal var planTimeButton: MaterialButton? = null
+    internal var planGeoButton: MaterialButton? = null
     internal lateinit var everySwitch: MaterialSwitch
     internal lateinit var geoTriggerToggle: MaterialButtonToggleGroup
-    internal lateinit var textWhenSummary: TextView
+    internal var textWhenSummary: TextView? = null
     internal lateinit var radioRepeat: RadioGroup
     internal lateinit var spinnerRepeatPreset: AppCompatSpinner
     internal lateinit var layoutRepeatCustom: View
@@ -284,11 +284,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             handleUseCurrentLocation()
         }
 
-        planGeoButton.setOnClickListener {
+        planGeoButton?.setOnClickListener {
             attemptScheduleGeoReminderWithPermissions()
         }
 
-        planTimeButton.setOnClickListener {
+        planTimeButton?.setOnClickListener {
             attemptScheduleTimeReminder()
         }
 
@@ -338,6 +338,9 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     override fun onDestroyView() {
         backgroundPermissionDialog?.dismiss()
         backgroundPermissionDialog = null
+        planTimeButton = null
+        planGeoButton = null
+        textWhenSummary = null
         super.onDestroyView()
     }
 
@@ -395,10 +398,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     }
 
     internal fun updatePrimaryButtonsLabel() {
-        if (!::planTimeButton.isInitialized || !::planGeoButton.isInitialized) return
+        val timeButton = planTimeButton ?: return
+        val geoButton = planGeoButton ?: return
         val textRes = if (isEditing) R.string.reminder_save else R.string.reminder_plan
-        planTimeButton.text = getString(textRes)
-        planGeoButton.text = getString(textRes)
+        timeButton.text = getString(textRes)
+        geoButton.text = getString(textRes)
     }
 
     internal fun handleFailure(error: Throwable) {
