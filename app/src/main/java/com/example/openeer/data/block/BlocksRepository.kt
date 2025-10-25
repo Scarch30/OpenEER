@@ -249,7 +249,8 @@ class BlocksRepository(
             }
 
             val content = extractTextContent(block)
-            val sanitized = content.body
+            val bodyOnly = SmartListSplitter.dropLeadingTitleLineIfEquals(content.body, content.title)
+            val sanitized = bodyOnly
                 .lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
