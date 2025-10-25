@@ -9,6 +9,7 @@ import android.widget.ArrayAdapter
 import android.widget.TextView
 import androidx.annotation.StringRes
 import androidx.core.widget.addTextChangedListener
+import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.core.Place
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
@@ -148,7 +149,7 @@ private fun MapFragment.launchDirectSearch(query: String) {
 @Suppress("DEPRECATION")
 private suspend fun MapFragment.geocode(query: String, maxResults: Int): GeocodeOutcome {
     if (!Geocoder.isPresent()) {
-        Log.w(TAG, "Geocoder unavailable on this device")
+        Log.w(MapFragment.TAG, "Geocoder unavailable on this device")
         return GeocodeOutcome.Unavailable
     }
     val ctx = requireContext().applicationContext
@@ -159,7 +160,7 @@ private suspend fun MapFragment.geocode(query: String, maxResults: Int): Geocode
         }.fold(
             onSuccess = { GeocodeOutcome.Success(it.orEmpty()) },
             onFailure = {
-                Log.w(TAG, "Geocoder failed for \"$query\"", it)
+                Log.w(MapFragment.TAG, "Geocoder failed for \"$query\"", it)
                 GeocodeOutcome.Failure(it)
             }
         )
@@ -180,16 +181,16 @@ private fun MapFragment.updateSuggestionAdapter(results: List<Address>): List<St
 }
 
 private fun MapFragment.showSearchError(@StringRes resId: Int) {
-    b.searchContainer.error = getString(resId)
-    b.searchContainer.helperText = null
+    binding.searchContainer.error = getString(resId)
+    binding.searchContainer.helperText = null
 }
 
 private fun MapFragment.showSearchHelper(@StringRes resId: Int) {
-    b.searchContainer.helperText = getString(resId)
-    b.searchContainer.error = null
+    binding.searchContainer.helperText = getString(resId)
+    binding.searchContainer.error = null
 }
 
 internal fun MapFragment.clearSearchFeedback() {
-    b.searchContainer.error = null
-    b.searchContainer.helperText = null
+    binding.searchContainer.error = null
+    binding.searchContainer.helperText = null
 }

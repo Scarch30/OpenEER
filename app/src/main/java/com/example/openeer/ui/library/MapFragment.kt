@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import com.example.openeer.R
 import com.example.openeer.core.Place
@@ -307,6 +308,40 @@ class MapFragment : Fragment(), OnMapReadyCallback {
 
     internal fun showHint(text: String, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
         displayHint(text, actionLabel, onAction)
+    }
+
+    private fun displayHint(text: String, actionLabel: String?, onAction: (() -> Unit)?) {
+        val hintView = bindingOrNull?.clusterHint ?: return
+        hintDismissRunnable?.let { hintView.removeCallbacks(it) }
+
+        val hasAction = !actionLabel.isNullOrBlank() && onAction != null
+        hintView.text = when {
+            hasAction -> "$text — ${actionLabel!!.trim()}"
+            else -> text
+        }
+        if (hasAction) {
+            hintView.isClickable = true
+            hintView.setOnClickListener {
+                hintDismissRunnable?.let { runnable -> hintView.removeCallbacks(runnable) }
+                hintView.isVisible = false
+                hintView.setOnClickListener(null)
+                hintDismissRunnable = null
+                onAction?.invoke()
+            }
+        } else {
+            hintView.isClickable = false
+            hintView.setOnClickListener(null)
+        }
+
+        hintView.isVisible = true
+
+        val dismiss = Runnable {
+            hintView.isVisible = false
+            hintView.setOnClickListener(null)
+            hintDismissRunnable = null
+        }
+        hintDismissRunnable = dismiss
+        hintView.postDelayed(dismiss, 4_000)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

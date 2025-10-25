@@ -51,7 +51,7 @@ internal fun MapFragment.cleanupOnDestroyView() {
     searchResults = emptyList()
     searchExecutionJob?.cancel()
     searchExecutionJob = null
-    _b?.clusterHint?.let { hintView ->
+    bindingOrNull?.clusterHint?.let { hintView ->
         hintDismissRunnable?.let { hintView.removeCallbacks(it) }
     }
     hintDismissRunnable = null

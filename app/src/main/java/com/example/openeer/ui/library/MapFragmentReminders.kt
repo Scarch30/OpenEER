@@ -23,18 +23,18 @@ internal fun MapFragment.launchGeoReminderFlow(
     every: Boolean
 ) {
     val ctx = requireContext().applicationContext
-    Log.d(TAG, "GeoFlow start → note=$noteId lat=$lat lon=$lon radius=$radius every=$every")
+    Log.d(MapFragment.TAG, "GeoFlow start → note=$noteId lat=$lat lon=$lon radius=$radius every=$every")
 
     LocationPerms.dump(ctx)
     if (!LocationPerms.hasFine(ctx)) {
-        Log.d(TAG, "GeoFlow ensureForeground → requesting FINE")
+        Log.d(MapFragment.TAG, "GeoFlow ensureForeground → requesting FINE")
         LocationPerms.requestFine(this, object : LocationPerms.Callback {
             override fun onResult(granted: Boolean) {
-                Log.d(TAG, "GeoFlow ensureForeground → $granted")
+                Log.d(MapFragment.TAG, "GeoFlow ensureForeground → $granted")
                 if (granted) {
                     launchGeoReminderFlow(noteId, lat, lon, radius, every)
                 } else {
-                    Log.w(TAG, "GeoFlow aborted: FINE denied")
+                    Log.w(MapFragment.TAG, "GeoFlow aborted: FINE denied")
                 }
             }
         })
@@ -43,40 +43,39 @@ internal fun MapFragment.launchGeoReminderFlow(
 
     LocationPerms.dump(ctx)
     if (LocationPerms.requiresBackground(ctx) && !LocationPerms.hasBackground(ctx)) {
-        Log.d(TAG, "GeoFlow ensureBackground → missing BG, preparing staged flow")
+        Log.d(MapFragment.TAG, "GeoFlow ensureBackground → missing BG, preparing staged flow")
         showBackgroundPermissionDialog(
             onAccept = {
                 if (LocationPerms.mustOpenSettingsForBackground()) {
-                    Log.d(TAG, "GeoFlow ensureBackground → launching Settings")
+                    Log.d(MapFragment.TAG, "GeoFlow ensureBackground → launching Settings")
                     waitingBgSettingsReturn = true
                     pendingGeo = { launchGeoReminderFlow(noteId, lat, lon, radius, every) }
                     LocationPerms.launchSettingsForBackground(this)
                 } else {
-                    Log.d(TAG, "GeoFlow ensureBackground → direct requestPermissions(BG) API29")
+                    Log.d(MapFragment.TAG, "GeoFlow ensureBackground → direct requestPermissions(BG) API29")
                     LocationPerms.requestBackground(this, object : LocationPerms.Callback {
                         override fun onResult(granted: Boolean) {
-                            Log.d(TAG, "GeoFlow ensureBackground (API29) → $granted")
+                            Log.d(MapFragment.TAG, "GeoFlow ensureBackground (API29) → $granted")
                             if (granted) {
                                 launchGeoReminderFlow(noteId, lat, lon, radius, every)
                             } else {
-                                Log.w(TAG, "GeoFlow aborted: BG denied")
+                                Log.w(MapFragment.TAG, "GeoFlow aborted: BG denied")
                             }
                         }
                     })
                 }
             },
             onCancel = {
-                Log.w(TAG, "GeoFlow cancelled by user at BG rationale")
+                Log.w(MapFragment.TAG, "GeoFlow cancelled by user at BG rationale")
                 pendingGeo = null
             }
         )
         return
     }
 
-    Log.d(TAG, "GeoFlow → permissions OK, scheduling geofence…")
+    Log.d(MapFragment.TAG, "GeoFlow → permissions OK, scheduling geofence…")
     val coordsLabel = String.format(Locale.US, "%.5f,%.5f", lat, lon)
-    Log.i(
-        TAG,
+    Log.i(MapFragment.TAG,
         "[GEOFENCE] ENTER programmé (note=$noteId latLon=$coordsLabel every=$every radius=$radius)"
     )
     viewLifecycleOwner.lifecycleScope.launch {
@@ -92,7 +91,7 @@ internal fun MapFragment.launchGeoReminderFlow(
                 every = every,
             )
         }
-        Log.d(TAG, "GeoFlow → scheduleGeofence done id=$id")
+        Log.d(MapFragment.TAG, "GeoFlow → scheduleGeofence done id=$id")
     }
 }
 
@@ -111,15 +110,15 @@ private fun MapFragment.showBackgroundPermissionDialog(
         .setTitle(R.string.map_background_location_title)
         .setMessage(R.string.map_background_location_message)
         .setPositiveButton(positiveRes) { _, _ ->
-            Log.d(TAG, "GeoFlow: background permission dialog positive")
+            Log.d(MapFragment.TAG, "GeoFlow: background permission dialog positive")
             onAccept()
         }
         .setNegativeButton(R.string.map_background_location_negative) { _, _ ->
-            Log.d(TAG, "GeoFlow: background permission dialog negative")
+            Log.d(MapFragment.TAG, "GeoFlow: background permission dialog negative")
             onCancel()
         }
         .setOnCancelListener {
-            Log.d(TAG, "GeoFlow: background permission dialog canceled")
+            Log.d(MapFragment.TAG, "GeoFlow: background permission dialog canceled")
             onCancel()
         }
         .setOnDismissListener { backgroundPermissionDialog = null }

@@ -17,7 +17,7 @@ import org.maplibre.android.geometry.LatLng
 internal fun MapFragment.beginManualRoute() {
     if (!shouldShowLocationActions) return
     if (isManualRouteMode) return
-    Log.d(MANUAL_ROUTE_LOG_TAG, "startManualRouteDrawing(anchor=${manualAnchorLabel ?: ""})")
+    Log.d(MapFragment.MANUAL_ROUTE_LOG_TAG, "startManualRouteDrawing(anchor=${manualAnchorLabel ?: ""})")
     isManualRouteMode = true
     isSavingRoute = false
     manualPoints.clear()
@@ -27,7 +27,7 @@ internal fun MapFragment.beginManualRoute() {
 
 internal fun MapFragment.endManualRoute() {
     if (!isManualRouteMode && manualPoints.isEmpty()) return
-    Log.d(MANUAL_ROUTE_LOG_TAG, "finishManualRouteDrawing()")
+    Log.d(MapFragment.MANUAL_ROUTE_LOG_TAG, "finishManualRouteDrawing()")
     isManualRouteMode = false
     isSavingRoute = false
     manualRouteLine = MapPolylines.clearManualRouteLine(polylineManager, manualRouteLine)
@@ -77,8 +77,8 @@ internal fun MapFragment.refreshManualRouteUi() {
 
 internal fun MapFragment.processManualRouteTap(latLng: LatLng) {
     if (!isManualRouteMode || isSavingRoute) return
-    if (manualPoints.size >= MANUAL_ROUTE_MAX_POINTS) {
-        showHint(getString(R.string.map_manual_route_limit, MANUAL_ROUTE_MAX_POINTS))
+    if (manualPoints.size >= MapFragment.MANUAL_ROUTE_MAX_POINTS) {
+        showHint(getString(R.string.map_manual_route_limit, MapFragment.MANUAL_ROUTE_MAX_POINTS))
         return
     }
     appendManualRoutePoint(latLng)
@@ -91,13 +91,13 @@ internal fun MapFragment.processManualRouteTap() {
 internal fun MapFragment.processManualRouteLongClick(latLng: LatLng): Boolean {
     if (!isManualRouteMode) return false
     if (isSavingRoute) return true
-    if (manualPoints.size >= MANUAL_ROUTE_MAX_POINTS) {
-        showHint(getString(R.string.map_manual_route_limit, MANUAL_ROUTE_MAX_POINTS))
+    if (manualPoints.size >= MapFragment.MANUAL_ROUTE_MAX_POINTS) {
+        showHint(getString(R.string.map_manual_route_limit, MapFragment.MANUAL_ROUTE_MAX_POINTS))
         return true
     }
     appendManualRoutePoint(latLng)
     Log.d(
-        MANUAL_ROUTE_LOG_TAG,
+        MapFragment.MANUAL_ROUTE_LOG_TAG,
         "onMapLongClick(lat=${latLng.latitude}, lon=${latLng.longitude}) count=${manualPoints.size}"
     )
     return true
@@ -126,7 +126,7 @@ internal fun MapFragment.handleManualRouteUndo() {
 
 internal fun MapFragment.handleManualRouteCancel() {
     if (!isManualRouteMode) return
-    Log.d(MANUAL_ROUTE_LOG_TAG, "cancelManualRoute()")
+    Log.d(MapFragment.MANUAL_ROUTE_LOG_TAG, "cancelManualRoute()")
     endManualRoute()
 }
 
@@ -140,13 +140,13 @@ internal fun MapFragment.persistManualRoute() {
     val mirrorText = createManualRouteMirrorText(payload)
     isSavingRoute = true
     refreshManualRouteUi()
-    Log.d(MANUAL_ROUTE_LOG_TAG, "saveManualRoute(count=${payload.pointCount})")
+    Log.d(MapFragment.MANUAL_ROUTE_LOG_TAG, "saveManualRoute(count=${payload.pointCount})")
     viewLifecycleOwner.lifecycleScope.launch {
         val result = withContext(Dispatchers.IO) {
             MapData.persistRoute(noteRepo, blocksRepo, routeGson, targetNoteId, payload, mirrorText)
         }
         if (result == null) {
-            Log.w(MANUAL_ROUTE_LOG_TAG, "persistRoute returned null")
+            Log.w(MapFragment.MANUAL_ROUTE_LOG_TAG, "persistRoute returned null")
             showHint(getString(R.string.map_route_save_failed))
             isSavingRoute = false
             refreshManualRouteUi()
