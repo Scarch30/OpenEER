@@ -36,14 +36,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * BottomSheet permettant d’ajouter ou modifier rapidement un BLOC TEXTE enfant (“post-it”).
- *
- * Utilisation :
- *   ChildPostitSheet.new(noteId).apply {
- *     onSaved = { nid, bid -> /* ex: snackbar + highlight */ }
- *   }.show(supportFragmentManager, "child_text")
- */
 private const val MENU_SHARE = 1000
 private const val MENU_DELETE = 1001
 private const val MENU_CONVERT_TO_LIST = 1002
@@ -74,6 +66,38 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             }
     }
 
+    // --- Nouveau trio : viewer / editor / divider pour le titre ---
+    private var titleViewer: TextView? = null
+    private var titleEditor: EditText? = null
+    private var titleDivider: View? = null
+
+    private fun bindTitleViews(root: View) {
+        titleViewer = root.findViewById(R.id.titleViewer)
+        titleEditor = root.findViewById(R.id.titleEditor)
+        titleDivider = root.findViewById(R.id.titleDivider)
+        // On travaille en mode toujours-éditable → titre en mode éditeur par défaut
+        showTitleEditor(currentTitle, requestFocus = false)
+    }
+
+    private fun showTitleViewer(text: String, showDivider: Boolean) {
+        titleViewer?.text = text
+        titleViewer?.visibility = if (text.isNotBlank()) View.VISIBLE else View.GONE
+        titleEditor?.visibility = View.GONE
+        titleDivider?.visibility = if (showDivider && text.isNotBlank()) View.VISIBLE else View.GONE
+    }
+
+    private fun showTitleEditor(text: String, requestFocus: Boolean) {
+        titleViewer?.visibility = View.GONE
+        titleEditor?.apply {
+            visibility = View.VISIBLE
+            setText(text)
+            setSelection(text.length)
+            if (requestFocus) showIme(this)
+        }
+        titleDivider?.visibility = View.VISIBLE
+    }
+    // ---------------------------------------------------------------
+
     private fun loadExistingBlock(blockId: Long) {
         uiScope.launch {
             val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(blockId) }
@@ -91,10 +115,13 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             }
             contentRestoredFromState = false
 
-            inputTitle?.setText(currentTitle)
-            inputTitle?.setSelection(currentTitle.length)
+            // Met à jour l’éditeur de titre & corps
+            titleEditor?.setText(currentTitle)
+            titleEditor?.setSelection(currentTitle.length)
             inputBody?.setText(currentBody)
             inputBody?.setSelection(currentBody.length)
+            // Affiche le titre en mode éditeur (toujours-éditable)
+            showTitleEditor(currentTitle, requestFocus = false)
 
             localListItems.clear()
             localListId = -1L
@@ -233,6 +260,8 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         } else {
             checklistEmptyView?.visibility = View.GONE
         }
+        // Divider du titre visible en liste (et en édition)
+        titleDivider?.visibility = View.VISIBLE
     }
 
     private fun addChecklistItem() {
@@ -440,9 +469,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         val placeholders = localListItems.filter { it.id <= 0 }.sortedBy { it.order }
         val sorted = items.sortedBy { it.order }
         localListItems.clear()
-        sorted.forEach { entity ->
-            localListItems.add(entity.copy())
-        }
+        sorted.forEach { entity -> localListItems.add(entity.copy()) }
         placeholders.forEach { placeholder ->
             if (pendingBlockCreations.containsKey(placeholder.id)) {
                 localListItems.add(placeholder)
@@ -464,21 +491,15 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             localListItems[index] = updated
             submitLocalList(focusId = newId)
         } else {
-            withContext(Dispatchers.IO) {
-                blocksRepo.removeItemForBlock(newId)
-            }
+            withContext(Dispatchers.IO) { blocksRepo.removeItemForBlock(newId) }
         }
-        pending?.let { pendingData ->
-            val trimmed = pendingData.text.trim()
+        pending?.let { p ->
+            val trimmed = p.text.trim()
             if (trimmed.isNotEmpty()) {
-                withContext(Dispatchers.IO) {
-                    blocksRepo.updateItemTextForBlock(newId, trimmed)
-                }
+                withContext(Dispatchers.IO) { blocksRepo.updateItemTextForBlock(newId, trimmed) }
             }
-            if (pendingData.done) {
-                withContext(Dispatchers.IO) {
-                    blocksRepo.toggleItemForBlock(newId)
-                }
+            if (p.done) {
+                withContext(Dispatchers.IO) { blocksRepo.toggleItemForBlock(newId) }
             }
         }
     }
@@ -495,7 +516,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             imm?.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
         }
     }
-    /** Callback facultatif pour remonter l’ID créé à l’hôte. */
+
     var onSaved: ((noteId: Long, blockId: Long) -> Unit)? = null
 
     private val uiScope = CoroutineScope(Dispatchers.Main + Job())
@@ -504,8 +525,13 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private var currentTitle: String = ""
     private var currentBody: String = ""
     private var badgeView: TextView? = null
-    private var inputTitle: EditText? = null
+
+    // Corps texte (éditeur)
     private var inputBody: EditText? = null
+
+    // Pour compat : on réutilise inputTitle partout où c’était référencé
+    private var inputTitle: EditText? = null
+
     private var cancelButton: Button? = null
     private var validateButton: Button? = null
     private var menuButton: ImageButton? = null
@@ -562,32 +588,33 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        inputTitle = view.findViewById(R.id.inputTitle)
+        // Lie les vues de titre (nouvelle API)
+        bindTitleViews(view)
+        // Pour compat : on mappe inputTitle sur titleEditor, le reste du code continue de fonctionner
+        inputTitle = titleEditor
+
         inputBody = view.findViewById(R.id.inputText)
         cancelButton = view.findViewById(R.id.btnCancel)
         validateButton = view.findViewById(R.id.btnValidate)
         badgeView = view.findViewById<TextView>(R.id.badgeChild)
-        view.findViewById<TextView>(R.id.postitTitle)?.visibility = View.GONE
-        view.findViewById<View>(R.id.postitTitleDivider)?.visibility = View.GONE
         menuButton = view.findViewById(R.id.btnMenu)
         checklistContainer = view.findViewById(R.id.checklistContainer) as? LinearLayout
         checklistRecycler = view.findViewById(R.id.checklistRecycler)
         checklistEmptyView = view.findViewById(R.id.checklistEmptyPlaceholder)
         checklistAddButton = view.findViewById(R.id.checklistAddButton)
 
-        inputTitle?.setText(currentTitle)
-        inputTitle?.setSelection(currentTitle.length)
+        // Valeurs initiales dans l’éditeur
+        titleEditor?.setText(currentTitle)
+        titleEditor?.setSelection(currentTitle.length)
         inputBody?.setText(currentBody)
         inputBody?.setSelection(currentBody.length)
 
-        inputTitle?.imeOptions = EditorInfo.IME_ACTION_NEXT
-        inputTitle?.setOnEditorActionListener { _, actionId, _ ->
+        titleEditor?.imeOptions = EditorInfo.IME_ACTION_NEXT
+        titleEditor?.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_NEXT || actionId == EditorInfo.IME_ACTION_DONE) {
                 inputBody?.let { body -> showIme(body) }
                 true
-            } else {
-                false
-            }
+            } else false
         }
 
         view.findViewById<View>(R.id.postitScroll)?.visibility = View.GONE
@@ -627,7 +654,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             updateValidateButtonState()
             updateMenuState()
         }
-        inputTitle?.addTextChangedListener {
+        titleEditor?.addTextChangedListener {
             currentTitle = it?.toString().orEmpty()
             updateValidateButtonState()
             updateMenuState()
@@ -641,15 +668,11 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             if (savedInstanceState == null) {
                 currentTitle = ""
                 currentBody = ""
-                inputTitle?.setText("")
+                titleEditor?.setText("")
                 inputBody?.setText("")
-                inputTitle?.let { titleField ->
-                    titleField.post { showIme(titleField) }
-                }
+                titleEditor?.post { showIme(titleEditor!!) }
                 if (!isListMode) {
-                    inputBody?.let { bodyField ->
-                        bodyField.post { showIme(bodyField) }
-                    }
+                    inputBody?.post { showIme(inputBody!!) }
                 }
             }
             updateFormatUi()
@@ -674,18 +697,12 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         if (FeatureFlags.listsEnabled) {
             if (!isListMode) {
                 val convertToList = popup.menu.add(
-                    0,
-                    MENU_CONVERT_TO_LIST,
-                    1,
-                    getString(R.string.note_menu_convert_to_list),
+                    0, MENU_CONVERT_TO_LIST, 1, getString(R.string.note_menu_convert_to_list)
                 )
                 convertToList.isEnabled = blockId != null || hasBody
             } else {
                 val convertToText = popup.menu.add(
-                    0,
-                    MENU_CONVERT_TO_TEXT,
-                    1,
-                    getString(R.string.note_menu_convert_to_text),
+                    0, MENU_CONVERT_TO_TEXT, 1, getString(R.string.note_menu_convert_to_text)
                 )
                 convertToText.isEnabled = blockId != null || hasBody
             }
@@ -699,22 +716,10 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                MENU_SHARE -> {
-                    shareContent(combinedContent)
-                    true
-                }
-                MENU_DELETE -> {
-                    blockId?.let { confirmDelete(noteId, it) }
-                    true
-                }
-                MENU_CONVERT_TO_LIST -> {
-                    handleConvertToList(noteId, blockId, content)
-                    true
-                }
-                MENU_CONVERT_TO_TEXT -> {
-                    handleConvertToText(noteId, blockId, content)
-                    true
-                }
+                MENU_SHARE -> { shareContent(combinedContent); true }
+                MENU_DELETE -> { blockId?.let { confirmDelete(noteId, it) }; true }
+                MENU_CONVERT_TO_LIST -> { handleConvertToList(noteId, blockId, content); true }
+                MENU_CONVERT_TO_TEXT -> { handleConvertToText(noteId, blockId, content); true }
                 else -> false
             }
         }
@@ -789,20 +794,15 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             val formattedItems = currentChecklistItems()
                 .mapNotNull { item ->
                     val text = item.text.trim()
-                    if (text.isEmpty()) {
-                        null
-                    } else {
+                    if (text.isEmpty()) null else {
                         val prefix = if (item.done) "[x]" else "[ ]"
                         "$prefix $text"
                     }
                 }
-            if (formattedItems.isEmpty()) {
-                return trimmedTitle
-            }
+            if (formattedItems.isEmpty()) return trimmedTitle
             return buildString {
                 if (trimmedTitle.isNotEmpty()) {
-                    append(trimmedTitle)
-                    append('\n')
+                    append(trimmedTitle); append('\n')
                 }
                 append(formattedItems.joinToString(separator = "\n"))
             }
@@ -873,21 +873,15 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
                     onSaved?.invoke(noteId, blockId)
                     dismiss()
                 }
-                BlocksRepository.BlockConversionResult.AlreadyTarget -> {
+                BlocksRepository.BlockConversionResult.AlreadyTarget ->
                     Toast.makeText(requireContext(), R.string.block_convert_already_list, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.EmptySource -> {
+                BlocksRepository.BlockConversionResult.EmptySource,
+                BlocksRepository.BlockConversionResult.Incomplete ->
                     Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.Incomplete -> {
-                    Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.NotFound -> {
+                BlocksRepository.BlockConversionResult.NotFound ->
                     Toast.makeText(requireContext(), R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.Unsupported -> {
+                BlocksRepository.BlockConversionResult.Unsupported ->
                     Toast.makeText(requireContext(), R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
-                }
             }
         }
     }
@@ -909,21 +903,15 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
                     onSaved?.invoke(noteId, blockId)
                     dismiss()
                 }
-                BlocksRepository.BlockConversionResult.AlreadyTarget -> {
+                BlocksRepository.BlockConversionResult.AlreadyTarget ->
                     Toast.makeText(requireContext(), R.string.block_convert_already_text, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.EmptySource -> {
+                BlocksRepository.BlockConversionResult.EmptySource,
+                BlocksRepository.BlockConversionResult.Incomplete ->
                     Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.Incomplete -> {
-                    Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.NotFound -> {
+                BlocksRepository.BlockConversionResult.NotFound ->
                     Toast.makeText(requireContext(), R.string.block_convert_error_missing, Toast.LENGTH_SHORT).show()
-                }
-                BlocksRepository.BlockConversionResult.Unsupported -> {
+                BlocksRepository.BlockConversionResult.Unsupported ->
                     Toast.makeText(requireContext(), R.string.block_convert_error_unsupported, Toast.LENGTH_SHORT).show()
-                }
             }
         }
     }
@@ -931,11 +919,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private fun updateFormatUi() {
         val badge = badgeView ?: return
         val ctx = badge.context
-        val labelRes = if (isListMode) {
-            R.string.postit_list_label
-        } else {
-            R.string.postit_label
-        }
+        val labelRes = if (isListMode) R.string.postit_list_label else R.string.postit_label
         badge.text = ctx.getString(labelRes)
         updateChecklistVisibility()
     }
@@ -950,6 +934,11 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         badgeView = null
+        // titleViewer / titleEditor / divider
+        titleViewer = null
+        titleEditor = null
+        titleDivider = null
+
         inputTitle = null
         inputBody = null
         cancelButton = null
@@ -965,5 +954,4 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         pendingBlockCreations.clear()
         uiScope.coroutineContext[Job]?.cancel()
     }
-
 }

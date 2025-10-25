@@ -233,40 +233,35 @@ class BlocksRepository(
 
     suspend fun convertTextBlockToList(
         blockId: Long,
-        allowEmpty: Boolean = false,
+        allowEmpty: Boolean = true,
     ): BlockConversionResult {
         val dao = listItemDao ?: return BlockConversionResult.Unsupported
         return withContext(io) {
             val block = blockDao.getById(blockId) ?: return@withContext BlockConversionResult.NotFound
-            if (block.type != BlockType.TEXT) {
-                return@withContext BlockConversionResult.Unsupported
-            }
-            if (block.mimeType == MIME_TYPE_TEXT_BLOCK_LIST) {
-                return@withContext BlockConversionResult.AlreadyTarget
-            }
-            if (block.mimeType == "text/transcript") {
-                return@withContext BlockConversionResult.Unsupported
-            }
+            if (block.type != BlockType.TEXT) return@withContext BlockConversionResult.Unsupported
+            if (block.mimeType == MIME_TYPE_TEXT_BLOCK_LIST) return@withContext BlockConversionResult.AlreadyTarget
+            if (block.mimeType == "text/transcript") return@withContext BlockConversionResult.Unsupported
 
+            // 1) On n’utilise QUE le body (le titre reste indépendant).
             val content = extractTextContent(block)
-            val sanitized = content.body
-                .lineSequence()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .joinToString(separator = "\n")
+            val rawBody = content.body.trimEnd() // préserve les \n internes
 
-            val rawItems = SmartListSplitter.splitAllCandidates(sanitized)
+            // 2) Laisse le splitter gérer les virgules/« et »/lignes → pas de normalisation préalable.
+            val rawItems = SmartListSplitter.splitAllCandidates(rawBody)
+
+            // 3) Nettoyage léger item par item (espaces multiples → un espace).
             val whitespaceRegex = "\\s+".toRegex()
             val itemsTexts = rawItems.map { it.replace(whitespaceRegex, " ").trim() }
                 .filter { it.isNotEmpty() }
 
             val now = System.currentTimeMillis()
 
+            // 4) Aucun item détecté
             if (itemsTexts.isEmpty()) {
                 if (!allowEmpty) {
                     return@withContext BlockConversionResult.Incomplete
                 }
-
+                // Création d'une liste vide (titre conservé), suppression d'anciens items s'il y en avait.
                 dao.deleteForBlock(blockId)
                 blockDao.update(
                     block.copy(
@@ -276,10 +271,10 @@ class BlocksRepository(
                         updatedAt = now,
                     )
                 )
-
                 return@withContext BlockConversionResult.Converted(0)
             }
 
+            // 5) Construit les entités d’items
             val entities = itemsTexts.mapIndexed { index, textLine ->
                 ListItemEntity(
                     noteId = null,
@@ -289,15 +284,14 @@ class BlocksRepository(
                     createdAt = now + index,
                 )
             }
+
             val updatedBody = itemsTexts.joinToString(separator = "\n")
             val updatedText = buildCombinedText(content.title, updatedBody)
             val extra = encodeTitle(content.title)
 
             suspend fun performConversion(): BlockConversionResult {
                 dao.deleteForBlock(blockId)
-                if (entities.isNotEmpty()) {
-                    dao.insertAll(entities)
-                }
+                if (entities.isNotEmpty()) dao.insertAll(entities)
                 blockDao.update(
                     block.copy(
                         mimeType = MIME_TYPE_TEXT_BLOCK_LIST,
@@ -310,13 +304,14 @@ class BlocksRepository(
             }
 
             val database = roomDatabase
-            return@withContext if (database != null) {
+            if (database != null) {
                 database.withTransaction { performConversion() }
             } else {
                 performConversion()
             }
         }
     }
+
 
     suspend fun convertListBlockToText(blockId: Long): BlockConversionResult {
         val dao = listItemDao ?: return BlockConversionResult.Unsupported

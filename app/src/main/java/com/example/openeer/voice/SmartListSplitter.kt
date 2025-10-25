@@ -27,20 +27,24 @@ object SmartListSplitter {
         val trimmed = cleaned.trim(*TRIM_CHARS)
         if (trimmed.isEmpty()) return emptyList()
 
-        val normalizedWhitespace = WHITESPACE_REGEX.replace(trimmed, " ")
-        val commaSegments = COMMA_SPLIT_REGEX.split(normalizedWhitespace)
+        // 1) Découper AVANT de normaliser les espaces
+        val commaSegments = COMMA_SPLIT_REGEX
+            .split(trimmed)
             .map { it.trim(*TRIM_CHARS) }
             .filter { it.isNotEmpty() }
         if (commaSegments.isEmpty()) return emptyList()
 
+        // 2) Gestion de « et »
         val refinedSegments = commaSegments.flatMap { splitSegmentOnEtNorm(it) }
         if (refinedSegments.isEmpty()) return emptyList()
 
+        // 3) Normaliser l’intérieur de chaque segment (sans toucher aux \n puisqu’on a déjà splitté)
         val normalizedSegments = refinedSegments.map { seg ->
             WHITESPACE_REGEX.replace(seg.trim(*TRIM_CHARS), " ")
         }.filter { it.isNotEmpty() }
         if (normalizedSegments.isEmpty()) return emptyList()
 
+        // 4) Ta logique de fusion (adjectifs, etc.) inchangée
         val merged = mutableListOf<String>()
         var index = 0
         while (index < normalizedSegments.size) {
@@ -64,16 +68,21 @@ object SmartListSplitter {
         val trimmed = cleaned.trim(*TRIM_CHARS)
         if (trimmed.isEmpty()) return emptyList()
 
-        val normalizedWhitespace = WHITESPACE_REGEX.replace(trimmed, " ")
-        val commaSegments = COMMA_SPLIT_REGEX.split(normalizedWhitespace)
+        // 1) Découper d’abord
+        val commaSegments = COMMA_SPLIT_REGEX
+            .split(trimmed)
             .map { it.trim(*TRIM_CHARS) }
             .filter { it.isNotEmpty() }
 
+        // 2) « et »
         val refinedSegments = commaSegments.flatMap { splitSegmentOnEt(it) }
+
+        // 3) Puis normaliser chaque segment
         val normalizedSegments = refinedSegments.map {
             WHITESPACE_REGEX.replace(it.trim(*TRIM_CHARS), " ")
         }.filter { it.isNotEmpty() }
 
+        // 4) Fusion inchangée
         val merged = mutableListOf<String>()
         var index = 0
         while (index < normalizedSegments.size) {
@@ -91,6 +100,7 @@ object SmartListSplitter {
         }
         return merged
     }
+
 
     private fun splitSegmentOnEtNorm(segmentNorm: String): List<String> {
         val tokens = tokenize(segmentNorm)
