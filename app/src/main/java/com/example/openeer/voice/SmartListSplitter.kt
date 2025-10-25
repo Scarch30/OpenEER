@@ -9,6 +9,20 @@ import java.util.Locale
  */
 object SmartListSplitter {
 
+    fun dropLeadingTitleLineIfEquals(text: String, title: String): String {
+        if (text.isEmpty() || title.isEmpty()) return text
+        val firstLine = text.lineSequence().firstOrNull() ?: return text
+        val normalizedFirstLine = normalizeForComparison(firstLine)
+        val normalizedTitle = normalizeForComparison(title)
+        if (normalizedFirstLine.isEmpty() || normalizedTitle.isEmpty()) return text
+        return if (normalizedFirstLine == normalizedTitle) {
+            val remainder = text.substring(firstLine.length)
+            remainder.trimStart('\n', '\r')
+        } else {
+            text
+        }
+    }
+
     fun splitAllCandidates(raw: String): List<String> {
         val sanitized = raw.trim()
         if (sanitized.isEmpty()) return emptyList()
@@ -137,6 +151,14 @@ object SmartListSplitter {
     }
 
     private data class Token(val raw: String, val normalized: String)
+
+    private fun normalizeForComparison(input: String): String {
+        if (input.isEmpty()) return ""
+        val lowered = input.lowercase(Locale.FRENCH)
+        val normalized = Normalizer.normalize(lowered, Normalizer.Form.NFD)
+            .replace(DIACRITICS_REGEX, "")
+        return WHITESPACE_REGEX.replace(normalized, " ").trim()
+    }
 
     private val DIACRITICS_REGEX = "\\p{Mn}+".toRegex()
     private val DESTINATION_PATTERN_NORM = Regex("(?i)(?:dans|sur|pour|a)\\s+(?:la|ma)\\s+liste(?:\\s+de\\s+courses)?")

@@ -111,7 +111,11 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             } else {
                 listContext = if (isListMode) ListContext.LOCAL else ListContext.NONE
                 if (isListMode) {
-                    populateLocalListFromBody(currentBody, ListContext.LOCAL)
+                    populateLocalListFromBody(
+                        body = currentBody,
+                        targetContext = ListContext.LOCAL,
+                        title = currentTitle,
+                    )
                 }
             }
 
@@ -374,7 +378,11 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private fun populateLocalListFromBody(body: String, targetContext: ListContext = ListContext.LOCAL) {
+    private fun populateLocalListFromBody(
+        body: String,
+        targetContext: ListContext = ListContext.LOCAL,
+        title: String = currentTitle,
+    ) {
         listContext = targetContext
         localListItems.clear()
         localListId = -1L
@@ -384,7 +392,8 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         }
         currentBody = ""
         val whitespaceRegex = "\\s+".toRegex()
-        val items = SmartListSplitter.splitAllCandidates(body)
+        val cleanBody = SmartListSplitter.dropLeadingTitleLineIfEquals(body, title)
+        val items = SmartListSplitter.splitAllCandidates(cleanBody)
             .map { candidate -> whitespaceRegex.replace(candidate.trim(), " ") }
             .filter { it.isNotEmpty() }
         items.forEach { line ->
@@ -731,13 +740,15 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             convertToList(noteId, blockId, content)
             return
         }
-        val source = inputBody?.text?.toString().orEmpty()
-        if (source.isBlank()) {
+        val title = inputTitle?.text?.toString()?.trim().orEmpty()
+        val body = inputBody?.text?.toString()?.trim().orEmpty()
+        val cleanBody = SmartListSplitter.dropLeadingTitleLineIfEquals(body, title)
+        if (cleanBody.isBlank()) {
             Toast.makeText(requireContext(), R.string.block_convert_empty_source, Toast.LENGTH_SHORT).show()
             return
         }
         isListMode = true
-        populateLocalListFromBody(source)
+        populateLocalListFromBody(body = body, title = title)
         if (localListItems.isEmpty()) {
             isListMode = false
             listContext = ListContext.NONE
