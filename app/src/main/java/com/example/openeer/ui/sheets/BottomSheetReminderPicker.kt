@@ -92,7 +92,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             null
         }
 
-    private val isEditing: Boolean
+    internal val isEditing: Boolean
         get() = reminderId != null
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
