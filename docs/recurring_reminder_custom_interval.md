@@ -8,8 +8,8 @@ Le bouton `btnPlanTime` est activé/désactivé via la méthode `updatePlanTimeB
 
 ```kotlin
 private fun updatePlanTimeButtonState() {
-    if (!::planTimeButton.isInitialized) return
-    planTimeButton.isEnabled = selectedDateTimeMillis != null
+    val button = planTimeButton ?: return
+    button.isEnabled = selectedDateTimeMillis != null
 }
 ```
 
