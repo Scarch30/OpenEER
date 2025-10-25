@@ -452,22 +452,6 @@ internal fun MapFragment.cancelRouteRecording() {
     RouteRecordingService.stop(requireContext())
 }
 
-internal fun MapFragment.onManualRouteUndoClicked() = runCatching {
-    val m = this::class.java.getDeclaredMethod("onManualRouteUndoClicked")
-    m.isAccessible = true; m.invoke(this)
-}.getOrElse { /* no-op */ }
-
-internal fun MapFragment.refreshRouteButtonState() = runCatching {
-    val m = this::class.java.getDeclaredMethod("updateRouteUi")
-    m.isAccessible = true; m.invoke(this)
-}.getOrElse { /* no-op */ }
-
-internal fun MapFragment.startManualRouteDrawing() = runCatching {
-    val m = this::class.java.getDeclaredMethod("startManualRouteDrawing")
-    m.isAccessible = true; m.invoke(this)
-}.getOrElse { /* no-op */ }
-
-internal fun MapFragment.handleManualMapTap() = runCatching {
-    val m = this::class.java.getDeclaredMethod("handleManualMapTap")
-    m.isAccessible = true; m.invoke(this)
-}.getOrElse { /* no-op */ }
+internal fun MapFragment.refreshRouteButtonState() {
+    updateRouteUi()
+}
