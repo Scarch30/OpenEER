@@ -30,7 +30,10 @@ internal fun BottomSheetReminderPicker.showTimePicker() {
             if (selected.timeInMillis <= nowMillis) {
                 selected.add(Calendar.DAY_OF_YEAR, 1)
             }
-            Log.d(TAG, "Preset custom time=${selected.time} for noteId=$noteId blockId=$blockId")
+            Log.d(
+                BottomSheetReminderPicker.TAG,
+                "Preset custom time=${selected.time} for noteId=$noteId blockId=$blockId"
+            )
             setSelectedDateTime(selected.timeInMillis, "time_picker")
         },
         now.get(Calendar.HOUR_OF_DAY),
@@ -66,7 +69,7 @@ internal fun BottomSheetReminderPicker.showDateThenTimePicker() {
                         set(Calendar.MILLISECOND, 0)
                     }
                     Log.d(
-                        TAG,
+                        BottomSheetReminderPicker.TAG,
                         "Preset other date/time=${picked.time} for noteId=$noteId blockId=$blockId"
                     )
                     val millis = picked.timeInMillis
@@ -85,14 +88,14 @@ internal fun BottomSheetReminderPicker.showDateThenTimePicker() {
 
 internal fun BottomSheetReminderPicker.saveTimeReminder(timeMillis: Long) {
     if (isEditing && editingReminder == null) {
-        Log.w(TAG, "saveTimeReminder(): editing reminder not loaded yet")
+        Log.w(BottomSheetReminderPicker.TAG, "saveTimeReminder(): editing reminder not loaded yet")
         return
     }
     if (!updateRepeatEveryMinutes("schedule")) {
         if (radioRepeat.checkedRadioButtonId == R.id.radioRepeatCustom) {
             editRepeatCustom.requestFocus()
         }
-        Log.w(TAG, "Aborting scheduleTimeReminder: repeat selection invalid")
+        Log.w(BottomSheetReminderPicker.TAG, "Aborting scheduleTimeReminder: repeat selection invalid")
         return
     }
     if (!isEditing) {

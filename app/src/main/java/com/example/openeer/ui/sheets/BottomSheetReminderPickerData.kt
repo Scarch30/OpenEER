@@ -2,6 +2,7 @@ package com.example.openeer.ui.sheets
 
 import android.util.Log
 import androidx.lifecycle.lifecycleScope
+import com.example.openeer.R
 import com.example.openeer.data.reminders.ReminderEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,7 +51,7 @@ internal fun BottomSheetReminderPicker.loadReminderForEdit(reminderId: Long) {
         val db = obtainDatabase(appContext)
         val reminder = withContext(Dispatchers.IO) { db.reminderDao().getById(reminderId) }
         if (reminder == null) {
-            Log.w(TAG, "loadReminderForEdit: reminderId=$reminderId not found")
+            Log.w(BottomSheetReminderPicker.TAG, "loadReminderForEdit: reminderId=$reminderId not found")
             if (isAdded) {
                 dismissAllowingStateLoss()
             }

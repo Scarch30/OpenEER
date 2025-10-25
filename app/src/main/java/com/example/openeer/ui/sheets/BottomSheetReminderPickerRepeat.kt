@@ -77,7 +77,7 @@ internal fun BottomSheetReminderPicker.updateRepeatControlsVisibility(checkedId:
 }
 
 internal fun BottomSheetReminderPicker.updateWhenSummary() {
-    if (!::textWhenSummary.isInitialized) return
+    if (!this::textWhenSummary.isInitialized) return
     val timeMillis = selectedDateTimeMillis
     val summaryText = when {
         timeMillis == null && repeatEveryMinutes != null && repeatSelectionValid -> {
@@ -106,7 +106,7 @@ internal fun BottomSheetReminderPicker.updateWhenSummary() {
 }
 
 internal fun BottomSheetReminderPicker.updatePlanTimeButtonState() {
-    if (!::planTimeButton.isInitialized) return
+    if (!this::planTimeButton.isInitialized) return
     planTimeButton.isEnabled = selectedDateTimeMillis != null ||
         (repeatEveryMinutes != null && repeatSelectionValid)
 }
@@ -114,7 +114,7 @@ internal fun BottomSheetReminderPicker.updatePlanTimeButtonState() {
 @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
 internal fun BottomSheetReminderPicker.setSelectedDateTime(timeMillis: Long, reason: String) {
     if (selectedDateTimeMillis != timeMillis) {
-        Log.d(TAG, "Selected date/time updated ($reason) -> $timeMillis")
+        Log.d(BottomSheetReminderPicker.TAG, "Selected date/time updated ($reason) -> $timeMillis")
     }
     selectedDateTimeMillis = timeMillis
     updateWhenSummary()
@@ -130,11 +130,11 @@ internal fun BottomSheetReminderPicker.updateRepeatEveryMinutes(reason: String):
     repeatSelectionValid = result.valid
     when {
         !result.valid -> if (previousValid || previousMinutes != result.minutes) {
-            Log.d(TAG, "Repeat interval invalid ($reason)")
+            Log.d(BottomSheetReminderPicker.TAG, "Repeat interval invalid ($reason)")
         }
         previousMinutes != result.minutes || !previousValid -> {
             val display = result.minutes?.let { "$it min" } ?: "none"
-            Log.d(TAG, "Repeat interval ($reason) → $display")
+            Log.d(BottomSheetReminderPicker.TAG, "Repeat interval ($reason) → $display")
         }
     }
     updateWhenSummary()

@@ -27,10 +27,10 @@ internal fun BottomSheetReminderPicker.handleUseCurrentLocation() {
     ) == PackageManager.PERMISSION_GRANTED
 
     if (!fineGranted && !coarseGranted) {
-        Log.d(TAG, "GeoFlow current location → requesting FINE permission")
+        Log.d(BottomSheetReminderPicker.TAG, "GeoFlow current location → requesting FINE permission")
         LocationPerms.requestFine(this, object : LocationPerms.Callback {
             override fun onResult(granted: Boolean) {
-                Log.d(TAG, "GeoFlow current location permission result=$granted")
+                Log.d(BottomSheetReminderPicker.TAG, "GeoFlow current location permission result=$granted")
                 if (granted) {
                     fetchCurrentLocation()
                 } else if (isAdded) {
@@ -78,7 +78,7 @@ internal fun BottomSheetReminderPicker.fetchCurrentLocation() {
             startingInsideGeofence = true
             updateLocationPreview()
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to obtain current location", t)
+            Log.e(BottomSheetReminderPicker.TAG, "Failed to obtain current location", t)
             if (isAdded) {
                 startingInsideGeofence = false
                 locationPreview.isVisible = false
@@ -115,17 +115,17 @@ internal fun BottomSheetReminderPicker.ensureGeofencePermissions(onReady: () -> 
     LocationPerms.dump(ctx)
 
     if (!LocationPerms.hasFine(ctx)) {
-        Log.d(TAG, "GeoFlow ensureForeground → requesting FINE")
+        Log.d(BottomSheetReminderPicker.TAG, "GeoFlow ensureForeground → requesting FINE")
         val retry = { ensureGeofencePermissions(onReady) }
         pendingGeoAction = retry
         LocationPerms.requestFine(this, object : LocationPerms.Callback {
             override fun onResult(granted: Boolean) {
-                Log.d(TAG, "GeoFlow ensureForeground → $granted")
+                Log.d(BottomSheetReminderPicker.TAG, "GeoFlow ensureForeground → $granted")
                 if (granted) {
                     retry()
                 } else {
                     pendingGeoAction = null
-                    Log.w(TAG, "GeoFlow aborted: FINE denied")
+                    Log.w(BottomSheetReminderPicker.TAG, "GeoFlow aborted: FINE denied")
                 }
             }
         })
@@ -133,32 +133,32 @@ internal fun BottomSheetReminderPicker.ensureGeofencePermissions(onReady: () -> 
     }
 
     if (LocationPerms.requiresBackground(ctx) && !LocationPerms.hasBackground(ctx)) {
-        Log.d(TAG, "GeoFlow ensureBackground → missing BG, preparing staged flow")
+        Log.d(BottomSheetReminderPicker.TAG, "GeoFlow ensureBackground → missing BG, preparing staged flow")
         val retry = { ensureGeofencePermissions(onReady) }
         pendingGeoAction = retry
         showBackgroundPermissionDialog(
             onAccept = {
                 if (LocationPerms.mustOpenSettingsForBackground()) {
-                    Log.d(TAG, "GeoFlow ensureBackground → launching Settings")
+                    Log.d(BottomSheetReminderPicker.TAG, "GeoFlow ensureBackground → launching Settings")
                     waitingBgSettingsReturn = true
                     LocationPerms.launchSettingsForBackground(this)
                 } else {
-                    Log.d(TAG, "GeoFlow ensureBackground → direct requestPermissions(BG) API29")
+                    Log.d(BottomSheetReminderPicker.TAG, "GeoFlow ensureBackground → direct requestPermissions(BG) API29")
                     LocationPerms.requestBackground(this, object : LocationPerms.Callback {
                         override fun onResult(granted: Boolean) {
-                            Log.d(TAG, "GeoFlow ensureBackground (API29) → $granted")
+                            Log.d(BottomSheetReminderPicker.TAG, "GeoFlow ensureBackground (API29) → $granted")
                             if (granted) {
                                 retry()
                             } else {
                                 pendingGeoAction = null
-                                Log.w(TAG, "GeoFlow aborted: BG denied")
+                                Log.w(BottomSheetReminderPicker.TAG, "GeoFlow aborted: BG denied")
                             }
                         }
                     })
                 }
             },
             onCancel = {
-                Log.w(TAG, "GeoFlow cancelled by user at BG rationale")
+                Log.w(BottomSheetReminderPicker.TAG, "GeoFlow cancelled by user at BG rationale")
                 pendingGeoAction = null
             }
         )
@@ -171,7 +171,7 @@ internal fun BottomSheetReminderPicker.ensureGeofencePermissions(onReady: () -> 
 
 internal fun BottomSheetReminderPicker.saveGeoReminder() {
     if (isEditing && editingReminder == null) {
-        Log.w(TAG, "saveGeoReminder(): editing reminder not loaded yet")
+        Log.w(BottomSheetReminderPicker.TAG, "saveGeoReminder(): editing reminder not loaded yet")
         return
     }
     val lat = selectedLat
@@ -201,7 +201,7 @@ internal fun BottomSheetReminderPicker.saveGeoReminder() {
                 val current = editingReminder
                 if (current == null) {
                     Log.i(
-                        TAG,
+                        BottomSheetReminderPicker.TAG,
                         "[GEOFENCE] $transitionLabel programmé (note=$noteId latLon=$coordsLabel every=$every radius=$radius)"
                     )
                     reminderUseCases.scheduleGeofence(
@@ -218,7 +218,7 @@ internal fun BottomSheetReminderPicker.saveGeoReminder() {
                     )
                 } else {
                     Log.i(
-                        TAG,
+                        BottomSheetReminderPicker.TAG,
                         "[GEOFENCE] $transitionLabel mis à jour (reminder=${current.id} note=${current.noteId} latLon=$coordsLabel every=$every radius=$radius)"
                     )
                     reminderUseCases.updateGeofenceReminder(
@@ -274,15 +274,15 @@ internal fun BottomSheetReminderPicker.showBackgroundPermissionDialog(
         .setTitle("Autoriser la position en arrière-plan")
         .setMessage(message)
         .setPositiveButton(positiveRes) { _, _ ->
-            Log.d(TAG, "GeoFlow: background permission dialog positive")
+            Log.d(BottomSheetReminderPicker.TAG, "GeoFlow: background permission dialog positive")
             onAccept()
         }
         .setNegativeButton("Annuler") { _, _ ->
-            Log.d(TAG, "GeoFlow: background permission dialog negative")
+            Log.d(BottomSheetReminderPicker.TAG, "GeoFlow: background permission dialog negative")
             onCancel()
         }
         .setOnCancelListener {
-            Log.d(TAG, "GeoFlow: background permission dialog canceled")
+            Log.d(BottomSheetReminderPicker.TAG, "GeoFlow: background permission dialog canceled")
             onCancel()
         }
         .setOnDismissListener { backgroundPermissionDialog = null }
