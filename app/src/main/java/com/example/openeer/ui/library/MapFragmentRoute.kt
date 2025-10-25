@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.view.View
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -17,7 +16,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
-import com.example.openeer.databinding.FragmentMapBinding
 import com.example.openeer.route.RouteRecordingService
 import java.util.WeakHashMap
 import org.maplibre.android.geometry.LatLng
@@ -69,13 +67,13 @@ fun MapFragment.setupRouteUiBindings() {
     Log.d(RTAG, "setupRouteUiBindings(): state=$s")
 
     // Bouton principal (GPS)
-    b.btnRecordRoute.setOnClickListener {
+    binding.btnRecordRoute.setOnClickListener {
         Log.d(RTAG, "btnRecordRoute CLICK (isRunning=${s.isRunning}, manual=${isManualRouteModeSafe()})")
         onRouteButtonClicked()
     }
 
     // Annuler tracé manuel si ce bouton existe dans ton layout
-    b.btnCancelManualRoute?.setOnClickListener {
+    binding.btnCancelManualRoute.setOnClickListener {
         Log.d(RTAG, "btnCancelManualRoute CLICK → cancelManualRouteDrawingSafe()")
         cancelManualRouteDrawingSafe()
     }
@@ -301,7 +299,7 @@ private fun MapFragment.updateRouteUi() {
     Log.d(RTAG, "updateRouteUi(): isRunning=${s.isRunning} count=${s.count}")
 
     if (!shouldShowLocationActions) {
-        b.locationActions.isVisible = false
+        binding.locationActions.isVisible = false
         return
     }
 
@@ -314,17 +312,17 @@ private fun MapFragment.updateRouteUi() {
         return
     }
 
-    b.btnRecordRoute.isVisible = true
-    b.btnRecordRoute.isEnabled = true
+    binding.btnRecordRoute.isVisible = true
+    binding.btnRecordRoute.isEnabled = true
 
     if (s.isRunning) {
-        b.btnRecordRoute.text = getString(R.string.map_route_stop_with_count, s.count)
-        b.btnRecordRoute.contentDescription = b.btnRecordRoute.text
-        b.btnCancelManualRoute?.isEnabled = false
+        binding.btnRecordRoute.text = getString(R.string.map_route_stop_with_count, s.count)
+        binding.btnRecordRoute.contentDescription = binding.btnRecordRoute.text
+        binding.btnCancelManualRoute.isEnabled = false
     } else {
-        b.btnRecordRoute.text = getString(R.string.map_route_start_gps)
-        b.btnRecordRoute.contentDescription = getString(R.string.map_route_start_cd)
-        b.btnCancelManualRoute?.isEnabled = true
+        binding.btnRecordRoute.text = getString(R.string.map_route_start_gps)
+        binding.btnRecordRoute.contentDescription = getString(R.string.map_route_start_cd)
+        binding.btnCancelManualRoute.isEnabled = true
     }
 }
 
@@ -357,9 +355,6 @@ private fun MapFragment.startRouteRecordingViaService() {
 -------------------------------------------------------------------------------------------------- */
 
 // Accès binding – utilise la propriété exposée par MapFragment
-private val MapFragment.b: FragmentMapBinding
-    get() = this.binding
-
 /** Retourne l’ID de note cible si dispo, sinon 0L (création à la persistance) */
 private fun MapFragment.currentTargetNoteId(): Long {
     return try {
@@ -423,10 +418,6 @@ private fun MapFragment.requestLocationPermissionHint() {
 /* -------------------------------------------------------------------------------------------------
    Extensions utilitaires UI
 -------------------------------------------------------------------------------------------------- */
-
-private var FragmentMapBinding?.isVisibleCompat: Boolean
-    get() = (this?.root?.visibility == View.VISIBLE)
-    set(value) { this?.root?.visibility = if (value) View.VISIBLE else View.GONE }
 
 /* -------------------------------------------------------------------------------------------------
    WRAPPERS de compatibilité (résolvent les références encore présentes dans MapFragment.kt)

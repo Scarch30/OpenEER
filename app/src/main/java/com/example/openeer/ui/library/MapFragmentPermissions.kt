@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
+import androidx.core.view.isVisible
 import com.example.openeer.R
 import com.example.openeer.core.LocationPerms
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -91,7 +92,7 @@ internal fun MapFragment.recenterOnUserIfAvailable() {
         Manifest.permission.ACCESS_COARSE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED
     if (!hasFine && !hasCoarse) {
-        Log.d(TAG, "centerOnUserIfPossible: missing location permission")
+        Log.d(MapFragment.TAG, "centerOnUserIfPossible: missing location permission")
         return
     }
     val providers = listOf(
@@ -104,10 +105,10 @@ internal fun MapFragment.recenterOnUserIfAvailable() {
     if (location != null) {
         userLocationLatLng = LatLng(location.latitude, location.longitude)
         map?.moveCamera(CameraUpdateFactory.newLatLngZoom(userLocationLatLng, 13.5))
-        b.btnAddHere.isEnabled = true
-        b.btnRecordRoute.isEnabled = true
-        b.btnFavoriteHere.isVisible = !isPickMode
+        binding.btnAddHere.isEnabled = true
+        binding.btnRecordRoute.isEnabled = true
+        binding.btnFavoriteHere.isVisible = !isPickMode
     } else {
-        Log.d(TAG, "centerOnUserIfPossible: no last known location")
+        Log.d(MapFragment.TAG, "centerOnUserIfPossible: no last known location")
     }
 }

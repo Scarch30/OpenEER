@@ -24,7 +24,7 @@ internal fun MapFragment.configureMap(initialMode: String) {
         }
         MapSnapDiag.trace { "MF: loadNotesThenRender()…" }
         loadNotesThenRender()
-        val showPins = arguments?.getBoolean(ARG_SHOW_LIBRARY_PINS, false) == true
+        val showPins = arguments?.getBoolean(MapFragment.ARG_SHOW_LIBRARY_PINS, false) == true
         map?.addOnCameraIdleListener {
             if (showPins) {
                 MapSnapDiag.trace {
@@ -121,14 +121,14 @@ private fun MapFragment.prepareUi(style: Style) {
         )
     }
 
-    b.locationActions.isVisible = shouldShowLocationActions
+    binding.locationActions.isVisible = shouldShowLocationActions
     if (shouldShowLocationActions) {
-        b.btnAddHere.isEnabled = true
-        b.btnRecordRoute.isEnabled = true
+        binding.btnAddHere.isEnabled = true
+        binding.btnRecordRoute.isEnabled = true
     } else {
-        b.btnAddHere.isEnabled = false
-        b.btnRecordRoute.isEnabled = false
+        binding.btnAddHere.isEnabled = false
+        binding.btnRecordRoute.isEnabled = false
     }
-    b.btnFavoriteHere.isVisible = !isPickMode
-    b.btnFavoriteHere.isEnabled = true
+    binding.btnFavoriteHere.isVisible = !isPickMode
+    binding.btnFavoriteHere.isEnabled = true
 }
