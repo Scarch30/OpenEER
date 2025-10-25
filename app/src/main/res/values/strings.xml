@@ -74,6 +74,7 @@
     <string name="note_convert_to_plain_success">Converti en texte</string>
     <string name="note_convert_already_list">Déjà une liste</string>
     <string name="note_convert_already_plain">Déjà du texte</string>
+    <string name="note_no_title">Note sans titre</string>
     <string name="note_convert_error_missing">Note introuvable</string>
     <string name="note_convert_error_generic">Conversion impossible</string>
     <string name="block_convert_to_list_success">Bloc converti en liste (%1$d éléments)</string>
