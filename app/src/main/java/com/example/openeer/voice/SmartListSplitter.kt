@@ -27,8 +27,7 @@ object SmartListSplitter {
         val trimmed = cleaned.trim(*TRIM_CHARS)
         if (trimmed.isEmpty()) return emptyList()
 
-        val normalizedWhitespace = WHITESPACE_REGEX.replace(trimmed, " ")
-        val commaSegments = COMMA_SPLIT_REGEX.split(normalizedWhitespace)
+        val commaSegments = COMMA_SPLIT_REGEX.split(trimmed)
             .map { it.trim(*TRIM_CHARS) }
             .filter { it.isNotEmpty() }
         if (commaSegments.isEmpty()) return emptyList()
@@ -64,8 +63,7 @@ object SmartListSplitter {
         val trimmed = cleaned.trim(*TRIM_CHARS)
         if (trimmed.isEmpty()) return emptyList()
 
-        val normalizedWhitespace = WHITESPACE_REGEX.replace(trimmed, " ")
-        val commaSegments = COMMA_SPLIT_REGEX.split(normalizedWhitespace)
+        val commaSegments = COMMA_SPLIT_REGEX.split(trimmed)
             .map { it.trim(*TRIM_CHARS) }
             .filter { it.isNotEmpty() }
 
