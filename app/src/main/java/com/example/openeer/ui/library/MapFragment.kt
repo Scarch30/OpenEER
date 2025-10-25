@@ -130,9 +130,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     companion object {
         internal const val MANUAL_ROUTE_MAX_POINTS = 120
         internal const val MANUAL_ROUTE_LOG_TAG = "ManualRoute"
-        private const val MENU_CREATE_REMINDER = 1001
-        private const val MENU_CREATE_REMINDER_GEO_ONCE = 1002
-        private const val MENU_CREATE_REMINDER_GEO_EVERY = 1003
+        internal const val MENU_CREATE_REMINDER = 1001
+        internal const val MENU_CREATE_REMINDER_GEO_ONCE = 1002
+        internal const val MENU_CREATE_REMINDER_GEO_EVERY = 1003
 
         const val TAG = "MapFragment"
         const val ARG_NOTE_ID = "arg_note_id"

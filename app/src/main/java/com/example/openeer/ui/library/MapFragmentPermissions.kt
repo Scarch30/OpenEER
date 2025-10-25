@@ -103,8 +103,9 @@ internal fun MapFragment.recenterOnUserIfAvailable() {
         runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
     }
     if (location != null) {
-        userLocationLatLng = LatLng(location.latitude, location.longitude)
-        map?.moveCamera(CameraUpdateFactory.newLatLngZoom(userLocationLatLng, 13.5))
+        val latLng = LatLng(location.latitude, location.longitude)
+        userLocationLatLng = latLng
+        map?.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, 13.5))
         binding.btnAddHere.isEnabled = true
         binding.btnRecordRoute.isEnabled = true
         binding.btnFavoriteHere.isVisible = !isPickMode
