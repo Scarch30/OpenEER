@@ -26,25 +26,75 @@ class VoiceCommandRouter(
         val assumeListContext: Boolean,
     )
 
-    fun routeEarly(transcriptVosk: String, context: EarlyContext): VoiceEarlyDecision {
+    fun routeEarly(transcriptVosk: String, context: EarlyContext): VoiceEarlyDecision =
+        analyzeEarly(transcriptVosk, context).decision
+
+    fun analyzeEarly(transcriptVosk: String, context: EarlyContext): EarlyAnalysis {
         val trimmed = transcriptVosk.trim()
-        if (!isVoiceCommandsEnabled()) return VoiceEarlyDecision.None
-        if (trimmed.isEmpty()) return VoiceEarlyDecision.None
+        if (!isVoiceCommandsEnabled()) return EarlyAnalysis(VoiceEarlyDecision.None, EarlyIntentHint.none(trimmed))
+        if (trimmed.isEmpty()) return EarlyAnalysis(VoiceEarlyDecision.None, EarlyIntentHint.none(trimmed))
+
+        val lowered = trimmed.lowercase(Locale.FRENCH)
 
         listCommandParser.routeEarly(trimmed, VoiceListCommandParser.EarlyContext(context.assumeListContext))?.let { result ->
-            return VoiceEarlyDecision.ListCommand(result.command, trimmed)
+            val type = when (result.command.action) {
+                VoiceListAction.CONVERT_TO_LIST, VoiceListAction.CONVERT_TO_TEXT -> EarlyIntentHint.IntentType.LIST_CONVERT
+                else -> EarlyIntentHint.IntentType.LIST_COMMAND
+            }
+            val triggers = mutableSetOf("list")
+            triggers.add(result.command.action.name.lowercase(Locale.US))
+            val decision = VoiceEarlyDecision.ListCommand(result.command, trimmed)
+            return EarlyAnalysis(decision, EarlyIntentHint.of(type, trimmed, triggers))
         }
 
-        if (!reminderClassifier.hasTrigger(trimmed)) {
-            return VoiceEarlyDecision.None
+        if (reminderClassifier.hasTrigger(trimmed)) {
+            val triggers = mutableSetOf("reminder")
+            return when (val intent = reminderIntentParser.parse(trimmed)) {
+                is ReminderIntent.Time -> EarlyAnalysis(
+                    VoiceEarlyDecision.ReminderTime(intent, trimmed),
+                    EarlyIntentHint.of(EarlyIntentHint.IntentType.REMINDER, trimmed, triggers)
+                )
+
+                is ReminderIntent.Place -> EarlyAnalysis(
+                    VoiceEarlyDecision.ReminderPlace(intent, trimmed),
+                    EarlyIntentHint.of(EarlyIntentHint.IntentType.REMINDER, trimmed, triggers)
+                )
+
+                null -> EarlyAnalysis(
+                    VoiceEarlyDecision.ReminderIncomplete(trimmed),
+                    EarlyIntentHint.of(EarlyIntentHint.IntentType.REMINDER_INCOMPLETE, trimmed, triggers)
+                )
+            }
         }
 
-        return when (val intent = reminderIntentParser.parse(trimmed)) {
-            is ReminderIntent.Time -> VoiceEarlyDecision.ReminderTime(intent, trimmed)
-            is ReminderIntent.Place -> VoiceEarlyDecision.ReminderPlace(intent, trimmed)
-            null -> VoiceEarlyDecision.ReminderIncomplete(trimmed)
-        }
+        return EarlyAnalysis(VoiceEarlyDecision.None, fallbackHint(trimmed, lowered))
     }
+
+    private fun fallbackHint(rawText: String, lowered: String): EarlyIntentHint {
+        val triggers = mutableSetOf<String>()
+        if (DESTRUCTIVE_REGEX.containsMatchIn(lowered)) {
+            triggers.add("destructive")
+            return EarlyIntentHint.of(EarlyIntentHint.IntentType.DESTRUCTIVE, rawText, triggers)
+        }
+        if (RENAME_REGEX.containsMatchIn(lowered)) {
+            triggers.add("rename")
+            return EarlyIntentHint.of(EarlyIntentHint.IntentType.TITLE_RENAME, rawText, triggers)
+        }
+        if (LIST_CONVERT_REGEX.containsMatchIn(lowered)) {
+            triggers.add("convert")
+            return EarlyIntentHint.of(EarlyIntentHint.IntentType.LIST_CONVERT, rawText, triggers)
+        }
+        if (LIST_KEYWORDS_REGEX.containsMatchIn(lowered)) {
+            triggers.add("list_keyword")
+            return EarlyIntentHint.of(EarlyIntentHint.IntentType.LIST_COMMAND, rawText, triggers)
+        }
+        return EarlyIntentHint.of(EarlyIntentHint.IntentType.NOTE_APPEND, rawText, triggers)
+    }
+
+    data class EarlyAnalysis(
+        val decision: VoiceEarlyDecision,
+        val hint: EarlyIntentHint,
+    )
 
     fun route(finalWhisperText: String, assumeListContext: Boolean = false): VoiceRouteDecision {
         val trimmed = finalWhisperText.trim()
@@ -197,6 +247,10 @@ class VoiceCommandRouter(
         private val DIACRITICS_REGEX = "\\p{Mn}+".toRegex()
         private val NON_ALNUM_REGEX = "[^a-z0-9]+".toRegex()
         private val WHITESPACE_REGEX = "\\s+".toRegex()
+        private val DESTRUCTIVE_REGEX = Regex("\\b(?:supprim|effac|d(?:e|é)truis|retire la note|vide)\\b", RegexOption.IGNORE_CASE)
+        private val RENAME_REGEX = Regex("\\b(?:renomm|titre)\\b", RegexOption.IGNORE_CASE)
+        private val LIST_KEYWORDS_REGEX = Regex("\\b(?:liste|ajout|retir|coch|d[eé]coch|cases?)\\b", RegexOption.IGNORE_CASE)
+        private val LIST_CONVERT_REGEX = Regex("\\b(?:convert|transform|passe en liste|met en liste)\\b", RegexOption.IGNORE_CASE)
     }
 
 }

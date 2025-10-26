@@ -95,11 +95,16 @@ object VoskTranscriber {
         }
 
         /** Termine la reco et retourne le texte final (clé JSON "text") */
-        fun finish(): String = runBlocking {
+        fun finish(): String = finishDetailed().text
+
+        fun finishDetailed(): FinalResult = runBlocking {
             mutex.withLock {
-                val text = extractText(recognizer.finalResult)
+                val raw = recognizer.finalResult
+                val text = extractText(raw)
+                val confidence = extractAverageConfidence(raw)
+                val tokenCount = extractTokenCount(raw, text)
                 recognizer.close()
-                text
+                FinalResult(text = text, confidence = confidence, tokenCount = tokenCount, rawJson = raw)
             }
         }
     }
@@ -115,6 +120,43 @@ object VoskTranscriber {
             Log.e(TAG, "JSON parse failed: ${t.message}")
             ""
         }
+    }
+
+    private fun extractAverageConfidence(json: String?): Float? {
+        if (json.isNullOrBlank()) return null
+        return try {
+            val array = JSONObject(json).optJSONArray("result") ?: return null
+            if (array.length() == 0) return null
+            var total = 0.0
+            var count = 0
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val conf = obj.optDouble("conf", Double.NaN)
+                if (!conf.isNaN()) {
+                    total += conf
+                    count++
+                }
+            }
+            if (count == 0) null else (total / count).toFloat()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Confidence parse failed: ${t.message}")
+            null
+        }
+    }
+
+    private fun extractTokenCount(json: String?, fallbackText: String): Int {
+        if (!json.isNullOrBlank()) {
+            try {
+                val array = JSONObject(json).optJSONArray("result")
+                if (array != null && array.length() > 0) {
+                    return array.length()
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Token count parse failed: ${t.message}")
+            }
+        }
+        if (fallbackText.isBlank()) return 0
+        return fallbackText.trim().split(WHITESPACE_REGEX).count { it.isNotBlank() }
     }
 
     /** Pour les résultats partiels (Recognizer.partialResult) -> clé "partial" */
@@ -154,3 +196,16 @@ object VoskTranscriber {
         }
     }
 }
+
+data class FinalResult(
+    val text: String,
+    val confidence: Float?,
+    val tokenCount: Int,
+    val rawJson: String?
+) {
+    companion object {
+        val Empty = FinalResult(text = "", confidence = null, tokenCount = 0, rawJson = null)
+    }
+}
+
+private val WHITESPACE_REGEX = "\\s+".toRegex()

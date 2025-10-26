@@ -1,6 +1,7 @@
 package com.example.openeer.ui
 
 import android.content.Context
+import com.example.openeer.stt.FinalResult
 import com.example.openeer.stt.VoskTranscriber
 import kotlinx.coroutines.*
 
@@ -37,17 +38,19 @@ class LiveTranscriber(private val ctx: Context) {
         session?.feed(pcm)
     }
 
-    fun stop(): String {
+    fun stop(): String = stopDetailed().text
+
+    fun stopDetailed(): FinalResult {
         scope?.cancel()
-        val txt = session?.finish().orEmpty()
+        val result = session?.finishDetailed() ?: FinalResult.Empty
         session = null
-        if (txt.isNotBlank()) {
+        if (result.text.isNotBlank()) {
             // notifier le final sur le thread UI
             CoroutineScope(Dispatchers.Main).launch {
-                onEvent?.invoke(TranscriptionEvent.Final(txt))
+                onEvent?.invoke(TranscriptionEvent.Final(result.text))
             }
         }
         onEvent = null
-        return txt
+        return result
     }
 }
