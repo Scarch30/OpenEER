@@ -117,6 +117,8 @@ object LocalTimeIntentParser {
         return TimeParseResult(candidate.triggerAt.toInstant().toEpochMilli(), label)
     }
 
+    fun routeEarly(text: String): TimeParseResult? = parseReminder(text)
+
     private fun parseRelativeCandidates(normalized: NormalizedText, now: ZonedDateTime): List<TemporalCandidate> {
         val candidates = mutableListOf<TemporalCandidate>()
 

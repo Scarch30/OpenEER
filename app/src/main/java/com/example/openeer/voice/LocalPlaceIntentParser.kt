@@ -99,6 +99,8 @@ class LocalPlaceIntentParser @JvmOverloads constructor(
         )
     }
 
+    fun routeEarly(text: String): PlaceParseResult? = parse(text)
+
     private fun resolvePlace(candidate: FavoriteCandidate, modifiers: ModifierExtraction): PlaceResolution {
         val isCurrent = isCurrentLocation(candidate.raw)
         val finalCooldown = modifiers.cooldownMinutes ?: DEFAULT_COOLDOWN_MINUTES

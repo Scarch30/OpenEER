@@ -6,6 +6,14 @@ import java.util.Locale
 
 class VoiceListCommandParser {
 
+    data class EarlyContext(
+        val assumeListContext: Boolean,
+    )
+
+    data class EarlyResult(
+        val command: VoiceRouteDecision.List,
+    )
+
     sealed interface Result {
         data class Command(val action: VoiceListAction, val items: List<String>) : Result
         object Incomplete : Result
@@ -88,6 +96,16 @@ class VoiceListCommandParser {
         return null
     }
 
+    fun routeEarly(text: String, context: EarlyContext): EarlyResult? {
+        val result = parse(text, context.assumeListContext) ?: return null
+        val command = when (result) {
+            is Result.Command -> result
+            Result.Incomplete -> return null
+        }
+        if (!EARLY_ACTIONS.contains(command.action)) return null
+        return EarlyResult(VoiceRouteDecision.List(command.action, command.items))
+    }
+
     // ===== Splits =====
     private fun logSplitResult(items: List<String>) {
         val formatted = items.joinToString(prefix = "[", postfix = "]") { "\"${it.replace("\"", "\\\"")}\"" }
@@ -123,5 +141,14 @@ class VoiceListCommandParser {
         private val ET_SPLIT_REGEX = Regex("\\s+et\\s+", RegexOption.IGNORE_CASE)
 
         private const val LOG_TAG = "ListParse"
+
+        private val EARLY_ACTIONS = setOf(
+            VoiceListAction.CONVERT_TO_LIST,
+            VoiceListAction.CONVERT_TO_TEXT,
+            VoiceListAction.ADD,
+            VoiceListAction.TOGGLE,
+            VoiceListAction.UNTICK,
+            VoiceListAction.REMOVE,
+        )
     }
 }

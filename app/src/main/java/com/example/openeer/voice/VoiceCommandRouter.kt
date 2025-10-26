@@ -16,6 +16,34 @@ class VoiceCommandRouter(
     private val listCommandParser: VoiceListCommandParser = VoiceListCommandParser()
 ) {
 
+    data class EarlyContext(
+        val assumeListContext: Boolean,
+    )
+
+    fun routeEarly(transcriptVosk: String, context: EarlyContext): VoiceEarlyDecision {
+        val trimmed = transcriptVosk.trim()
+        if (!isVoiceCommandsEnabled()) return VoiceEarlyDecision.None
+        if (trimmed.isEmpty()) return VoiceEarlyDecision.None
+
+        listCommandParser.routeEarly(trimmed, VoiceListCommandParser.EarlyContext(context.assumeListContext))?.let { result ->
+            return VoiceEarlyDecision.ListCommand(result.command, trimmed)
+        }
+
+        if (!reminderClassifier.hasTrigger(trimmed)) {
+            return VoiceEarlyDecision.None
+        }
+
+        LocalTimeIntentParser.routeEarly(trimmed)?.let { parse ->
+            return VoiceEarlyDecision.ReminderTime(parse, trimmed)
+        }
+
+        placeIntentParser.routeEarly(trimmed)?.let { parse ->
+            return VoiceEarlyDecision.ReminderPlace(parse, trimmed)
+        }
+
+        return VoiceEarlyDecision.ReminderIncomplete(trimmed)
+    }
+
     fun route(finalWhisperText: String, assumeListContext: Boolean = false): VoiceRouteDecision {
         val trimmed = finalWhisperText.trim()
         if (!isVoiceCommandsEnabled()) {
@@ -66,6 +94,26 @@ class VoiceCommandRouter(
         Log.d("VoiceCommandRouter", "decision=${decision.logToken}$suffix text=\"$sanitizedText\"")
     }
 
+}
+
+sealed class VoiceEarlyDecision(val logToken: String) {
+    object None : VoiceEarlyDecision("NONE")
+    data class ListCommand(
+        val command: VoiceRouteDecision.List,
+        val rawText: String,
+    ) : VoiceEarlyDecision("LIST_${command.action.name}")
+
+    data class ReminderTime(
+        val parse: LocalTimeIntentParser.TimeParseResult,
+        val rawText: String,
+    ) : VoiceEarlyDecision("REMINDER_TIME")
+
+    data class ReminderPlace(
+        val parse: LocalPlaceIntentParser.PlaceParseResult,
+        val rawText: String,
+    ) : VoiceEarlyDecision("REMINDER_PLACE")
+
+    data class ReminderIncomplete(val rawText: String) : VoiceEarlyDecision("REMINDER_INCOMPLETE")
 }
 
 sealed class VoiceRouteDecision(val logToken: String) {
