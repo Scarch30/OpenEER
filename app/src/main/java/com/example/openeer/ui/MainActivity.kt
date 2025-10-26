@@ -383,6 +383,14 @@ class MainActivity : AppCompatActivity() {
         captureLauncher.onSaveInstanceState(outState)
     }
 
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        intent?.let {
+            setIntent(it)
+            handleOpenNoteIntent(it)
+        }
+    }
+
     override fun onPause() {
         super.onPause()
         editorBody.commitInlineEdit(notePanel.openNoteId)
@@ -415,6 +423,23 @@ class MainActivity : AppCompatActivity() {
             selectionController.onDestroy()
         }
         super.onDestroy()
+    }
+
+    private fun handleOpenNoteIntent(intent: Intent?) {
+        if (intent == null) return
+
+        val noteId = when {
+            intent.hasExtra(EXTRA_OPEN_NOTE_ID) -> intent.getLongExtra(EXTRA_OPEN_NOTE_ID, -1L)
+            intent.action == ACTION_OPEN_NOTE -> intent.getLongExtra(EXTRA_NOTE_ID, -1L)
+            else -> -1L
+        }
+
+        if (noteId <= 0L) return
+
+        runCatching { editorBody.commitInlineEdit(notePanel.openNoteId) }
+        notePanel.open(noteId)
+        intent.removeExtra(EXTRA_OPEN_NOTE_ID)
+        intent.removeExtra(EXTRA_NOTE_ID)
     }
     // ---------- Ouvrir une note ----------
     private fun onNoteClicked(note: Note) {

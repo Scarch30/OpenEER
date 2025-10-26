@@ -5,6 +5,7 @@ import android.view.MotionEvent
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.ui.editor.EditorBodyController
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 
 /**
