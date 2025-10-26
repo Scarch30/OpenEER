@@ -31,6 +31,19 @@ internal class BodyTranscriptionManager(
     private val groupIdByAudio = mutableMapOf<Long, String>()
     private var pendingBaseline: String? = null
 
+    data class DictationCommitContext(
+        val mode: DictationCommitMode,
+        val baselineHash: String?,
+        val intentKey: String?,
+        val reconciled: Boolean,
+        val baselineBody: String?,
+    )
+
+    enum class DictationCommitMode(val logToken: String) {
+        VOSK("vosk"),
+        WHISPER("whisper"),
+    }
+
     fun rememberRange(blockId: Long, noteId: Long, range: IntRange, baseline: String?) {
         if (pendingBaseline == null && baseline != null) {
             pendingBaseline = baseline
@@ -179,11 +192,21 @@ internal class BodyTranscriptionManager(
         }
     }
 
-    fun commitNoteBody(noteId: Long, baselineOverride: String? = null) {
+    fun commitNoteBody(
+        noteId: Long,
+        baselineOverride: String? = null,
+        context: DictationCommitContext = DictationCommitContext(
+            mode = DictationCommitMode.WHISPER,
+            baselineHash = null,
+            intentKey = null,
+            reconciled = true,
+            baselineBody = null,
+        ),
+    ) {
         if (isDictationInProgress()) return
-        val baseline = pendingBaseline ?: baselineOverride
+        val baseline = pendingBaseline ?: baselineOverride ?: context.baselineBody
         val finalBody = buffer.currentPlain()
-        buffer.commitToNote(noteId, finalBody, baseline)
+        buffer.commitToNote(noteId, finalBody, baseline, context)
         pendingBaseline = null
     }
 
