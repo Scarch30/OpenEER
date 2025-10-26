@@ -62,6 +62,7 @@ class MicBarController(
     private val bodyManager = BodyTranscriptionManager(
         binding.txtBodyDetail,
         repo,
+        blocksRepo,
         activity.lifecycleScope,
         getOpenNoteId,
         { activeSessionNoteId },

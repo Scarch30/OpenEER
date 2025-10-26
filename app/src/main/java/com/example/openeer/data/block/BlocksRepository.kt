@@ -160,6 +160,21 @@ class BlocksRepository(
             }
         }
     }
+
+    suspend fun updateNoteBody(noteId: Long, body: String) {
+        withContext(io) {
+            val dao = noteDao
+            if (dao == null) {
+                Log.w(
+                    BLOCK_LIST_LOG_TAG,
+                    "updateNoteBody appelé sans noteDao disponible (noteId=$noteId)",
+                )
+                return@withContext
+            }
+            val now = System.currentTimeMillis()
+            dao.updateBody(noteId, body, now)
+        }
+    }
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
 
     suspend fun getBlock(blockId: Long): BlockEntity? = withContext(io) {

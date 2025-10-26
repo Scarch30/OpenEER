@@ -11,6 +11,7 @@ import androidx.appcompat.widget.AppCompatEditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,6 +20,7 @@ class EditorBodyController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
     private val repo: NoteRepository,
+    private val blocksRepository: BlocksRepository,
     private val onEditModeChanged: (Boolean) -> Unit = {},
     private val onActiveBodyViewChanged: (View) -> Unit = {},
     private val onCaretPositionChanged: (Int) -> Unit = {}
@@ -45,9 +47,8 @@ class EditorBodyController(
         }
         val id = noteId ?: editingNoteId ?: return
         val newText = overlay.text?.toString().orEmpty()
-        binding.txtBodyDetail.text = if (newText.isBlank()) PLACEHOLDER else newText
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(id, newText)
+            blocksRepository.updateNoteBody(id, newText)
         }
         finishEditing()
     }

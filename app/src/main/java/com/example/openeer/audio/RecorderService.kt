@@ -167,7 +167,7 @@ class RecorderService : Service() {
 
                 if (!finalText.isNullOrBlank()) {
                     // 4) Mets à jour le corps de la note (affichage principal)
-                    runCatching { repo.setBody(noteId, finalText) }
+                    runCatching { blocksRepo.updateNoteBody(noteId, finalText) }
 
                     // 5) Mets à jour le bloc AUDIO et ajoute un bloc TEXT lié dans la même pile
                     audioBlockId?.let { aid ->

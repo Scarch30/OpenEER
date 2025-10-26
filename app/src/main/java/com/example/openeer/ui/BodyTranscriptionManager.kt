@@ -11,6 +11,7 @@ import androidx.core.text.getSpans
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.block.BlocksRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlin.math.max
 import kotlin.math.min
@@ -18,11 +19,12 @@ import kotlin.math.min
 internal class BodyTranscriptionManager(
     private val textView: TextView,
     private val repo: NoteRepository,
+    private val blocksRepository: BlocksRepository,
     private val scope: CoroutineScope,
     private val getOpenNoteId: () -> Long?,
     private val activeSessionNoteId: () -> Long?,
 ) {
-    val buffer = ProvisionalBodyBuffer(textView, scope, repo)
+    val buffer = ProvisionalBodyBuffer(textView, scope, repo, blocksRepository)
 
     private val rangesByBlock = mutableMapOf<Long, BlockAnchor>()
     private val textBlockIdByAudio = mutableMapOf<Long, Long>()
