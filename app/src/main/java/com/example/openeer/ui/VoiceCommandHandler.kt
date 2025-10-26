@@ -157,7 +157,7 @@ internal class VoiceCommandHandler(
             is ListVoiceExecutor.Result.Success -> {
                 if (decision.action == VoiceListAction.CONVERT_TO_TEXT) {
                     if (hasListHandle) {
-                        listManager.finalize(audioBlockId, refinedText)
+                        listManager.remove(audioBlockId, "LIST_CONVERT_TO_TEXT")
                     } else {
                         withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
                     }
