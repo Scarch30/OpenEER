@@ -50,7 +50,7 @@ class MainBottomBarController(
                             onChildBlockSaved(
                                 noteId,
                                 blockId,
-                                activity.getString(R.string.msg_block_text_added),
+                                this@MainBottomBarController.activity.getString(R.string.msg_block_text_added),
                             )
                         }
                     }.show(this@MainBottomBarController.activity.supportFragmentManager, "child_text")
