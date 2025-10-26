@@ -424,5 +424,12 @@
     <string name="voice_reminder_incomplete_hint">Il manque le moment…</string>
     <string name="voice_list_incomplete_hint">Commande liste incomplète.</string>
     <string name="voice_list_item_not_found">Aucun élément correspondant dans la liste.</string>
+    <string name="voice_early_list_added">Éléments ajoutés.</string>
+    <string name="voice_early_list_toggled">Éléments mis à jour.</string>
+    <string name="voice_early_list_unticked">Éléments décochés.</string>
+    <string name="voice_early_list_removed">Éléments supprimés.</string>
+    <string name="voice_early_list_converted_to_list">Liste créée.</string>
+    <string name="voice_early_list_converted_to_text">Liste convertie en texte.</string>
+    <string name="voice_early_reminder_created">Rappel créé.</string>
 
 </resources>
