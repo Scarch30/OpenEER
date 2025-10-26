@@ -2,6 +2,10 @@ package com.example.openeer.voice
 
 import android.util.Log
 import com.example.openeer.core.FeatureFlags
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.text.Normalizer
+import java.util.Locale
 
 /**
  * Routes the final Whisper transcription to the appropriate voice command handler.
@@ -91,10 +95,108 @@ class VoiceCommandRouter(
         }
     }
 
+    fun intentKeyFor(decision: VoiceRouteDecision): String? {
+        return when (decision) {
+            VoiceRouteDecision.NOTE -> null
+            VoiceRouteDecision.INCOMPLETE -> null
+            VoiceRouteDecision.LIST_INCOMPLETE -> null
+            is VoiceRouteDecision.List -> listIntentKey(decision.action, decision.items)
+            is VoiceRouteDecision.ReminderTime -> reminderIntentKey(decision.intent)
+            is VoiceRouteDecision.ReminderPlace -> reminderIntentKey(decision.intent)
+        }
+    }
+
+    fun intentKeyFor(decision: VoiceEarlyDecision): String? {
+        return when (decision) {
+            VoiceEarlyDecision.None -> null
+            is VoiceEarlyDecision.ListCommand -> listIntentKey(decision.command.action, decision.command.items)
+            is VoiceEarlyDecision.ReminderTime -> reminderIntentKey(decision.intent)
+            is VoiceEarlyDecision.ReminderPlace -> reminderIntentKey(decision.intent)
+            is VoiceEarlyDecision.ReminderIncomplete -> null
+        }
+    }
+
     private fun logDecision(decision: VoiceRouteDecision, text: String, reason: String? = null) {
         val sanitizedText = text.replace("\"", "\\\"")
         val suffix = reason?.let { " reason=$it" } ?: ""
         Log.d("VoiceCommandRouter", "decision=${decision.logToken}$suffix text=\"$sanitizedText\"")
+    }
+
+    private fun listIntentKey(action: VoiceListAction, items: List<String>): String {
+        return when (action) {
+            VoiceListAction.CONVERT_TO_LIST,
+            VoiceListAction.CONVERT_TO_TEXT -> LIST_CONVERT_KEY
+            VoiceListAction.ADD -> "LIST_ADD[${hashItems(items)}]"
+            VoiceListAction.REMOVE -> "LIST_REMOVE[${hashItems(items)}]"
+            VoiceListAction.TOGGLE -> "LIST_TOGGLE[${hashItems(items)},true]"
+            VoiceListAction.UNTICK -> "LIST_TOGGLE[${hashItems(items)},false]"
+        }
+    }
+
+    private fun hashItems(items: List<String>): String {
+        val normalized = items.mapNotNull { normalizeForHash(it) }
+        if (normalized.isEmpty()) return EMPTY_ITEMS_HASH
+        val sorted = normalized.sorted()
+        return hashParts(sorted)
+    }
+
+    private fun reminderIntentKey(intent: ReminderIntent): String {
+        val parts = mutableListOf<String>()
+        normalizeForHash(intent.label)?.let { parts.add(it) }
+        when (intent) {
+            is ReminderIntent.Time -> {
+                parts.add("time:${intent.triggerAtMillis / REMINDER_TIME_BUCKET_MS}")
+            }
+            is ReminderIntent.Place -> {
+                parts.add("place:${intent.transition}")
+                parts.add("radius:${intent.radiusMeters}")
+                parts.add("cooldown:${intent.cooldownMinutes}")
+                parts.add("every:${intent.everyTime}")
+                val placeKey = when (val place = intent.placeQuery) {
+                    LocalPlaceIntentParser.PlaceQuery.CurrentLocation -> "current"
+                    is LocalPlaceIntentParser.PlaceQuery.Favorite -> "fav:${place.id}:${place.key}"
+                    is LocalPlaceIntentParser.PlaceQuery.FreeText -> normalizeForHash(place.normalized) ?: EMPTY_ITEMS_HASH
+                }
+                parts.add(placeKey)
+            }
+        }
+        if (parts.isEmpty()) {
+            parts.add(EMPTY_ITEMS_HASH)
+        }
+        val hash = hashParts(parts)
+        return "REMINDER[$hash]"
+    }
+
+    private fun normalizeForHash(value: String): String? {
+        val trimmed = value.trim().lowercase(Locale.FRENCH)
+        if (trimmed.isEmpty()) return null
+        val decomposed = Normalizer.normalize(trimmed, Normalizer.Form.NFD)
+        val withoutDiacritics = DIACRITICS_REGEX.replace(decomposed, "")
+        val sanitized = NON_ALNUM_REGEX.replace(withoutDiacritics, " ")
+        val collapsed = WHITESPACE_REGEX.replace(sanitized, " ").trim()
+        return collapsed.takeIf { it.isNotEmpty() }
+    }
+
+    private fun hashParts(parts: List<String>): String {
+        if (parts.isEmpty()) return EMPTY_ITEMS_HASH
+        val digest = MessageDigest.getInstance("SHA-1")
+        for (part in parts) {
+            digest.update(part.toByteArray(StandardCharsets.UTF_8))
+            digest.update(0.toByte())
+        }
+        return digest.digest().joinToString(separator = "") { byte ->
+            "%02x".format(byte)
+        }.take(HASH_LENGTH)
+    }
+
+    companion object {
+        private const val LIST_CONVERT_KEY = "LIST_CONVERT"
+        private const val EMPTY_ITEMS_HASH = "empty"
+        private const val REMINDER_TIME_BUCKET_MS = 60_000L
+        private const val HASH_LENGTH = 16
+        private val DIACRITICS_REGEX = "\\p{Mn}+".toRegex()
+        private val NON_ALNUM_REGEX = "[^a-z0-9]+".toRegex()
+        private val WHITESPACE_REGEX = "\\s+".toRegex()
     }
 
 }

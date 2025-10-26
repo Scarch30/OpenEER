@@ -1,5 +1,6 @@
 package com.example.openeer.ui
 
+import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
 import android.widget.Toast
@@ -84,6 +85,10 @@ class MicBarController(
 
     private var activeSessionNoteId: Long? = null
     private val pendingEarlyReminders = mutableMapOf<Long, PendingReminderReconciliation>()
+    private var nextAudioSessionId = 1L
+    private var currentAudioSessionId: Long? = null
+    private val audioSessionIdsByBlock = mutableMapOf<Long, Long>()
+    private val pendingIntentsBySession = mutableMapOf<Long, MutableMap<String, IntentRecord>>()
 
     /** Démarre un appui PTT immédiatement. */
     fun beginPress(initialX: Float) {
@@ -134,6 +139,7 @@ class MicBarController(
         }
 
         state = RecordingState.RECORDING_PTT
+        currentAudioSessionId = nextAudioSessionId++
         if (recorder == null) recorder = PcmRecorder(activity)
         recorder?.start()
         Log.d("MicCtl", "Recorder.start()")
@@ -189,6 +195,8 @@ class MicBarController(
     private fun stopSegment() {
         if (state == RecordingState.IDLE) return
         lastWasHandsFree = (state == RecordingState.RECORDING_HANDS_FREE)
+        val audioSessionId = currentAudioSessionId
+        currentAudioSessionId = null
 
         val rec = recorder
         recorder = null
@@ -254,6 +262,11 @@ class MicBarController(
                             groupId = gid,
                             transcription = initialVoskText
                         )
+                    }
+                    val sessionIdForBlock = audioSessionId
+                    val createdBlockId = newBlockId
+                    if (sessionIdForBlock != null && createdBlockId != null) {
+                        audioSessionIdsByBlock[createdBlockId] = sessionIdForBlock
                     }
                     val createdAudioId = newBlockId
                     if (createdAudioId != null) {
@@ -395,21 +408,49 @@ class MicBarController(
                                 "Commande vocale anticipée ignorée: note cible introuvable"
                             )
                         } else {
-                            try {
-                                val result = handleEarlyDecision(
-                                    decision = earlyDecision,
-                                    targetNoteId = resolvedTarget,
-                                    audioBlockId = audioBlockId,
-                                    transcription = initialVoskText,
-                                    audioPath = wavPath
-                                )
-                                skipWhisper = result.skipWhisper
-                            } catch (error: Throwable) {
-                                Log.e(
+                            val sessionIdForIntent = audioSessionId
+                            val intentKey = voiceCommandRouter.intentKeyFor(earlyDecision)
+                            val shouldExecute = if (sessionIdForIntent != null && intentKey != null) {
+                                registerVoiceIntent(sessionIdForIntent, intentKey, audioBlockId)
+                            } else {
+                                true
+                            }
+                            if (!shouldExecute) {
+                                Log.d(
                                     "MicCtl",
-                                    "Erreur exécution commande vocale anticipée pour le bloc #$audioBlockId",
-                                    error
+                                    "Intent vocal anticipé ignoré (dup): session=$sessionIdForIntent key=$intentKey"
                                 )
+                                if (!wavPath.isNullOrBlank()) {
+                                    voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, wavPath)
+                                }
+                                releaseAudioSessionForBlock(audioBlockId)
+                                skipWhisper = true
+                            } else {
+                                try {
+                                    val result = handleEarlyDecision(
+                                        decision = earlyDecision,
+                                        targetNoteId = resolvedTarget,
+                                        audioBlockId = audioBlockId,
+                                        transcription = initialVoskText,
+                                        audioPath = wavPath
+                                    )
+                                    if (sessionIdForIntent != null && intentKey != null) {
+                                        markVoiceIntentCompleted(sessionIdForIntent, intentKey, audioBlockId)
+                                    }
+                                    if (result.skipWhisper) {
+                                        releaseAudioSessionForBlock(audioBlockId)
+                                    }
+                                    skipWhisper = result.skipWhisper
+                                } catch (error: Throwable) {
+                                    if (sessionIdForIntent != null && intentKey != null) {
+                                        cancelVoiceIntent(sessionIdForIntent, intentKey, audioBlockId)
+                                    }
+                                    Log.e(
+                                        "MicCtl",
+                                        "Erreur exécution commande vocale anticipée pour le bloc #$audioBlockId",
+                                        error
+                                    )
+                                }
                             }
                         }
                     }
@@ -573,7 +614,22 @@ class MicBarController(
         transcription: String,
         audioPath: String,
     ) {
-        when (decision) {
+        val sessionIdForIntent = audioSessionIdsByBlock[audioBlockId]
+        val intentKey = voiceCommandRouter.intentKeyFor(decision)
+        if (sessionIdForIntent != null && intentKey != null) {
+            val registered = registerVoiceIntent(sessionIdForIntent, intentKey, audioBlockId)
+            if (!registered) {
+                Log.d(
+                    "MicCtl",
+                    "Intent vocal final ignoré (dup): session=$sessionIdForIntent key=$intentKey"
+                )
+                voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+                releaseAudioSessionForBlock(audioBlockId)
+                return
+            }
+        }
+        try {
+            when (decision) {
             VoiceRouteDecision.NOTE -> {
                 voiceCommandHandler.handleNoteDecision(targetNoteId, audioBlockId, transcription)
             }
@@ -609,6 +665,17 @@ class MicBarController(
                     decision = decision
                 )
             }
+        }
+        } catch (error: Throwable) {
+            if (sessionIdForIntent != null && intentKey != null) {
+                cancelVoiceIntent(sessionIdForIntent, intentKey, audioBlockId)
+            }
+            throw error
+        } finally {
+            if (sessionIdForIntent != null && intentKey != null) {
+                markVoiceIntentCompleted(sessionIdForIntent, intentKey, audioBlockId)
+            }
+            releaseAudioSessionForBlock(audioBlockId)
         }
     }
 
@@ -722,6 +789,7 @@ class MicBarController(
     companion object {
         private const val LIST_PLACEHOLDER = "(transcription en cours…)"
         private const val LIST_VOICE_TAG = "ListVoice"
+        private const val INTENT_TTL_MS = 30_000L
     }
 
     private data class EarlyHandlingResult(val skipWhisper: Boolean)
@@ -731,6 +799,75 @@ class MicBarController(
         val rawText: String,
         val pending: ReminderExecutor.PendingVoiceReminder,
     )
+
+    private data class IntentRecord(
+        var lastTimestampMs: Long,
+        val blockIds: MutableSet<Long> = mutableSetOf(),
+    )
+
+    private fun registerVoiceIntent(sessionId: Long, intentKey: String, audioBlockId: Long?): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        purgeExpiredIntents(now)
+        val intents = pendingIntentsBySession.getOrPut(sessionId) { mutableMapOf() }
+        val existing = intents[intentKey]
+        if (existing != null) {
+            if (audioBlockId != null && existing.blockIds.contains(audioBlockId)) {
+                existing.lastTimestampMs = now
+                return true
+            }
+            return false
+        }
+        val blocks = mutableSetOf<Long>()
+        if (audioBlockId != null) {
+            blocks.add(audioBlockId)
+        }
+        intents[intentKey] = IntentRecord(now, blocks)
+        return true
+    }
+
+    private fun markVoiceIntentCompleted(sessionId: Long, intentKey: String, audioBlockId: Long?) {
+        val record = pendingIntentsBySession[sessionId]?.get(intentKey) ?: return
+        record.lastTimestampMs = SystemClock.elapsedRealtime()
+        if (audioBlockId != null) {
+            record.blockIds.add(audioBlockId)
+        }
+    }
+
+    private fun cancelVoiceIntent(sessionId: Long, intentKey: String, audioBlockId: Long?) {
+        val intents = pendingIntentsBySession[sessionId] ?: return
+        val record = intents[intentKey] ?: return
+        if (audioBlockId != null) {
+            record.blockIds.remove(audioBlockId)
+        }
+        val shouldRemove = audioBlockId == null || record.blockIds.isEmpty()
+        if (shouldRemove) {
+            intents.remove(intentKey)
+        }
+        if (intents.isEmpty()) {
+            pendingIntentsBySession.remove(sessionId)
+        }
+    }
+
+    private fun purgeExpiredIntents(now: Long = SystemClock.elapsedRealtime()) {
+        val sessionIterator = pendingIntentsBySession.entries.iterator()
+        while (sessionIterator.hasNext()) {
+            val entry = sessionIterator.next()
+            val innerIterator = entry.value.entries.iterator()
+            while (innerIterator.hasNext()) {
+                val intentEntry = innerIterator.next()
+                if (now - intentEntry.value.lastTimestampMs > INTENT_TTL_MS) {
+                    innerIterator.remove()
+                }
+            }
+            if (entry.value.isEmpty()) {
+                sessionIterator.remove()
+            }
+        }
+    }
+
+    private fun releaseAudioSessionForBlock(audioBlockId: Long) {
+        audioSessionIdsByBlock.remove(audioBlockId)
+    }
 }
 
 internal data class RemovalApplication(
