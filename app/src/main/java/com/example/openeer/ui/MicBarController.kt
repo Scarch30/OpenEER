@@ -566,6 +566,7 @@ class MicBarController(
         if (rawText.isBlank()) return
         if (skipIfListAdd && listManager.has(audioBlockId)) return
 
+        var didRemove = false
         withContext(Dispatchers.Main) {
             val spannable = bodyManager.buffer.ensureSpannable()
             val storedRange = bodyManager.rangeFor(audioBlockId) ?: return@withContext
@@ -605,9 +606,14 @@ class MicBarController(
             bodyManager.onProvisionalRangeRemoved(audioBlockId, removedRange)
             bodyManager.buffer.clearSession()
             bodyManager.maybeCommitBody()
+            didRemove = true
             if (showFeedback) {
                 showTopBubble(activity.getString(R.string.voice_command_applied))
             }
+        }
+
+        if (didRemove) {
+            voiceCommandHandler.cleanupVoiceCaptureReferences(audioBlockId)
         }
     }
 

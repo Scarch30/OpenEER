@@ -161,7 +161,6 @@ internal class VoiceCommandHandler(
                     } else {
                         withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
                     }
-                    cleanupVoiceCaptureReferences(audioBlockId)
                 } else {
                     if (hasListHandle) {
                         listManager.remove(audioBlockId, "LIST_COMMAND")
