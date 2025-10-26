@@ -7,6 +7,7 @@ import com.example.openeer.R
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.capture.CaptureLauncher
+import com.example.openeer.ui.editor.EditorBodyController
 import com.example.openeer.ui.library.LibraryActivity
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
