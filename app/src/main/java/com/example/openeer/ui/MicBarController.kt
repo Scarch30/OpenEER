@@ -563,10 +563,36 @@ class MicBarController(
 
         withContext(Dispatchers.Main) {
             val spannable = bodyManager.buffer.ensureSpannable()
-            val currentBody = spannable.toString()
-            val span = extractCommandSpanInBody(currentBody, rawText) ?: return@withContext
-            val application = applyRemovalPreservingSpaces(currentBody, span) ?: return@withContext
+            val storedRange = bodyManager.rangeFor(audioBlockId) ?: return@withContext
+            if (storedRange.first >= spannable.length) return@withContext
+            if (storedRange.last > spannable.length) return@withContext
+
+            val safeStart = storedRange.first.coerceIn(0, spannable.length)
+            val safeEndExclusive = storedRange.last.coerceIn(safeStart, spannable.length)
+            if (safeStart >= safeEndExclusive) return@withContext
+
+            val blockText = spannable.subSequence(safeStart, safeEndExclusive).toString()
+            val localSpan = extractCommandSpanInBody(blockText, rawText) ?: return@withContext
+            val spanStart = safeStart + localSpan.first
+            val spanEndExclusive = safeStart + localSpan.last + 1
+            if (spanStart < safeStart || spanEndExclusive > safeEndExclusive) return@withContext
+
+            val detectedText = spannable.subSequence(spanStart, spanEndExclusive).toString()
+            val normalizedDetected = detectedText.trim()
+            val normalizedCommand = rawText.trim()
+            if (normalizedDetected.isEmpty() ||
+                normalizedCommand.isEmpty() ||
+                !normalizedDetected.equals(normalizedCommand, ignoreCase = true)
+            ) {
+                return@withContext
+            }
+
+            val span = IntRange(spanStart, spanEndExclusive - 1)
+            val application = applyRemovalPreservingSpaces(spannable, span) ?: return@withContext
             if (application.start >= application.endExclusive) return@withContext
+            if (application.start < safeStart || application.endExclusive > safeEndExclusive) {
+                return@withContext
+            }
 
             val removedRange = IntRange(application.start, application.endExclusive)
             spannable.replace(application.start, application.endExclusive, application.replacement)
