@@ -498,18 +498,28 @@ class MicBarController(
                                 noteId = resolvedTarget,
                                 normalizedText = initialVoskText,
                             )
-                            val shouldExecute = if (intentKey != null) {
-                                sessionIntentRegistry.registerIfNew(intentKey)
-                            } else {
-                                true
+                            var skipEarly = false
+                            var skipDueToResolution = false
+                            if (intentKey != null) {
+                                if (sessionIntentRegistry.shouldSkipFinal(intentKey)) {
+                                    skipEarly = true
+                                    skipDueToResolution = true
+                                } else if (sessionIntentRegistry.getEarlyApplied(intentKey) != null) {
+                                    skipEarly = true
+                                }
                             }
-                            if (!shouldExecute) {
-                                Log.d("MicCtl", "EarlySkip/Duplicate key=$intentKey block=$audioBlockId")
-                                if (!wavPath.isNullOrBlank()) {
+                            if (skipEarly) {
+                                Log.d(
+                                    "MicCtl",
+                                    "EarlySkip/${if (skipDueToResolution) "Resolved" else "Duplicate"} key=$intentKey block=$audioBlockId"
+                                )
+                                if (skipDueToResolution && !wavPath.isNullOrBlank()) {
                                     voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, wavPath)
                                 }
-                                releaseAudioSessionForBlock(audioBlockId)
-                                skipWhisper = true
+                                if (skipDueToResolution) {
+                                    releaseAudioSessionForBlock(audioBlockId)
+                                    skipWhisper = true
+                                }
                             } else {
                                 try {
                                     val result = handleEarlyDecision(
@@ -517,15 +527,14 @@ class MicBarController(
                                         targetNoteId = resolvedTarget,
                                         audioBlockId = audioBlockId,
                                         transcription = initialVoskText,
-                                        audioPath = wavPath
+                                        audioPath = wavPath,
+                                        intentKey = intentKey,
                                     )
-                                    if (intentKey != null) {
+                                    if (intentKey != null && result.skipWhisper) {
                                         sessionIntentRegistry.markResolved(intentKey)
                                     }
                                     if (result.skipWhisper) {
                                         releaseAudioSessionForBlock(audioBlockId)
-                                    }
-                                    if (result.skipWhisper) {
                                         skipWhisper = true
                                     }
                                 } catch (error: Throwable) {
@@ -648,6 +657,7 @@ class MicBarController(
         audioBlockId: Long,
         transcription: String,
         audioPath: String,
+        intentKey: String?,
     ): EarlyHandlingResult {
         return when (decision) {
             VoiceEarlyDecision.None -> EarlyHandlingResult(skipWhisper = false)
@@ -658,6 +668,7 @@ class MicBarController(
                 val handled = handleEarlyListCommand(
                     noteId = targetNoteId,
                     command = decision.command,
+                    intentKey = intentKey,
                 )
                 if (handled != null) {
                     removeEarlyCommandText(
@@ -784,12 +795,29 @@ class MicBarController(
             noteId = targetNoteId,
             normalizedText = transcription,
         )
-        if (intentKey != null) {
-            val registered = sessionIntentRegistry.registerIfNew(intentKey)
-            if (!registered) {
-                Log.d("MicCtl", "FinalSkip/Duplicate key=$intentKey block=$audioBlockId")
-                voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
-                releaseAudioSessionForBlock(audioBlockId)
+        if (intentKey != null && sessionIntentRegistry.shouldSkipFinal(intentKey)) {
+            Log.d("MicCtl", "FinalSkip/Resolved key=$intentKey block=$audioBlockId")
+            voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+            releaseAudioSessionForBlock(audioBlockId)
+            return
+        }
+        val earlyApplied = intentKey?.let { sessionIntentRegistry.getEarlyApplied(it) }
+        if (intentKey != null && earlyApplied != null &&
+            decision is VoiceRouteDecision.List &&
+            decision.action == VoiceListAction.ADD
+        ) {
+            val noteId = targetNoteId
+            if (noteId != null) {
+                try {
+                    reconcileEarlyListAdd(noteId, earlyApplied, decision.items)
+                    finalizeListCommandCleanup(audioBlockId, audioPath)
+                    sessionIntentRegistry.markResolved(intentKey)
+                } catch (error: Throwable) {
+                    sessionIntentRegistry.remove(intentKey)
+                    throw error
+                } finally {
+                    releaseAudioSessionForBlock(audioBlockId)
+                }
                 return
             }
         }
@@ -863,12 +891,18 @@ class MicBarController(
     private suspend fun handleEarlyListCommand(
         noteId: Long,
         command: VoiceRouteDecision.List,
+        intentKey: String?,
     ): EarlyHandlingResult? {
         if (!FeatureFlags.voiceEarlyCommandsEnabled) return null
         val requested = command.items
         return when (command.action) {
             VoiceListAction.ADD -> {
                 val added = blocksRepo.addItemsToNoteList(noteId, requested)
+                if (!intentKey.isNullOrEmpty()) {
+                    val ids = added.map { it.id }
+                    val originalTexts = added.map { it.text }
+                    sessionIntentRegistry.registerEarlyApplied(intentKey, ids, originalTexts)
+                }
                 withContext(Dispatchers.Main) {
                     val messageRes = if (added.isNotEmpty()) {
                         R.string.voice_early_list_added
@@ -877,11 +911,7 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
-                val skipWhisper = requested.size > 1
-                if (!skipWhisper) {
-                    Log.d("VoiceList", "early add single-item → allow refine")
-                }
-                EarlyHandlingResult(skipWhisper = skipWhisper)
+                EarlyHandlingResult(skipWhisper = false)
             }
 
             VoiceListAction.REMOVE -> {
@@ -935,6 +965,41 @@ class MicBarController(
 
             VoiceListAction.CONVERT_TO_LIST,
             VoiceListAction.CONVERT_TO_TEXT -> null
+        }
+    }
+
+    private suspend fun finalizeListCommandCleanup(audioBlockId: Long, audioPath: String) {
+        val hasListHandle = listManager.has(audioBlockId)
+        if (hasListHandle) {
+            listManager.remove(audioBlockId, "LIST_COMMAND")
+        } else {
+            withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
+        }
+        voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+    }
+
+    private suspend fun reconcileEarlyListAdd(
+        noteId: Long,
+        earlyApplied: SessionIntentRegistry.EarlyApplied,
+        refinedItems: List<String>,
+    ) {
+        val earlyIds = earlyApplied.affectedItemIds
+        val earlyCount = minOf(earlyIds.size, earlyApplied.originalTexts.size)
+        val updates = minOf(earlyCount, refinedItems.size)
+        for (index in 0 until updates) {
+            val itemId = earlyIds[index]
+            val refinedText = refinedItems[index]
+            blocksRepo.updateItemTextForBlock(itemId, refinedText)
+        }
+
+        if (refinedItems.size > earlyCount) {
+            val toAppend = refinedItems.subList(earlyCount, refinedItems.size)
+            blocksRepo.addItemsToNoteList(noteId, toAppend)
+        } else if (refinedItems.size < earlyCount) {
+            val orphanIds = earlyIds.subList(refinedItems.size, earlyCount)
+            for (itemId in orphanIds) {
+                blocksRepo.removeItemForBlock(itemId)
+            }
         }
     }
 
@@ -1051,25 +1116,61 @@ class MicBarController(
     private class SessionIntentRegistry(
         private val clock: () -> Long = { SystemClock.elapsedRealtime() },
     ) {
-        private data class Entry(var registeredAt: Long, var resolved: Boolean)
+        enum class State { NONE, APPLIED_EARLY, RESOLVED }
+
+        data class EarlyApplied(
+            val affectedItemIds: List<Long>,
+            val originalTexts: List<String>,
+        )
+
+        private data class Entry(
+            var registeredAt: Long,
+            var state: State,
+            var affectedItemIds: List<Long> = emptyList(),
+            var originalTexts: List<String> = emptyList(),
+        )
 
         private val entries = mutableMapOf<String, Entry>()
 
         @Synchronized
-        fun registerIfNew(intentKey: String, ttlMs: Long = INTENT_TTL_MS): Boolean {
+        fun registerEarlyApplied(
+            intentKey: String,
+            affectedItemIds: List<Long>,
+            originalTexts: List<String>,
+            ttlMs: Long = INTENT_TTL_MS,
+        ) {
             val now = clock()
             purgeExpired(now, ttlMs)
-            val existing = entries[intentKey]
-            if (existing != null) {
-                return false
-            }
-            entries[intentKey] = Entry(now, resolved = false)
-            return true
+            val entry = entries.getOrPut(intentKey) { Entry(now, State.NONE) }
+            entry.registeredAt = now
+            entry.state = State.APPLIED_EARLY
+            entry.affectedItemIds = affectedItemIds.toList()
+            entry.originalTexts = originalTexts.toList()
         }
 
         @Synchronized
-        fun markResolved(intentKey: String) {
-            entries[intentKey]?.resolved = true
+        fun markResolved(intentKey: String, ttlMs: Long = INTENT_TTL_MS) {
+            val now = clock()
+            purgeExpired(now, ttlMs)
+            val entry = entries.getOrPut(intentKey) { Entry(now, State.NONE) }
+            entry.registeredAt = now
+            entry.state = State.RESOLVED
+            entry.affectedItemIds = emptyList()
+            entry.originalTexts = emptyList()
+        }
+
+        @Synchronized
+        fun getEarlyApplied(intentKey: String, ttlMs: Long = INTENT_TTL_MS): EarlyApplied? {
+            purgeExpired(clock(), ttlMs)
+            val entry = entries[intentKey]
+            if (entry?.state != State.APPLIED_EARLY) return null
+            return EarlyApplied(entry.affectedItemIds, entry.originalTexts)
+        }
+
+        @Synchronized
+        fun shouldSkipFinal(intentKey: String, ttlMs: Long = INTENT_TTL_MS): Boolean {
+            purgeExpired(clock(), ttlMs)
+            return entries[intentKey]?.state == State.RESOLVED
         }
 
         @Synchronized
