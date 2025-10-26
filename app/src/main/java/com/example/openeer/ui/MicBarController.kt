@@ -26,6 +26,8 @@ import com.example.openeer.voice.VoiceEarlyDecision
 import com.example.openeer.voice.VoiceRouteDecision
 import kotlinx.coroutines.*
 import java.io.File
+import java.text.Normalizer
+import java.util.Locale
 import kotlin.math.abs
 
 class MicBarController(
@@ -445,6 +447,34 @@ class MicBarController(
     fun isRecording(): Boolean =
         state == RecordingState.RECORDING_PTT || state == RecordingState.RECORDING_HANDS_FREE
 
+    private suspend fun removeEarlyCommandText(
+        audioBlockId: Long,
+        rawText: String,
+        showFeedback: Boolean = true,
+        skipIfListAdd: Boolean = false,
+    ) {
+        if (rawText.isBlank()) return
+        if (skipIfListAdd && listManager.has(audioBlockId)) return
+
+        withContext(Dispatchers.Main) {
+            val spannable = bodyManager.buffer.ensureSpannable()
+            val currentBody = spannable.toString()
+            val span = extractCommandSpanInBody(currentBody, rawText) ?: return@withContext
+            val application = applyRemovalPreservingSpaces(currentBody, span) ?: return@withContext
+            if (application.start >= application.endExclusive) return@withContext
+
+            val removedRange = IntRange(application.start, application.endExclusive)
+            spannable.replace(application.start, application.endExclusive, application.replacement)
+            binding.txtBodyDetail.text = spannable
+            bodyManager.onProvisionalRangeRemoved(audioBlockId, removedRange)
+            bodyManager.buffer.clearSession()
+            bodyManager.maybeCommitBody()
+            if (showFeedback) {
+                showTopBubble(activity.getString(R.string.voice_command_applied))
+            }
+        }
+    }
+
     private suspend fun handleEarlyDecision(
         decision: VoiceEarlyDecision,
         targetNoteId: Long,
@@ -456,11 +486,19 @@ class MicBarController(
             VoiceEarlyDecision.None -> EarlyHandlingResult(skipWhisper = false)
 
             is VoiceEarlyDecision.ListCommand -> {
+                val rawText = decision.rawText
+                val skipRemoval = decision.command.action == VoiceListAction.ADD && listManager.has(audioBlockId)
                 val handled = handleEarlyListCommand(
                     noteId = targetNoteId,
                     command = decision.command,
                 )
                 if (handled != null) {
+                    removeEarlyCommandText(
+                        audioBlockId = audioBlockId,
+                        rawText = rawText,
+                        showFeedback = false,
+                        skipIfListAdd = skipRemoval,
+                    )
                     handled
                 } else {
                     handleVoiceDecision(
@@ -469,6 +507,12 @@ class MicBarController(
                         audioBlockId = audioBlockId,
                         transcription = transcription,
                         audioPath = audioPath
+                    )
+                    removeEarlyCommandText(
+                        audioBlockId = audioBlockId,
+                        rawText = rawText,
+                        showFeedback = false,
+                        skipIfListAdd = skipRemoval,
                     )
                     showEarlyListFeedback(decision.command.action)
                     EarlyHandlingResult(skipWhisper = true)
@@ -688,3 +732,119 @@ class MicBarController(
         val pending: ReminderExecutor.PendingVoiceReminder,
     )
 }
+
+internal data class RemovalApplication(
+    val start: Int,
+    val endExclusive: Int,
+    val replacement: String,
+)
+
+internal fun extractCommandSpanInBody(body: String, rawVosk: String): IntRange? {
+    val candidate = rawVosk.trim()
+    if (body.isEmpty() || candidate.isEmpty()) return null
+
+    val directIndex = body.lastIndexOf(candidate)
+    if (directIndex >= 0) return directIndex until (directIndex + candidate.length)
+
+    val lowerIndex = body.lowercase(Locale.FRENCH).lastIndexOf(candidate.lowercase(Locale.FRENCH))
+    if (lowerIndex >= 0) return lowerIndex until (lowerIndex + candidate.length)
+
+    val normalizedBody = normalizeWithMap(body)
+    if (normalizedBody.value.isEmpty()) return null
+    val normalizedTarget = normalizeWithMap(candidate)
+    if (normalizedTarget.value.isEmpty()) return null
+
+    val matchIndex = normalizedBody.value.lastIndexOf(normalizedTarget.value)
+    if (matchIndex < 0) return null
+
+    val start = normalizedBody.map.getOrNull(matchIndex)?.first ?: return null
+    val endIndex = matchIndex + normalizedTarget.value.length - 1
+    val endExclusive = normalizedBody.map.getOrNull(endIndex)?.second ?: return null
+    return start until endExclusive
+}
+
+internal fun applyRemovalPreservingSpaces(body: CharSequence, span: IntRange): RemovalApplication? {
+    if (body.isEmpty() || span.first > span.last) return null
+    val start = span.first
+    val endExclusive = span.last + 1
+    if (start < 0 || endExclusive > body.length) return null
+
+    var removalStart = start
+    while (removalStart > 0) {
+        val ch = body[removalStart - 1]
+        if (!ch.isWhitespace() || ch == '\n') break
+        removalStart--
+    }
+
+    var removalEnd = endExclusive
+    while (removalEnd < body.length) {
+        val ch = body[removalEnd]
+        if (!ch.isWhitespace() || ch == '\n') break
+        removalEnd++
+    }
+
+    val leftChar = body.getOrNull(removalStart - 1)
+    val rightChar = body.getOrNull(removalEnd)
+    val needsSpace = leftChar != null &&
+            rightChar != null &&
+            !leftChar.isWhitespace() &&
+            !rightChar.isWhitespace() &&
+            leftChar != '\n' &&
+            rightChar != '\n'
+
+    val replacement = if (needsSpace) " " else ""
+    return RemovalApplication(removalStart, removalEnd, replacement)
+}
+
+private data class NormalizedString(
+    val value: String,
+    val map: List<Pair<Int, Int>>,
+)
+
+private fun normalizeWithMap(input: String): NormalizedString {
+    val normalized = StringBuilder()
+    val map = ArrayList<Pair<Int, Int>>()
+    var index = 0
+    var lastWasSpace = false
+    while (index < input.length) {
+        val codePoint = input.codePointAt(index)
+        val charCount = Character.charCount(codePoint)
+        val segment = String(Character.toChars(codePoint))
+        if (Character.isWhitespace(codePoint)) {
+            if (!lastWasSpace) {
+                normalized.append(' ')
+                map.add(index to (index + charCount))
+                lastWasSpace = true
+            } else if (map.isNotEmpty()) {
+                val lastIndex = map.lastIndex
+                val last = map[lastIndex]
+                map[lastIndex] = last.first to (index + charCount)
+            }
+            index += charCount
+            continue
+        }
+
+        lastWasSpace = false
+        val normalizedSegment = Normalizer.normalize(segment, Normalizer.Form.NFD)
+            .replace(COMMAND_DIACRITICS_REGEX, "")
+            .lowercase(Locale.FRENCH)
+        if (normalizedSegment.isNotEmpty()) {
+            normalized.append(normalizedSegment)
+            repeat(normalizedSegment.length) { map.add(index to (index + charCount)) }
+        }
+        index += charCount
+    }
+
+    while (normalized.isNotEmpty() && normalized[0] == ' ') {
+        normalized.deleteCharAt(0)
+        if (map.isNotEmpty()) map.removeAt(0)
+    }
+    while (normalized.isNotEmpty() && normalized[normalized.length - 1] == ' ') {
+        normalized.deleteCharAt(normalized.length - 1)
+        if (map.isNotEmpty()) map.removeAt(map.lastIndex)
+    }
+
+    return NormalizedString(normalized.toString(), map)
+}
+
+private val COMMAND_DIACRITICS_REGEX = "\\p{Mn}+".toRegex()

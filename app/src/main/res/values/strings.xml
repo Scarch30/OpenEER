@@ -423,6 +423,7 @@
 
     <string name="voice_reminder_incomplete_hint">Il manque le moment…</string>
     <string name="voice_list_incomplete_hint">Commande liste incomplète.</string>
+    <string name="voice_command_applied">Commande appliquée.</string>
     <string name="voice_list_item_not_found">Aucun élément correspondant dans la liste.</string>
     <string name="voice_early_list_added">Ajouté à la liste</string>
     <string name="voice_early_list_toggled">Coché</string>
