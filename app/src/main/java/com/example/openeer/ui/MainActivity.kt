@@ -383,12 +383,10 @@ class MainActivity : AppCompatActivity() {
         captureLauncher.onSaveInstanceState(outState)
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent?.let {
-            setIntent(it)
-            handleOpenNoteIntent(it)
-        }
+        setIntent(intent)
+        handleOpenNoteIntent(intent)
     }
 
     override fun onPause() {

@@ -53,7 +53,7 @@ class MainBottomBarController(
                                 activity.getString(R.string.msg_block_text_added),
                             )
                         }
-                    }.show(activity.supportFragmentManager, "child_text")
+                    }.show(this@MainBottomBarController.activity.supportFragmentManager, "child_text")
                 } else {
                     val nid = ensureOpenNote()
                     binding.root.post { editorBody.enterInlineEdit(nid, caretPositions[nid]) }
