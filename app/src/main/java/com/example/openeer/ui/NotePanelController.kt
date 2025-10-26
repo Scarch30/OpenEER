@@ -409,7 +409,16 @@ class NotePanelController(
                     StyleSpan::class.java,
                 ).any { it.style == Typeface.ITALIC }
 
-        if (!keepCurrentStyled) {
+        if (keepCurrentStyled) {
+            val currentPlain = binding.txtBodyDetail.text?.toString()
+            if (currentPlain != note.body) {
+                Log.w(
+                    TAG,
+                    "Temporary body styling detected for note=${note.id}; forcing resync with canonical body",
+                )
+                binding.txtBodyDetail.text = note.body
+            }
+        } else {
             binding.txtBodyDetail.text = note.body
         }
 
