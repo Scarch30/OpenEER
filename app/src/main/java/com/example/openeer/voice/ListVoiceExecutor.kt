@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.NoteType
 import com.example.openeer.data.list.ListItemEntity
+import com.example.openeer.voice.VoiceNormalization.normalizeForKey
 import java.text.Normalizer
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -197,15 +198,17 @@ class ListVoiceExecutor(
     }
 
     private fun sanitizeItems(items: List<String>): List<String> {
-        return items.map { it.replace(WHITESPACE_REGEX, " ").trim(*TRIM_CHARS) }
-            .filter { it.isNotEmpty() }
+        return items.mapNotNull { candidate ->
+            normalizeForKey(candidate)?.trim(*TRIM_CHARS)
+        }.filter { it.isNotEmpty() }
     }
 
     private fun normalize(input: String): String {
         val lowered = input.lowercase(Locale.FRENCH)
         val normalized = Normalizer.normalize(lowered, Normalizer.Form.NFD)
         val without = DIACRITICS_REGEX.replace(normalized, "")
-        return without.replace("[^a-z0-9' ]".toRegex(), " ").replace(WHITESPACE_REGEX, " ").trim()
+        val collapsed = without.replace("[^a-z0-9' ]".toRegex(), " ")
+        return normalizeForKey(collapsed) ?: ""
     }
 
     private data class EnsureResult(val noteId: Long, val createdNote: Boolean)
