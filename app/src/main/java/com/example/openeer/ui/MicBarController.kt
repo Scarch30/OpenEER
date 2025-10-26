@@ -18,12 +18,15 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
+import com.example.openeer.stt.FinalResult
+import com.example.openeer.voice.AdaptiveRouter
+import com.example.openeer.voice.EarlyIntentHint
 import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceCommandRouter
 import com.example.openeer.voice.VoiceComponents
-import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceEarlyDecision
+import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
 import kotlinx.coroutines.*
 import java.io.File
@@ -83,12 +86,17 @@ class MicBarController(
         showTopBubble,
     )
 
+    private val adaptiveRouter = AdaptiveRouter()
+
     private var activeSessionNoteId: Long? = null
     private val pendingEarlyReminders = mutableMapOf<Long, PendingReminderReconciliation>()
     private var nextAudioSessionId = 1L
     private var currentAudioSessionId: Long? = null
     private val audioSessionIdsByBlock = mutableMapOf<Long, Long>()
     private val pendingIntentsBySession = mutableMapOf<Long, MutableMap<String, IntentRecord>>()
+    private var pendingWhisperJobs = 0
+    private var segmentStartRealtime: Long? = null
+    private var lastAdaptiveFeedbackAt: Long = 0L
 
     /** Démarre un appui PTT immédiatement. */
     fun beginPress(initialX: Float) {
@@ -143,6 +151,8 @@ class MicBarController(
         if (recorder == null) recorder = PcmRecorder(activity)
         recorder?.start()
         Log.d("MicCtl", "Recorder.start()")
+
+        segmentStartRealtime = SystemClock.elapsedRealtime()
 
         binding.labelMic.text = "Enregistrement (PTT)…"
         binding.iconMic.alpha = 1f
@@ -215,7 +225,9 @@ class MicBarController(
                     rec?.stop()
                     rec?.finalizeToWav()
                 }
-                val initialVoskText = withContext(Dispatchers.IO) { live?.stop().orEmpty().trim() }
+                val segmentDurationMs = segmentStartRealtime?.let { SystemClock.elapsedRealtime() - it }
+                val finalResult = withContext(Dispatchers.IO) { live?.stopDetailed() } ?: FinalResult.Empty
+                val initialVoskText = finalResult.text.trim()
                 live = null
 
                 val openIdNow = getOpenNoteId()
@@ -223,6 +235,11 @@ class MicBarController(
                 val noteSnapshot = getOpenNote()
                 val isListNote = noteSnapshot?.isList() == true
                 val listFallbackText = initialVoskText.ifBlank { LIST_PLACEHOLDER }
+                val effectiveTokenCount = when {
+                    finalResult.tokenCount > 0 -> finalResult.tokenCount
+                    initialVoskText.isBlank() -> 0
+                    else -> initialVoskText.split(WORD_SPLIT_REGEX).count { it.isNotBlank() }
+                }
 
                 if (targetNoteId == null || openIdNow == null || targetNoteId != openIdNow) {
                     Log.w(
@@ -233,6 +250,7 @@ class MicBarController(
                         bodyManager.buffer.removeCurrentSession()
                     }
                     activeSessionNoteId = null
+                    segmentStartRealtime = null
                     if (!wavPath.isNullOrBlank()) {
                         runCatching { File(wavPath).takeIf { it.exists() }?.delete() }
                     }
@@ -286,24 +304,56 @@ class MicBarController(
                         isListNote ||
                                 (provisionalList != null) ||
                                 initialVoskText.contains("liste", ignoreCase = true)
-                    val earlyDecision = if (attemptEarlyRouting) {
-                        val decision = voiceCommandRouter.routeEarly(
-                            initialVoskText,
-                            VoiceCommandRouter.EarlyContext(assumeListForInitial)
+                    val earlyContext = VoiceCommandRouter.EarlyContext(assumeListForInitial)
+                    val earlyAnalysis = if (attemptEarlyRouting) {
+                        voiceCommandRouter.analyzeEarly(initialVoskText, earlyContext)
+                    } else {
+                        VoiceCommandRouter.EarlyAnalysis(
+                            decision = VoiceEarlyDecision.None,
+                            hint = EarlyIntentHint.none(initialVoskText)
                         )
+                    }
+                    val earlyDecision = earlyAnalysis.decision
+                    val intentHint = earlyAnalysis.hint
+                    val voskSegment = AdaptiveRouter.VoskSegment(
+                        text = initialVoskText,
+                        confidence = finalResult.confidence,
+                        charLength = initialVoskText.length,
+                        tokenCount = effectiveTokenCount,
+                    )
+                    val noteContext = AdaptiveRouter.NoteContext(
+                        isListMode = isListNote || provisionalList != null,
+                        pendingWhisperJobs = pendingWhisperJobs,
+                        segmentDurationMs = segmentDurationMs,
+                    )
+                    val adaptiveDecision = if (FeatureFlags.voiceAdaptiveRoutingEnabled) {
+                        adaptiveRouter.decide(voskSegment, intentHint, noteContext)
+                    } else {
+                        val fallbackMode = if (earlyDecision is VoiceEarlyDecision.None) {
+                            AdaptiveRouter.DecisionMode.REFINE_ONLY
+                        } else {
+                            AdaptiveRouter.DecisionMode.REFLEX_THEN_REFINE
+                        }
+                        AdaptiveRouter.Decision.disabledFallback(fallbackMode)
+                    }
+                    if (attemptEarlyRouting) {
                         val sanitized = initialVoskText.replace("\"", "\\\"")
                         Log.d(
                             "EarlyVC",
-                            "decision=${decision.logToken} note=$targetNoteId text=\"$sanitized\""
+                            "decision=${earlyDecision.logToken} adaptive=${adaptiveDecision.mode} score=${"%.2f".format(adaptiveDecision.score)} note=$targetNoteId text=\"$sanitized\""
                         )
-                        decision
-                    } else {
-                        VoiceEarlyDecision.None
+                    }
+                    if (FeatureFlags.voiceAdaptiveRoutingEnabled) {
+                        maybeShowAdaptiveFeedback(adaptiveDecision.mode)
+                        if (adaptiveDecision.mode == AdaptiveRouter.DecisionMode.REFINE_ONLY) {
+                            binding.txtActivity.text = activity.getString(R.string.voice_adaptive_feedback_refine)
+                        }
                     }
 
                     val launchWhisper = {
                         activity.lifecycleScope.launch {
                             val blockId = audioBlockId ?: return@launch
+                            pendingWhisperJobs += 1
                             Log.d("MicCtl", "Lancement de l'affinage Whisper pour le bloc #$blockId")
                             try {
                                 runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
@@ -394,13 +444,19 @@ class MicBarController(
                                         bodyManager.replaceProvisionalWithRefined(blockId, fallback)
                                     }
                                 }
+                            } finally {
+                                pendingWhisperJobs = (pendingWhisperJobs - 1).coerceAtLeast(0)
                             }
                             Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$blockId")
                         }
                     }
 
-                    var skipWhisper = false
-                    if (audioBlockId != null && earlyDecision !is VoiceEarlyDecision.None) {
+                    var skipWhisper = adaptiveDecision.mode == AdaptiveRouter.DecisionMode.REFLEX_ONLY
+                    val shouldExecuteEarly =
+                        audioBlockId != null &&
+                                earlyDecision !is VoiceEarlyDecision.None &&
+                                adaptiveDecision.mode != AdaptiveRouter.DecisionMode.REFINE_ONLY
+                    if (shouldExecuteEarly) {
                         val resolvedTarget = targetNoteId
                         if (resolvedTarget == null) {
                             Log.w(
@@ -440,7 +496,9 @@ class MicBarController(
                                     if (result.skipWhisper) {
                                         releaseAudioSessionForBlock(audioBlockId)
                                     }
-                                    skipWhisper = result.skipWhisper
+                                    if (result.skipWhisper) {
+                                        skipWhisper = true
+                                    }
                                 } catch (error: Throwable) {
                                     if (sessionIdForIntent != null && intentKey != null) {
                                         cancelVoiceIntent(sessionIdForIntent, intentKey, audioBlockId)
@@ -455,8 +513,13 @@ class MicBarController(
                         }
                     }
 
+                    if (adaptiveDecision.mode == AdaptiveRouter.DecisionMode.REFLEX_ONLY) {
+                        skipWhisper = true
+                    }
                     if (!skipWhisper) {
                         launchWhisper()
+                    } else if (audioBlockId != null) {
+                        releaseAudioSessionForBlock(audioBlockId)
                     }
                 } else if (isListNote && provisionalList != null) {
                     listManager.finalizeDetached(provisionalList, listFallbackText)
@@ -478,6 +541,7 @@ class MicBarController(
                 }
             } finally {
                 activeSessionNoteId = null
+                segmentStartRealtime = null
             }
         }
     }
@@ -786,10 +850,25 @@ class MicBarController(
         bodyManager.prepareForNote(newNoteId, snapshot, display)
     }
 
+    private fun maybeShowAdaptiveFeedback(mode: AdaptiveRouter.DecisionMode) {
+        if (!FeatureFlags.voiceAdaptiveRoutingEnabled) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastAdaptiveFeedbackAt < ADAPTIVE_FEEDBACK_THROTTLE_MS) return
+        lastAdaptiveFeedbackAt = now
+        val messageRes = when (mode) {
+            AdaptiveRouter.DecisionMode.REFLEX_ONLY -> R.string.voice_adaptive_feedback_reflex
+            AdaptiveRouter.DecisionMode.REFLEX_THEN_REFINE -> R.string.voice_adaptive_feedback_pending
+            AdaptiveRouter.DecisionMode.REFINE_ONLY -> R.string.voice_adaptive_feedback_refine
+        }
+        showTopBubble(activity.getString(messageRes))
+    }
+
     companion object {
         private const val LIST_PLACEHOLDER = "(transcription en cours…)"
         private const val LIST_VOICE_TAG = "ListVoice"
         private const val INTENT_TTL_MS = 30_000L
+        private const val ADAPTIVE_FEEDBACK_THROTTLE_MS = 1500L
+        private val WORD_SPLIT_REGEX = "\\s+".toRegex()
     }
 
     private data class EarlyHandlingResult(val skipWhisper: Boolean)

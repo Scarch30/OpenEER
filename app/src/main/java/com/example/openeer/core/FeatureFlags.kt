@@ -4,5 +4,6 @@ object FeatureFlags {
     const val IMPORT_V1_ENABLED: Boolean = true
     const val voiceCommandsEnabled: Boolean = true
     const val voiceEarlyCommandsEnabled: Boolean = true
+    const val voiceAdaptiveRoutingEnabled: Boolean = false
     const val listsEnabled: Boolean = true
 }

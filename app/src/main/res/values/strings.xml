@@ -433,5 +433,8 @@
     <string name="voice_early_list_converted_to_list">Liste créée.</string>
     <string name="voice_early_list_converted_to_text">Liste convertie en texte.</string>
     <string name="voice_early_reminder_created">Rappel créé.</string>
+    <string name="voice_adaptive_feedback_reflex">Action rapide appliquée.</string>
+    <string name="voice_adaptive_feedback_pending">Action en attente d’affinage…</string>
+    <string name="voice_adaptive_feedback_refine">Analyse en cours…</string>
 
 </resources>
