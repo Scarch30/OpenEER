@@ -22,6 +22,7 @@ internal class ProvisionalBodyBuffer(
     private var sessionEnd: Int? = null
     private var cachedNoteId: Long? = null
     private var cachedSpannable: SpannableStringBuilder? = null
+    private var sessionBaseline: String? = null
 
     fun prepare(noteId: Long?, canonicalBody: String?, displayFallback: String) {
         if (cachedNoteId != noteId) {
@@ -40,6 +41,7 @@ internal class ProvisionalBodyBuffer(
 
     fun beginSession(insertLeadingNewline: Boolean = false) {
         val sb = ensureSpannable()
+        sessionBaseline = sb.toString()
         val currentLength = sb.length
         sessionStart = currentLength
         sessionEnd = currentLength
@@ -162,11 +164,36 @@ internal class ProvisionalBodyBuffer(
     fun clearSession() {
         sessionStart = null
         sessionEnd = null
+        sessionBaseline = null
     }
 
-    fun commitToNote(noteId: Long, text: String) {
+    fun hasActiveSession(): Boolean = sessionStart != null
+
+    fun currentSessionBaseline(): String? = sessionBaseline
+
+    fun commitToNote(noteId: Long, text: String, baseline: String? = null) {
         scope.launch(Dispatchers.IO) {
-            repo.setBody(noteId, text)
+            val persisted = runCatching { repo.noteOnce(noteId) }
+                .getOrNull()
+                ?.body
+                .orEmpty()
+
+            val merged = mergeBodies(persisted, baseline, text)
+            if (merged != persisted) {
+                repo.setBody(noteId, merged)
+            }
         }
+    }
+
+    private fun mergeBodies(persisted: String, baseline: String?, finalText: String): String {
+        if (baseline != null && finalText.startsWith(baseline)) {
+            val addition = finalText.substring(baseline.length)
+            if (addition.isEmpty()) return persisted
+            return persisted + addition
+        }
+
+        if (persisted == finalText) return persisted
+
+        return finalText
     }
 }
