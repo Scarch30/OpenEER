@@ -10,6 +10,8 @@ import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.data.merge.BlockSnapshot
 import com.example.openeer.voice.SmartListSplitter
 import com.google.gson.Gson
+import java.text.Normalizer
+import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +62,7 @@ class BlocksRepository(
         const val MIME_TYPE_TEXT_BLOCK_LIST = "text/x-openeer-list"
         private const val BLOCK_LIST_LOG_TAG = "BlockListUI"
         private const val EXTRA_KEY_TITLE = "title"
+        private val DIACRITIC_REGEX = "\\p{Mn}+".toRegex()
     }
 
     data class TextBlockContent(
@@ -68,6 +71,11 @@ class BlocksRepository(
     ) {
         fun combinedText(): String = if (title.isBlank()) body else "$title\n\n$body".trimEnd()
     }
+
+    data class ListApproxResult(
+        val affectedItems: List<ListItemEntity>,
+        val ambiguous: Boolean,
+    )
 
     private data class TextBlockMetadata(val title: String) {
         fun toJson(): String = JSONObject().apply {
@@ -452,6 +460,136 @@ class BlocksRepository(
                 id
             }
         }
+    }
+
+    suspend fun addItemsToNoteList(noteId: Long, items: List<String>): List<ListItemEntity> {
+        val dao = listItemDao ?: return emptyList()
+        if (items.isEmpty()) return emptyList()
+        return withContext(io) {
+            runInRoomTransaction {
+                val trimmed = items.flatMap { candidate ->
+                    SmartListSplitter.splitAllCandidates(candidate).map { part ->
+                        part.replace("\\s+".toRegex(), " ").trim()
+                    }
+                }.filter { it.isNotEmpty() }
+
+                if (trimmed.isEmpty()) {
+                    Log.i(
+                        BLOCK_LIST_LOG_TAG,
+                        "note=$noteId action=ADD count=0 reason=EMPTY"
+                    )
+                    return@runInRoomTransaction emptyList<ListItemEntity>()
+                }
+
+                val now = System.currentTimeMillis()
+                var order = (dao.maxOrderForNote(noteId) ?: -1) + 1
+                val inserted = mutableListOf<ListItemEntity>()
+                for ((index, textLine) in trimmed.withIndex()) {
+                    val entity = ListItemEntity(
+                        noteId = noteId,
+                        text = textLine,
+                        order = order++,
+                        createdAt = now + index,
+                    )
+                    val id = dao.insert(entity)
+                    inserted += entity.copy(id = id)
+                }
+
+                Log.i(
+                    BLOCK_LIST_LOG_TAG,
+                    "note=$noteId action=ADD count=${inserted.size} items=${inserted.joinToString { "\"${it.text}\"" }}"
+                )
+                inserted
+            }
+        }
+    }
+
+    suspend fun removeItemsByApprox(noteId: Long, query: String): ListApproxResult {
+        val dao = listItemDao ?: return ListApproxResult(emptyList(), ambiguous = false)
+        return withContext(io) {
+            runInRoomTransaction {
+                val normalizedQuery = normalizeListText(query)
+                if (normalizedQuery.isEmpty()) {
+                    return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
+                }
+
+                val items = dao.listForNote(noteId).filterNot { it.provisional }
+                val matches = items.filter { normalizeListText(it.text).contains(normalizedQuery) }
+                if (matches.isEmpty()) {
+                    Log.i(
+                        BLOCK_LIST_LOG_TAG,
+                        "note=$noteId action=REMOVE count=0 reason=NOT_FOUND query=\"$query\""
+                    )
+                    return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
+                }
+
+                val longestLength = matches.maxOf { it.text.length }
+                val longest = matches.filter { it.text.length == longestLength }
+                if (longest.size != 1) {
+                    Log.w(
+                        BLOCK_LIST_LOG_TAG,
+                        "note=$noteId action=REMOVE count=0 reason=AMBIGUOUS candidates=${longest.size} query=\"$query\""
+                    )
+                    return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = true)
+                }
+
+                val target = longest.first()
+                dao.delete(target.id)
+                Log.i(
+                    BLOCK_LIST_LOG_TAG,
+                    "note=$noteId action=REMOVE count=1 items=\"${target.text}\" query=\"$query\""
+                )
+                ListApproxResult(listOf(target), ambiguous = false)
+            }
+        }
+    }
+
+    suspend fun toggleItemsByApprox(noteId: Long, query: String, done: Boolean): ListApproxResult {
+        val dao = listItemDao ?: return ListApproxResult(emptyList(), ambiguous = false)
+        return withContext(io) {
+            runInRoomTransaction {
+                val normalizedQuery = normalizeListText(query)
+                if (normalizedQuery.isEmpty()) {
+                    return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
+                }
+
+                val items = dao.listForNote(noteId).filterNot { it.provisional }
+                val matches = items.filter { normalizeListText(it.text).contains(normalizedQuery) }
+                if (matches.isEmpty()) {
+                    Log.i(
+                        BLOCK_LIST_LOG_TAG,
+                        "note=$noteId action=${if (done) "CHECK" else "UNCHECK"} count=0 reason=NOT_FOUND query=\"$query\""
+                    )
+                    return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
+                }
+
+                val longestLength = matches.maxOf { it.text.length }
+                val longest = matches.filter { it.text.length == longestLength }
+                if (longest.size != 1) {
+                    Log.w(
+                        BLOCK_LIST_LOG_TAG,
+                        "note=$noteId action=${if (done) "CHECK" else "UNCHECK"} count=0 reason=AMBIGUOUS candidates=${longest.size} query=\"$query\""
+                    )
+                    return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = true)
+                }
+
+                val target = longest.first()
+                if (target.done != done) {
+                    dao.updateDone(target.id, done)
+                }
+                Log.i(
+                    BLOCK_LIST_LOG_TAG,
+                    "note=$noteId action=${if (done) "CHECK" else "UNCHECK"} count=1 items=\"${target.text}\" query=\"$query\""
+                )
+                ListApproxResult(listOf(target.copy(done = done)), ambiguous = false)
+            }
+        }
+    }
+
+    private fun normalizeListText(input: String): String {
+        if (input.isBlank()) return ""
+        val normalized = Normalizer.normalize(input.lowercase(Locale.FRENCH), Normalizer.Form.NFD)
+        return DIACRITIC_REGEX.replace(normalized, "").trim()
     }
 
     suspend fun updateItemTextForBlock(itemId: Long, text: String) {
