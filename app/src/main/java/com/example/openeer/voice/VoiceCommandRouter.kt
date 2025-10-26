@@ -16,6 +16,8 @@ class VoiceCommandRouter(
     private val listCommandParser: VoiceListCommandParser = VoiceListCommandParser()
 ) {
 
+    private val reminderIntentParser = ReminderIntentParser(placeIntentParser)
+
     data class EarlyContext(
         val assumeListContext: Boolean,
     )
@@ -33,15 +35,11 @@ class VoiceCommandRouter(
             return VoiceEarlyDecision.None
         }
 
-        LocalTimeIntentParser.routeEarly(trimmed)?.let { parse ->
-            return VoiceEarlyDecision.ReminderTime(parse, trimmed)
+        return when (val intent = reminderIntentParser.parse(trimmed)) {
+            is ReminderIntent.Time -> VoiceEarlyDecision.ReminderTime(intent, trimmed)
+            is ReminderIntent.Place -> VoiceEarlyDecision.ReminderPlace(intent, trimmed)
+            null -> VoiceEarlyDecision.ReminderIncomplete(trimmed)
         }
-
-        placeIntentParser.routeEarly(trimmed)?.let { parse ->
-            return VoiceEarlyDecision.ReminderPlace(parse, trimmed)
-        }
-
-        return VoiceEarlyDecision.ReminderIncomplete(trimmed)
     }
 
     fun route(finalWhisperText: String, assumeListContext: Boolean = false): VoiceRouteDecision {
@@ -73,19 +71,24 @@ class VoiceCommandRouter(
             return VoiceRouteDecision.NOTE
         }
 
-        LocalTimeIntentParser.parseReminder(trimmed)?.let {
-            logDecision(VoiceRouteDecision.REMINDER_TIME, trimmed)
-            return VoiceRouteDecision.REMINDER_TIME
-        }
+        return when (val intent = reminderIntentParser.parse(trimmed)) {
+            is ReminderIntent.Time -> {
+                val decision = VoiceRouteDecision.ReminderTime(intent)
+                logDecision(decision, trimmed)
+                decision
+            }
 
-        val placeParse = placeIntentParser.parse(trimmed)
-        if (placeParse != null) {
-            logDecision(VoiceRouteDecision.REMINDER_PLACE, trimmed)
-            return VoiceRouteDecision.REMINDER_PLACE
-        }
+            is ReminderIntent.Place -> {
+                val decision = VoiceRouteDecision.ReminderPlace(intent)
+                logDecision(decision, trimmed)
+                decision
+            }
 
-        logDecision(VoiceRouteDecision.INCOMPLETE, trimmed, reason = "missing_place_or_time")
-        return VoiceRouteDecision.INCOMPLETE
+            null -> {
+                logDecision(VoiceRouteDecision.INCOMPLETE, trimmed, reason = "missing_place_or_time")
+                VoiceRouteDecision.INCOMPLETE
+            }
+        }
     }
 
     private fun logDecision(decision: VoiceRouteDecision, text: String, reason: String? = null) {
@@ -104,12 +107,12 @@ sealed class VoiceEarlyDecision(val logToken: String) {
     ) : VoiceEarlyDecision("LIST_${command.action.name}")
 
     data class ReminderTime(
-        val parse: LocalTimeIntentParser.TimeParseResult,
+        val intent: ReminderIntent.Time,
         val rawText: String,
     ) : VoiceEarlyDecision("REMINDER_TIME")
 
     data class ReminderPlace(
-        val parse: LocalPlaceIntentParser.PlaceParseResult,
+        val intent: ReminderIntent.Place,
         val rawText: String,
     ) : VoiceEarlyDecision("REMINDER_PLACE")
 
@@ -118,8 +121,8 @@ sealed class VoiceEarlyDecision(val logToken: String) {
 
 sealed class VoiceRouteDecision(val logToken: String) {
     object NOTE : VoiceRouteDecision("NOTE")
-    object REMINDER_TIME : VoiceRouteDecision("REMINDER_TIME")
-    object REMINDER_PLACE : VoiceRouteDecision("REMINDER_PLACE")
+    data class ReminderTime(val intent: ReminderIntent.Time) : VoiceRouteDecision("REMINDER_TIME")
+    data class ReminderPlace(val intent: ReminderIntent.Place) : VoiceRouteDecision("REMINDER_PLACE")
     object INCOMPLETE : VoiceRouteDecision("INCOMPLETE")
     data class List(
         val action: VoiceListAction,

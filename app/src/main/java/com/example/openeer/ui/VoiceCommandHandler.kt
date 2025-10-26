@@ -7,6 +7,7 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.ReminderExecutor
+import com.example.openeer.voice.VoiceEarlyDecision
 import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +65,60 @@ internal class VoiceCommandHandler(
         }
     }
 
+    private suspend fun onReminderCreated(
+        noteId: Long,
+        audioBlockId: Long,
+        audioPath: String,
+        reminderId: Long,
+    ) {
+        if (listManager.has(audioBlockId)) {
+            listManager.remove(audioBlockId, "REMINDER")
+        } else {
+            withContext(Dispatchers.Main) {
+                val removed = bodyManager.buffer.removeCurrentSession()
+                bodyManager.onProvisionalRangeRemoved(audioBlockId, removed)
+                if (removed != null) {
+                    bodyManager.buffer.ensureSpannable()
+                    bodyManager.maybeCommitBody()
+                }
+            }
+        }
+        cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+        Log.d("MicCtl", "Reminder créé via voix: id=$reminderId pour note=$noteId")
+    }
+
+    suspend fun handleEarlyReminderDecision(
+        noteId: Long,
+        audioBlockId: Long,
+        rawText: String,
+        audioPath: String,
+        decision: VoiceEarlyDecision,
+    ): ReminderExecutor.PendingVoiceReminder? {
+        val intent = when (decision) {
+            is VoiceEarlyDecision.ReminderTime -> decision.intent
+            is VoiceEarlyDecision.ReminderPlace -> decision.intent
+            else -> return null
+        }
+        val result = runCatching {
+            reminderExecutor.createEarlyReminderFromVosk(noteId, rawText, intent)
+        }
+        result.onSuccess { pending ->
+            onReminderCreated(noteId, audioBlockId, audioPath, pending.reminderId)
+        }.onFailure { error ->
+            if (error is ReminderExecutor.IncompleteException) {
+                Log.d("MicCtl", "Rappel anticipé incomplet pour note=$noteId", error)
+                handleNoteDecision(noteId, audioBlockId, rawText)
+                withContext(Dispatchers.Main) {
+                    showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                }
+            } else {
+                Log.e("MicCtl", "Échec création anticipée rappel note=$noteId", error)
+                handleNoteDecision(noteId, audioBlockId, rawText)
+            }
+        }
+        return result.getOrNull()
+    }
+
     suspend fun handleReminderDecision(
         noteId: Long,
         audioBlockId: Long,
@@ -73,28 +128,14 @@ internal class VoiceCommandHandler(
     ) {
         val result = runCatching {
             when (decision) {
-                VoiceRouteDecision.REMINDER_TIME -> reminderExecutor.createFromVoice(noteId, refinedText)
-                VoiceRouteDecision.REMINDER_PLACE -> reminderExecutor.createPlaceReminderFromVoice(noteId, refinedText)
+                is VoiceRouteDecision.ReminderTime -> reminderExecutor.createFromVoice(noteId, refinedText)
+                is VoiceRouteDecision.ReminderPlace -> reminderExecutor.createPlaceReminderFromVoice(noteId, refinedText)
                 else -> throw IllegalArgumentException("Unsupported decision $decision")
             }
         }
 
         result.onSuccess { reminderId ->
-            if (listManager.has(audioBlockId)) {
-                listManager.remove(audioBlockId, "REMINDER")
-            } else {
-                withContext(Dispatchers.Main) {
-                    val removed = bodyManager.buffer.removeCurrentSession()
-                    bodyManager.onProvisionalRangeRemoved(audioBlockId, removed)
-                    if (removed != null) {
-                        bodyManager.buffer.ensureSpannable()
-                        bodyManager.maybeCommitBody()
-                    }
-                }
-            }
-            cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
-
-            Log.d("MicCtl", "Reminder créé via voix: id=$reminderId pour note=$noteId")
+            onReminderCreated(noteId, audioBlockId, audioPath, reminderId)
         }.onFailure { error ->
             if (error is ReminderExecutor.IncompleteException) {
                 Log.d("MicCtl", "Rappel lieu incomplet pour note=$noteId, fallback note", error)

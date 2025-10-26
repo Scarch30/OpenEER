@@ -18,6 +18,8 @@ import com.example.openeer.data.favorites.FavoriteEntity
 import com.example.openeer.data.list.ListItemDao
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.data.location.NoteLocationEntity
+import com.example.openeer.data.reminders.PendingVoiceReminderDao
+import com.example.openeer.data.reminders.PendingVoiceReminderEntity
 import com.example.openeer.data.reminders.ReminderDao
 import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.data.search.SearchDao
@@ -43,10 +45,11 @@ import com.example.openeer.data.tag.TagEntity
         // 🔗 Liens entre blocs (AUDIO ↔ TEXTE, etc.)
         BlockLinkEntity::class,
         ReminderEntity::class,
+        PendingVoiceReminderEntity::class,
         FavoriteEntity::class,
         ListItemEntity::class
     ],
-    version = 24, // 🔼 bump : listes scellées par bloc
+    version = 25, // 🔼 bump : rappels vocaux en attente
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -63,6 +66,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun audioDao(): AudioDao
     abstract fun blockReadDao(): BlockReadDao
     abstract fun reminderDao(): ReminderDao
+
+    abstract fun pendingVoiceReminderDao(): PendingVoiceReminderDao
 
     abstract fun favoriteDao(): FavoriteDao
 
@@ -600,6 +605,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS pending_voice_reminders (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            noteId INTEGER NOT NULL,
+                            reminderId INTEGER NOT NULL,
+                            rawVosk TEXT NOT NULL,
+                            parsedAt INTEGER NOT NULL,
+                            usedFields TEXT NOT NULL,
+                            intentType TEXT NOT NULL,
+                            intentPayload TEXT NOT NULL,
+                            FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE,
+                            FOREIGN KEY(reminderId) REFERENCES reminders(id) ON DELETE CASCADE
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_pending_voice_reminders_noteId ON pending_voice_reminders(noteId)")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_pending_voice_reminders_reminderId ON pending_voice_reminders(reminderId)"
+                )
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -630,7 +660,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_20_21,
                         MIGRATION_21_22,
                         MIGRATION_22_23,
-                        MIGRATION_23_24
+                        MIGRATION_23_24,
+                        MIGRATION_24_25
                     )
                     .build()
                     .also { INSTANCE = it }

@@ -313,14 +313,21 @@ class MicBarController(
                                 )
 
                                 val pendingReminder = pendingEarlyReminders.remove(blockId)
-                                if (pendingReminder != null &&
-                                    (decision == VoiceRouteDecision.REMINDER_TIME ||
-                                            decision == VoiceRouteDecision.REMINDER_PLACE)
-                                ) {
+                                if (pendingReminder != null) {
                                     Log.d(
                                         "EarlyVC",
-                                        "ReconcileEarly reminder early=${pendingReminder.decision} final=${decision.logToken}"
+                                        "ReconcileEarly reminder final=${decision.logToken}"
                                     )
+                                    val result = reminderExecutor.reconcileReminderWithWhisper(
+                                        pendingReminder.pending,
+                                        decision,
+                                        refinedText,
+                                    )
+                                    if (result == ReminderExecutor.ReconcileResult.MarkIncomplete) {
+                                        withContext(Dispatchers.Main) {
+                                            showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                                        }
+                                    }
                                     return@launch
                                 }
 
@@ -469,36 +476,40 @@ class MicBarController(
             }
 
             is VoiceEarlyDecision.ReminderTime -> {
-                handleVoiceDecision(
-                    decision = VoiceRouteDecision.REMINDER_TIME,
-                    targetNoteId = targetNoteId,
-                    audioBlockId = audioBlockId,
-                    transcription = transcription,
-                    audioPath = audioPath
-                )
-                pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
+                val pending = voiceCommandHandler.handleEarlyReminderDecision(
                     noteId = targetNoteId,
-                    rawText = decision.rawText,
-                    decision = decision.logToken
+                    audioBlockId = audioBlockId,
+                    rawText = transcription,
+                    audioPath = audioPath,
+                    decision = decision,
                 )
-                showReminderFeedback()
+                if (pending != null) {
+                    pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
+                        noteId = targetNoteId,
+                        rawText = decision.rawText,
+                        pending = pending,
+                    )
+                    showReminderFeedback()
+                }
                 EarlyHandlingResult(skipWhisper = false)
             }
 
             is VoiceEarlyDecision.ReminderPlace -> {
-                handleVoiceDecision(
-                    decision = VoiceRouteDecision.REMINDER_PLACE,
-                    targetNoteId = targetNoteId,
-                    audioBlockId = audioBlockId,
-                    transcription = transcription,
-                    audioPath = audioPath
-                )
-                pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
+                val pending = voiceCommandHandler.handleEarlyReminderDecision(
                     noteId = targetNoteId,
-                    rawText = decision.rawText,
-                    decision = decision.logToken
+                    audioBlockId = audioBlockId,
+                    rawText = transcription,
+                    audioPath = audioPath,
+                    decision = decision,
                 )
-                showReminderFeedback()
+                if (pending != null) {
+                    pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
+                        noteId = targetNoteId,
+                        rawText = decision.rawText,
+                        pending = pending,
+                    )
+                    showReminderFeedback()
+                }
                 EarlyHandlingResult(skipWhisper = false)
             }
 
@@ -523,8 +534,8 @@ class MicBarController(
                 voiceCommandHandler.handleNoteDecision(targetNoteId, audioBlockId, transcription)
             }
 
-            VoiceRouteDecision.REMINDER_TIME,
-            VoiceRouteDecision.REMINDER_PLACE -> {
+            is VoiceRouteDecision.ReminderTime,
+            is VoiceRouteDecision.ReminderPlace -> {
                 voiceCommandHandler.handleReminderDecision(
                     noteId = targetNoteId,
                     audioBlockId = audioBlockId,
@@ -674,6 +685,6 @@ class MicBarController(
     private data class PendingReminderReconciliation(
         val noteId: Long,
         val rawText: String,
-        val decision: String,
+        val pending: ReminderExecutor.PendingVoiceReminder,
     )
 }
