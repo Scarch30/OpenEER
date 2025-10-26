@@ -9,6 +9,7 @@ import android.text.style.StyleSpan
 import android.widget.TextView
 import androidx.core.text.getSpans
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.block.BlocksRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -17,6 +18,7 @@ internal class ProvisionalBodyBuffer(
     private val textView: TextView,
     private val scope: CoroutineScope,
     private val repo: NoteRepository,
+    private val blocksRepository: BlocksRepository,
 ) {
     private var sessionStart: Int? = null
     private var sessionEnd: Int? = null
@@ -180,7 +182,7 @@ internal class ProvisionalBodyBuffer(
 
             val merged = mergeBodies(persisted, baseline, text)
             if (merged != persisted) {
-                repo.setBody(noteId, merged)
+                blocksRepository.updateNoteBody(noteId, merged)
             }
         }
     }

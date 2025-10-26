@@ -299,6 +299,7 @@ class MainActivity : AppCompatActivity() {
             activity = this,
             binding = b,
             repo = repo,
+            blocksRepository = blocksRepo,
             onEditModeChanged = { editing ->
                 b.btnMicBar.isVisible = !editing
                 b.bottomBar.isVisible = !editing

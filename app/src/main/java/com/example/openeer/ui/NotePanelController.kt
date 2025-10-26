@@ -373,17 +373,21 @@ class NotePanelController(
     }
 
     fun onAppendLive(displayBody: String) {
-        binding.txtBodyDetail.text = displayBody
+        val nid = openNoteId ?: return
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            blocksRepo.updateNoteBody(nid, displayBody)
+        }
     }
 
     fun onReplaceFinal(finalBody: String, addNewline: Boolean) {
-        val current = binding.txtBodyDetail.text?.toString().orEmpty()
-        val toAppend = if (addNewline) finalBody + "\n" else finalBody
-        val newText = current + toAppend
-        binding.txtBodyDetail.text = newText
         val nid = openNoteId ?: return
+        val toAppend = if (addNewline) finalBody + "\n" else finalBody
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            repo.setBody(nid, newText)
+            val baseline = runCatching { repo.noteOnce(nid) }
+                .getOrNull()
+                ?.body
+                .orEmpty()
+            blocksRepo.updateNoteBody(nid, baseline + toAppend)
         }
     }
 
