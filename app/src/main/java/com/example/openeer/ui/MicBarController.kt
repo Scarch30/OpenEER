@@ -449,15 +449,23 @@ class MicBarController(
             VoiceEarlyDecision.None -> EarlyHandlingResult(skipWhisper = false)
 
             is VoiceEarlyDecision.ListCommand -> {
-                handleVoiceDecision(
-                    decision = decision.command,
-                    targetNoteId = targetNoteId,
-                    audioBlockId = audioBlockId,
-                    transcription = transcription,
-                    audioPath = audioPath
+                val handled = handleEarlyListCommand(
+                    noteId = targetNoteId,
+                    command = decision.command,
                 )
-                showEarlyListFeedback(decision.command.action)
-                EarlyHandlingResult(skipWhisper = true)
+                if (handled != null) {
+                    handled
+                } else {
+                    handleVoiceDecision(
+                        decision = decision.command,
+                        targetNoteId = targetNoteId,
+                        audioBlockId = audioBlockId,
+                        transcription = transcription,
+                        audioPath = audioPath
+                    )
+                    showEarlyListFeedback(decision.command.action)
+                    EarlyHandlingResult(skipWhisper = true)
+                }
             }
 
             is VoiceEarlyDecision.ReminderTime -> {
@@ -546,6 +554,80 @@ class MicBarController(
                     decision = decision
                 )
             }
+        }
+    }
+
+    private suspend fun handleEarlyListCommand(
+        noteId: Long,
+        command: VoiceRouteDecision.List,
+    ): EarlyHandlingResult? {
+        if (!FeatureFlags.voiceEarlyCommandsEnabled) return null
+        val requested = command.items
+        return when (command.action) {
+            VoiceListAction.ADD -> {
+                val added = blocksRepo.addItemsToNoteList(noteId, requested)
+                withContext(Dispatchers.Main) {
+                    val messageRes = if (added.isNotEmpty()) {
+                        R.string.voice_early_list_added
+                    } else {
+                        R.string.voice_list_item_not_found
+                    }
+                    showTopBubble(activity.getString(messageRes))
+                }
+                EarlyHandlingResult(skipWhisper = true)
+            }
+
+            VoiceListAction.REMOVE -> {
+                var removedCount = 0
+                var ambiguous = false
+                for (item in requested) {
+                    val result = blocksRepo.removeItemsByApprox(noteId, item)
+                    if (result.ambiguous) {
+                        ambiguous = true
+                    } else {
+                        removedCount += result.affectedItems.size
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    val messageRes = when {
+                        ambiguous -> R.string.voice_early_list_multiple_matches
+                        removedCount > 0 -> R.string.voice_early_list_removed
+                        else -> R.string.voice_list_item_not_found
+                    }
+                    showTopBubble(activity.getString(messageRes))
+                }
+                EarlyHandlingResult(skipWhisper = true)
+            }
+
+            VoiceListAction.TOGGLE, VoiceListAction.UNTICK -> {
+                var updatedCount = 0
+                var ambiguous = false
+                val targetDone = command.action == VoiceListAction.TOGGLE
+                for (item in requested) {
+                    val result = blocksRepo.toggleItemsByApprox(noteId, item, done = targetDone)
+                    if (result.ambiguous) {
+                        ambiguous = true
+                    } else {
+                        updatedCount += result.affectedItems.size
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    val messageRes = when {
+                        ambiguous -> R.string.voice_early_list_multiple_matches
+                        updatedCount > 0 -> if (targetDone) {
+                            R.string.voice_early_list_toggled
+                        } else {
+                            R.string.voice_early_list_unticked
+                        }
+                        else -> R.string.voice_list_item_not_found
+                    }
+                    showTopBubble(activity.getString(messageRes))
+                }
+                EarlyHandlingResult(skipWhisper = true)
+            }
+
+            VoiceListAction.CONVERT_TO_LIST,
+            VoiceListAction.CONVERT_TO_TEXT -> null
         }
     }
 
