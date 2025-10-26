@@ -53,14 +53,8 @@ internal class VoiceCommandHandler(
 
         if (listHandle == null) {
             withContext(Dispatchers.Main) {
-                bodyManager.replaceProvisionalWithRefined(audioBlockId, refinedText)
-                val finalBodyText = bodyManager.buffer.currentPlain()
-                val bodyToPersist = if (finalBodyText.isNotEmpty()) {
-                    finalBodyText
-                } else {
-                    refinedText
-                }
-                bodyManager.buffer.commitToNote(noteId, bodyToPersist)
+                val replacement = bodyManager.replaceProvisionalWithRefined(audioBlockId, refinedText)
+                bodyManager.commitNoteBody(noteId, replacement?.baseline)
             }
         }
     }

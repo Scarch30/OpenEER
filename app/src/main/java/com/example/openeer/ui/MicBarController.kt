@@ -290,7 +290,12 @@ class MicBarController(
                     if (createdAudioId != null) {
                         bodyManager.recordGroupId(createdAudioId, gid)
                         if (blockRange != null) {
-                            bodyManager.rememberRange(createdAudioId, targetNoteId, blockRange)
+                            bodyManager.rememberRange(
+                                createdAudioId,
+                                targetNoteId,
+                                blockRange,
+                                bodyManager.currentSessionBaseline()
+                            )
                         }
                         if (isListNote && provisionalList != null) {
                             listManager.link(createdAudioId, provisionalList)

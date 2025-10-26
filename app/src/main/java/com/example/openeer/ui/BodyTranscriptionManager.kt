@@ -27,14 +27,24 @@ internal class BodyTranscriptionManager(
     private val rangesByBlock = mutableMapOf<Long, BlockAnchor>()
     private val textBlockIdByAudio = mutableMapOf<Long, Long>()
     private val groupIdByAudio = mutableMapOf<Long, String>()
+    private var pendingBaseline: String? = null
 
-    fun rememberRange(blockId: Long, noteId: Long, range: IntRange) {
-        rangesByBlock[blockId] = BlockAnchor(noteId, range)
+    fun rememberRange(blockId: Long, noteId: Long, range: IntRange, baseline: String?) {
+        if (pendingBaseline == null && baseline != null) {
+            pendingBaseline = baseline
+        }
+        rangesByBlock[blockId] = BlockAnchor(noteId, range, baseline)
     }
 
     fun rangeFor(blockId: Long): IntRange? = rangesByBlock[blockId]?.range
 
-    fun removeRange(blockId: Long): IntRange? = rangesByBlock.remove(blockId)?.range
+    fun removeRange(blockId: Long): IntRange? {
+        val removed = rangesByBlock.remove(blockId) ?: return null
+        if (rangesByBlock.isEmpty()) {
+            pendingBaseline = null
+        }
+        return removed.range
+    }
 
     fun recordTextBlock(blockId: Long, textBlockId: Long) {
         textBlockIdByAudio[blockId] = textBlockId
@@ -54,8 +64,8 @@ internal class BodyTranscriptionManager(
         groupIdByAudio.remove(blockId)
     }
 
-    fun replaceProvisionalWithRefined(blockId: Long, refined: String) {
-        if (refined.isEmpty()) return
+    fun replaceProvisionalWithRefined(blockId: Long, refined: String): ReplacementResult? {
+        if (refined.isEmpty()) return null
 
         val anchor = rangesByBlock.remove(blockId)
         val range = anchor?.range
@@ -70,7 +80,7 @@ internal class BodyTranscriptionManager(
             textView.text = sb
             maybeCommitBody()
             buffer.clearSession()
-            return
+            return anchor?.toReplacementResult()
         }
 
         val safeStart = min(max(0, range.first), sb.length)
@@ -107,6 +117,7 @@ internal class BodyTranscriptionManager(
             rangesByBlock.clear()
             rangesByBlock.putAll(updated)
         }
+        return anchor?.toReplacementResult()
     }
 
     fun removeProvisionalForBlock(blockId: Long) {
@@ -162,9 +173,24 @@ internal class BodyTranscriptionManager(
                 ?: activeSessionNoteId()
                 ?: getOpenNoteId()
                 ?: return
-            buffer.commitToNote(nid, buffer.currentPlain())
+            commitNoteBody(nid)
         }
     }
+
+    fun commitNoteBody(noteId: Long, baselineOverride: String? = null) {
+        if (isDictationInProgress()) return
+        val baseline = pendingBaseline ?: baselineOverride
+        val finalBody = buffer.currentPlain()
+        buffer.commitToNote(noteId, finalBody, baseline)
+        pendingBaseline = null
+    }
+
+    fun isDictationInProgress(): Boolean {
+        if (buffer.hasActiveSession()) return true
+        return rangesByBlock.isNotEmpty()
+    }
+
+    fun currentSessionBaseline(): String? = buffer.currentSessionBaseline()
 
     fun prepareForNote(newNoteId: Long?, noteSnapshot: Note?, display: String) {
         if (newNoteId == null) {
@@ -183,11 +209,21 @@ internal class BodyTranscriptionManager(
         rangesByBlock.clear()
         textBlockIdByAudio.clear()
         groupIdByAudio.clear()
+        pendingBaseline = null
         buffer.clear()
     }
 
     private data class BlockAnchor(
         val noteId: Long,
         val range: IntRange,
+        val baseline: String?,
     )
+
+    data class ReplacementResult(
+        val noteId: Long,
+        val baseline: String?,
+    )
+
+    private fun BlockAnchor.toReplacementResult(): ReplacementResult =
+        ReplacementResult(noteId = noteId, baseline = baseline)
 }
