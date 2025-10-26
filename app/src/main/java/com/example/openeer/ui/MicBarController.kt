@@ -96,7 +96,7 @@ class MicBarController(
     private var nextAudioSessionId = 1L
     private var currentAudioSessionId: Long? = null
     private val audioSessionIdsByBlock = mutableMapOf<Long, Long>()
-    private val pendingIntentsBySession = mutableMapOf<Long, MutableMap<String, IntentRecord>>()
+    private val sessionIntentRegistry = SessionIntentRegistry()
     private var pendingWhisperJobs = 0
     private var segmentStartRealtime: Long? = null
     private var lastAdaptiveFeedbackAt: Long = 0L
@@ -442,7 +442,11 @@ class MicBarController(
                                         }
                                     }
                                 } else {
-                                    val intentKey = voiceCommandRouter.intentKeyFor(decision)
+                                    val intentKey = voiceCommandRouter.intentKeyFor(
+                                        decision = decision,
+                                        noteId = targetNoteId,
+                                        normalizedText = refinedText,
+                                    )
                                     val commitContext = buildCommitContext(
                                         mode = BodyTranscriptionManager.DictationCommitMode.WHISPER,
                                         intentKey = intentKey,
@@ -489,17 +493,18 @@ class MicBarController(
                             )
                         } else {
                             val sessionIdForIntent = audioSessionId
-                            val intentKey = voiceCommandRouter.intentKeyFor(earlyDecision)
-                            val shouldExecute = if (sessionIdForIntent != null && intentKey != null) {
-                                registerVoiceIntent(sessionIdForIntent, intentKey, audioBlockId)
+                            val intentKey = voiceCommandRouter.intentKeyFor(
+                                decision = earlyDecision,
+                                noteId = resolvedTarget,
+                                normalizedText = initialVoskText,
+                            )
+                            val shouldExecute = if (intentKey != null) {
+                                sessionIntentRegistry.registerIfNew(intentKey)
                             } else {
                                 true
                             }
                             if (!shouldExecute) {
-                                Log.d(
-                                    "MicCtl",
-                                    "Intent vocal anticipé ignoré (dup): session=$sessionIdForIntent key=$intentKey"
-                                )
+                                Log.d("MicCtl", "EarlySkip/Duplicate key=$intentKey block=$audioBlockId")
                                 if (!wavPath.isNullOrBlank()) {
                                     voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, wavPath)
                                 }
@@ -514,8 +519,8 @@ class MicBarController(
                                         transcription = initialVoskText,
                                         audioPath = wavPath
                                     )
-                                    if (sessionIdForIntent != null && intentKey != null) {
-                                        markVoiceIntentCompleted(sessionIdForIntent, intentKey, audioBlockId)
+                                    if (intentKey != null) {
+                                        sessionIntentRegistry.markResolved(intentKey)
                                     }
                                     if (result.skipWhisper) {
                                         releaseAudioSessionForBlock(audioBlockId)
@@ -524,8 +529,8 @@ class MicBarController(
                                         skipWhisper = true
                                     }
                                 } catch (error: Throwable) {
-                                    if (sessionIdForIntent != null && intentKey != null) {
-                                        cancelVoiceIntent(sessionIdForIntent, intentKey, audioBlockId)
+                                    if (intentKey != null) {
+                                        sessionIntentRegistry.remove(intentKey)
                                     }
                                     Log.e(
                                         "MicCtl",
@@ -663,7 +668,11 @@ class MicBarController(
                     )
                     handled
                 } else {
-                    val intentKey = voiceCommandRouter.intentKeyFor(decision.command)
+                    val intentKey = voiceCommandRouter.intentKeyFor(
+                        decision = decision.command,
+                        noteId = targetNoteId,
+                        normalizedText = transcription,
+                    )
                     val commitContext = buildCommitContext(
                         mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
                         intentKey = intentKey,
@@ -690,7 +699,11 @@ class MicBarController(
             }
 
             is VoiceEarlyDecision.ReminderTime -> {
-                val intentKey = voiceCommandRouter.intentKeyFor(decision)
+                val intentKey = voiceCommandRouter.intentKeyFor(
+                    decision = decision,
+                    noteId = targetNoteId,
+                    normalizedText = transcription,
+                )
                 val commitContext = buildCommitContext(
                     mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
                     intentKey = intentKey,
@@ -718,7 +731,11 @@ class MicBarController(
             }
 
             is VoiceEarlyDecision.ReminderPlace -> {
-                val intentKey = voiceCommandRouter.intentKeyFor(decision)
+                val intentKey = voiceCommandRouter.intentKeyFor(
+                    decision = decision,
+                    noteId = targetNoteId,
+                    normalizedText = transcription,
+                )
                 val commitContext = buildCommitContext(
                     mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
                     intentKey = intentKey,
@@ -762,15 +779,15 @@ class MicBarController(
         audioPath: String,
         commitContext: BodyTranscriptionManager.DictationCommitContext,
     ) {
-        val sessionIdForIntent = audioSessionIdsByBlock[audioBlockId]
-        val intentKey = voiceCommandRouter.intentKeyFor(decision)
-        if (sessionIdForIntent != null && intentKey != null) {
-            val registered = registerVoiceIntent(sessionIdForIntent, intentKey, audioBlockId)
+        val intentKey = voiceCommandRouter.intentKeyFor(
+            decision = decision,
+            noteId = targetNoteId,
+            normalizedText = transcription,
+        )
+        if (intentKey != null) {
+            val registered = sessionIntentRegistry.registerIfNew(intentKey)
             if (!registered) {
-                Log.d(
-                    "MicCtl",
-                    "Intent vocal final ignoré (dup): session=$sessionIdForIntent key=$intentKey"
-                )
+                Log.d("MicCtl", "FinalSkip/Duplicate key=$intentKey block=$audioBlockId")
                 voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
                 releaseAudioSessionForBlock(audioBlockId)
                 return
@@ -829,15 +846,15 @@ class MicBarController(
                     commitContext = commitContext,
                 )
             }
-        }
+            }
         } catch (error: Throwable) {
-            if (sessionIdForIntent != null && intentKey != null) {
-                cancelVoiceIntent(sessionIdForIntent, intentKey, audioBlockId)
+            if (intentKey != null) {
+                sessionIntentRegistry.remove(intentKey)
             }
             throw error
         } finally {
-            if (sessionIdForIntent != null && intentKey != null) {
-                markVoiceIntentCompleted(sessionIdForIntent, intentKey, audioBlockId)
+            if (intentKey != null) {
+                sessionIntentRegistry.markResolved(intentKey)
             }
             releaseAudioSessionForBlock(audioBlockId)
         }
@@ -1006,7 +1023,7 @@ class MicBarController(
     companion object {
         private const val LIST_PLACEHOLDER = "(transcription en cours…)"
         private const val LIST_VOICE_TAG = "ListVoice"
-        private const val INTENT_TTL_MS = 30_000L
+        private const val INTENT_TTL_MS = 20_000L
         private const val ADAPTIVE_FEEDBACK_THROTTLE_MS = 1500L
         private val WORD_SPLIT_REGEX = "\\s+".toRegex()
         private val BASELINE_SPACE_REGEX = "\\s+".toRegex()
@@ -1027,67 +1044,43 @@ class MicBarController(
         val hash: String,
     )
 
-    private data class IntentRecord(
-        var lastTimestampMs: Long,
-        val blockIds: MutableSet<Long> = mutableSetOf(),
-    )
+    private class SessionIntentRegistry(
+        private val clock: () -> Long = { SystemClock.elapsedRealtime() },
+    ) {
+        private data class Entry(var registeredAt: Long, var resolved: Boolean)
 
-    private fun registerVoiceIntent(sessionId: Long, intentKey: String, audioBlockId: Long?): Boolean {
-        val now = SystemClock.elapsedRealtime()
-        purgeExpiredIntents(now)
-        val intents = pendingIntentsBySession.getOrPut(sessionId) { mutableMapOf() }
-        val existing = intents[intentKey]
-        if (existing != null) {
-            if (audioBlockId != null && existing.blockIds.contains(audioBlockId)) {
-                existing.lastTimestampMs = now
-                return true
+        private val entries = mutableMapOf<String, Entry>()
+
+        @Synchronized
+        fun registerIfNew(intentKey: String, ttlMs: Long = INTENT_TTL_MS): Boolean {
+            val now = clock()
+            purgeExpired(now, ttlMs)
+            val existing = entries[intentKey]
+            if (existing != null) {
+                return false
             }
-            return false
+            entries[intentKey] = Entry(now, resolved = false)
+            return true
         }
-        val blocks = mutableSetOf<Long>()
-        if (audioBlockId != null) {
-            blocks.add(audioBlockId)
-        }
-        intents[intentKey] = IntentRecord(now, blocks)
-        return true
-    }
 
-    private fun markVoiceIntentCompleted(sessionId: Long, intentKey: String, audioBlockId: Long?) {
-        val record = pendingIntentsBySession[sessionId]?.get(intentKey) ?: return
-        record.lastTimestampMs = SystemClock.elapsedRealtime()
-        if (audioBlockId != null) {
-            record.blockIds.add(audioBlockId)
+        @Synchronized
+        fun markResolved(intentKey: String) {
+            entries[intentKey]?.resolved = true
         }
-    }
 
-    private fun cancelVoiceIntent(sessionId: Long, intentKey: String, audioBlockId: Long?) {
-        val intents = pendingIntentsBySession[sessionId] ?: return
-        val record = intents[intentKey] ?: return
-        if (audioBlockId != null) {
-            record.blockIds.remove(audioBlockId)
+        @Synchronized
+        fun remove(intentKey: String) {
+            entries.remove(intentKey)
         }
-        val shouldRemove = audioBlockId == null || record.blockIds.isEmpty()
-        if (shouldRemove) {
-            intents.remove(intentKey)
-        }
-        if (intents.isEmpty()) {
-            pendingIntentsBySession.remove(sessionId)
-        }
-    }
 
-    private fun purgeExpiredIntents(now: Long = SystemClock.elapsedRealtime()) {
-        val sessionIterator = pendingIntentsBySession.entries.iterator()
-        while (sessionIterator.hasNext()) {
-            val entry = sessionIterator.next()
-            val innerIterator = entry.value.entries.iterator()
-            while (innerIterator.hasNext()) {
-                val intentEntry = innerIterator.next()
-                if (now - intentEntry.value.lastTimestampMs > INTENT_TTL_MS) {
-                    innerIterator.remove()
+        @Synchronized
+        fun purgeExpired(now: Long = clock(), ttlMs: Long = INTENT_TTL_MS) {
+            val iterator = entries.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (now - entry.value.registeredAt > ttlMs) {
+                    iterator.remove()
                 }
-            }
-            if (entry.value.isEmpty()) {
-                sessionIterator.remove()
             }
         }
     }

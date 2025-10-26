@@ -2,9 +2,9 @@ package com.example.openeer.voice
 
 import android.util.Log
 import com.example.openeer.core.FeatureFlags
+import com.example.openeer.voice.VoiceNormalization.normalizeForKey
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.text.Normalizer
 import java.util.Locale
 
 /**
@@ -145,25 +145,78 @@ class VoiceCommandRouter(
         }
     }
 
-    fun intentKeyFor(decision: VoiceRouteDecision): String? {
+    data class IntentKeyExtras(
+        val normalizedCandidates: List<String> = emptyList(),
+        val reminderLabelOverride: String? = null,
+        val reminderTimeOverride: Long? = null,
+        val reminderPlaceOverride: String? = null,
+        val reminderTransitionOverride: LocalPlaceIntentParser.Transition? = null,
+    )
+
+    fun buildIntentKey(
+        decision: VoiceRouteDecision,
+        normalizedText: String?,
+        noteId: Long?,
+        extras: IntentKeyExtras = IntentKeyExtras(),
+    ): String? {
         return when (decision) {
             VoiceRouteDecision.NOTE -> null
             VoiceRouteDecision.INCOMPLETE -> null
             VoiceRouteDecision.LIST_INCOMPLETE -> null
-            is VoiceRouteDecision.List -> listIntentKey(decision.action, decision.items)
-            is VoiceRouteDecision.ReminderTime -> reminderIntentKey(decision.intent)
-            is VoiceRouteDecision.ReminderPlace -> reminderIntentKey(decision.intent)
+            is VoiceRouteDecision.List -> listIntentKey(
+                action = decision.action,
+                noteId = noteId,
+                items = decision.items,
+                normalizedText = normalizedText,
+                extras = extras,
+            )
+            is VoiceRouteDecision.ReminderTime -> reminderTimeIntentKey(
+                intent = decision.intent,
+                noteId = noteId,
+                extras = extras,
+            )
+            is VoiceRouteDecision.ReminderPlace -> reminderPlaceIntentKey(
+                intent = decision.intent,
+                noteId = noteId,
+                extras = extras,
+            )
         }
     }
 
-    fun intentKeyFor(decision: VoiceEarlyDecision): String? {
+    fun buildIntentKey(
+        decision: VoiceEarlyDecision,
+        normalizedText: String?,
+        noteId: Long?,
+        extras: IntentKeyExtras = IntentKeyExtras(),
+    ): String? {
         return when (decision) {
             VoiceEarlyDecision.None -> null
-            is VoiceEarlyDecision.ListCommand -> listIntentKey(decision.command.action, decision.command.items)
-            is VoiceEarlyDecision.ReminderTime -> reminderIntentKey(decision.intent)
-            is VoiceEarlyDecision.ReminderPlace -> reminderIntentKey(decision.intent)
+            is VoiceEarlyDecision.ListCommand -> buildIntentKey(
+                decision = decision.command,
+                normalizedText = normalizedText ?: decision.rawText,
+                noteId = noteId,
+                extras = extras,
+            )
+            is VoiceEarlyDecision.ReminderTime -> reminderTimeIntentKey(
+                intent = decision.intent,
+                noteId = noteId,
+                extras = extras,
+            )
+            is VoiceEarlyDecision.ReminderPlace -> reminderPlaceIntentKey(
+                intent = decision.intent,
+                noteId = noteId,
+                extras = extras,
+            )
             is VoiceEarlyDecision.ReminderIncomplete -> null
         }
+    }
+
+    fun intentKeyFor(decision: VoiceRouteDecision, noteId: Long?, normalizedText: String? = null): String? {
+        return buildIntentKey(decision, normalizedText, noteId)
+    }
+
+    fun intentKeyFor(decision: VoiceEarlyDecision, noteId: Long?, normalizedText: String? = null): String? {
+        return buildIntentKey(decision, normalizedText, noteId)
     }
 
     private fun logDecision(decision: VoiceRouteDecision, text: String, reason: String? = null) {
@@ -172,81 +225,106 @@ class VoiceCommandRouter(
         Log.d("VoiceCommandRouter", "decision=${decision.logToken}$suffix text=\"$sanitizedText\"")
     }
 
-    private fun listIntentKey(action: VoiceListAction, items: List<String>): String {
-        return when (action) {
-            VoiceListAction.CONVERT_TO_LIST,
-            VoiceListAction.CONVERT_TO_TEXT -> LIST_CONVERT_KEY
-            VoiceListAction.ADD -> "LIST_ADD[${hashItems(items)}]"
-            VoiceListAction.REMOVE -> "LIST_REMOVE[${hashItems(items)}]"
-            VoiceListAction.TOGGLE -> "LIST_TOGGLE[${hashItems(items)},true]"
-            VoiceListAction.UNTICK -> "LIST_TOGGLE[${hashItems(items)},false]"
+    private fun listIntentKey(
+        action: VoiceListAction,
+        noteId: Long?,
+        items: List<String>,
+        normalizedText: String?,
+        extras: IntentKeyExtras,
+    ): String {
+        val base = when (action) {
+            VoiceListAction.CONVERT_TO_LIST -> "list:convert_to_list"
+            VoiceListAction.CONVERT_TO_TEXT -> "list:convert_to_text"
+            VoiceListAction.ADD -> "list:add"
+            VoiceListAction.REMOVE -> "list:remove"
+            VoiceListAction.TOGGLE -> "list:toggle"
+            VoiceListAction.UNTICK -> "list:untoggle"
         }
+        val notePart = noteId?.toString() ?: "none"
+        if (action == VoiceListAction.CONVERT_TO_LIST || action == VoiceListAction.CONVERT_TO_TEXT) {
+            return "$base:$notePart"
+        }
+        val candidates = when {
+            extras.normalizedCandidates.isNotEmpty() -> extras.normalizedCandidates
+            else -> items.mapNotNull { normalizeForKey(it) }
+        }
+        val hashed = stableHash(candidates)
+        val payload = if (hashed.isNotEmpty()) hashed else stableHash(listOfNotNull(normalizedText?.let(::normalizeForKey)))
+        return "$base:$notePart:$payload"
     }
 
-    private fun hashItems(items: List<String>): String {
-        val normalized = items.mapNotNull { normalizeForHash(it) }
-        if (normalized.isEmpty()) return EMPTY_ITEMS_HASH
-        val sorted = normalized.sorted()
-        return hashParts(sorted)
+    private fun reminderTimeIntentKey(
+        intent: ReminderIntent.Time,
+        noteId: Long?,
+        extras: IntentKeyExtras,
+    ): String {
+        val notePart = noteId?.toString() ?: "none"
+        val normalizedLabel = normalizeForKey(extras.reminderLabelOverride) ?: normalizeForKey(intent.label) ?: ""
+        val bucket = ((extras.reminderTimeOverride ?: intent.triggerAtMillis) / REMINDER_TIME_BUCKET_MS).toString()
+        val hash = stableHash(listOf(normalizedLabel, bucket))
+        return "reminder:time:$notePart:$hash"
     }
 
-    private fun reminderIntentKey(intent: ReminderIntent): String {
-        val parts = mutableListOf<String>()
-        normalizeForHash(intent.label)?.let { parts.add(it) }
-        when (intent) {
-            is ReminderIntent.Time -> {
-                parts.add("time:${intent.triggerAtMillis / REMINDER_TIME_BUCKET_MS}")
+    private fun reminderPlaceIntentKey(
+        intent: ReminderIntent.Place,
+        noteId: Long?,
+        extras: IntentKeyExtras,
+    ): String {
+        val notePart = noteId?.toString() ?: "none"
+        val normalizedLabel = normalizeForKey(extras.reminderLabelOverride) ?: normalizeForKey(intent.label) ?: ""
+        val transition = (extras.reminderTransitionOverride ?: intent.transition).name.lowercase(Locale.US)
+        val radius = intent.radiusMeters
+        val cooldown = intent.cooldownMinutes
+        val every = intent.everyTime
+        val placeKey = extras.reminderPlaceOverride ?: buildPlaceKey(intent.placeQuery)
+        val hash = stableHash(
+            listOf(
+                normalizedLabel,
+                transition,
+                "radius:$radius",
+                "cooldown:$cooldown",
+                "every:$every",
+                placeKey,
+            )
+        )
+        return "reminder:place:$notePart:$hash"
+    }
+
+    private fun buildPlaceKey(place: LocalPlaceIntentParser.PlaceQuery): String {
+        return when (place) {
+            LocalPlaceIntentParser.PlaceQuery.CurrentLocation -> "current"
+            is LocalPlaceIntentParser.PlaceQuery.Favorite -> {
+                val lat = roundCoord(place.lat)
+                val lon = roundCoord(place.lon)
+                "fav:${place.id}:${place.key}:$lat:$lon"
             }
-            is ReminderIntent.Place -> {
-                parts.add("place:${intent.transition}")
-                parts.add("radius:${intent.radiusMeters}")
-                parts.add("cooldown:${intent.cooldownMinutes}")
-                parts.add("every:${intent.everyTime}")
-                val placeKey = when (val place = intent.placeQuery) {
-                    LocalPlaceIntentParser.PlaceQuery.CurrentLocation -> "current"
-                    is LocalPlaceIntentParser.PlaceQuery.Favorite -> "fav:${place.id}:${place.key}"
-                    is LocalPlaceIntentParser.PlaceQuery.FreeText -> normalizeForHash(place.normalized) ?: EMPTY_ITEMS_HASH
-                }
-                parts.add(placeKey)
-            }
+            is LocalPlaceIntentParser.PlaceQuery.FreeText -> normalizeForKey(place.normalized)
+                ?: normalizeForKey(place.spokenForm)
+                ?: EMPTY_ITEMS_HASH
         }
-        if (parts.isEmpty()) {
-            parts.add(EMPTY_ITEMS_HASH)
-        }
-        val hash = hashParts(parts)
-        return "REMINDER[$hash]"
     }
 
-    private fun normalizeForHash(value: String): String? {
-        val trimmed = value.trim().lowercase(Locale.FRENCH)
-        if (trimmed.isEmpty()) return null
-        val decomposed = Normalizer.normalize(trimmed, Normalizer.Form.NFD)
-        val withoutDiacritics = DIACRITICS_REGEX.replace(decomposed, "")
-        val sanitized = NON_ALNUM_REGEX.replace(withoutDiacritics, " ")
-        val collapsed = WHITESPACE_REGEX.replace(sanitized, " ").trim()
-        return collapsed.takeIf { it.isNotEmpty() }
-    }
-
-    private fun hashParts(parts: List<String>): String {
+    private fun stableHash(parts: List<String>): String {
         if (parts.isEmpty()) return EMPTY_ITEMS_HASH
         val digest = MessageDigest.getInstance("SHA-1")
-        for (part in parts) {
+        val sorted = parts.filter { it.isNotBlank() }.sorted()
+        if (sorted.isEmpty()) return EMPTY_ITEMS_HASH
+        for (part in sorted) {
             digest.update(part.toByteArray(StandardCharsets.UTF_8))
             digest.update(0.toByte())
         }
-        return digest.digest().joinToString(separator = "") { byte ->
-            "%02x".format(byte)
-        }.take(HASH_LENGTH)
+        return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+            .take(HASH_LENGTH)
+    }
+
+    private fun roundCoord(value: Double): String {
+        return String.format(Locale.US, "%.5f", value)
     }
 
     companion object {
-        private const val LIST_CONVERT_KEY = "LIST_CONVERT"
         private const val EMPTY_ITEMS_HASH = "empty"
         private const val REMINDER_TIME_BUCKET_MS = 60_000L
         private const val HASH_LENGTH = 16
-        private val DIACRITICS_REGEX = "\\p{Mn}+".toRegex()
-        private val NON_ALNUM_REGEX = "[^a-z0-9]+".toRegex()
-        private val WHITESPACE_REGEX = "\\s+".toRegex()
         private val DESTRUCTIVE_REGEX = Regex("\\b(?:supprim|effac|d(?:e|é)truis|retire la note|vide)\\b", RegexOption.IGNORE_CASE)
         private val RENAME_REGEX = Regex("\\b(?:renomm|titre)\\b", RegexOption.IGNORE_CASE)
         private val LIST_KEYWORDS_REGEX = Regex("\\b(?:liste|ajout|retir|coch|d[eé]coch|cases?)\\b", RegexOption.IGNORE_CASE)
