@@ -21,6 +21,7 @@ import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceCommandRouter
 import com.example.openeer.voice.VoiceComponents
+import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
 import kotlinx.coroutines.*
 import java.io.File
@@ -262,111 +263,128 @@ class MicBarController(
                     }
 
                     val audioBlockId = newBlockId
-                    activity.lifecycleScope.launch {
-                        val blockId = audioBlockId ?: return@launch
-                        Log.d("MicCtl", "Lancement de l'affinage Whisper pour le bloc #$blockId")
-                        try {
-                            runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
-                            val refinedText = WhisperService.transcribeWav(File(wavPath)).trim()
+                    val attemptEarlyRouting =
+                        FeatureFlags.voiceCommandsEnabled && FeatureFlags.voiceEarlyCommandsEnabled
+                    val assumeListForInitial =
+                        isListNote ||
+                                (provisionalList != null) ||
+                                initialVoskText.contains("liste", ignoreCase = true)
+                    val earlyDecision = if (attemptEarlyRouting) {
+                        val decision = voiceCommandRouter.route(
+                            initialVoskText,
+                            assumeListContext = assumeListForInitial
+                        )
+                        val sanitized = initialVoskText.replace("\"", "\\\"")
+                        Log.d(
+                            "EarlyVC",
+                            "EarlyRoute noteId=$targetNoteId decision=${decision.logToken} text=\"$sanitized\""
+                        )
+                        decision
+                    } else {
+                        null
+                    }
 
-                            // 🔹 Heuristique robuste pour le contexte liste :
-                            //    - si la note est déjà LIST (UI), OK
-                            //    - si on a créé un provisoire de liste, c’est qu’on est en logique LIST
-                            //    - si l’énoncé contient “liste”, on force le contexte liste
-                            val hintList =
-                                isListNote ||
-                                        (provisionalList != null) ||
-                                        refinedText.contains("liste", ignoreCase = true)
+                    val launchWhisper = {
+                        activity.lifecycleScope.launch {
+                            val blockId = audioBlockId ?: return@launch
+                            Log.d("MicCtl", "Lancement de l'affinage Whisper pour le bloc #$blockId")
+                            try {
+                                runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
+                                val refinedText = WhisperService.transcribeWav(File(wavPath)).trim()
 
-                            val decision = voiceCommandRouter.route(
-                                refinedText,
-                                assumeListContext = hintList
-                            )
-                            Log.d(
-                                "VoiceRoute",
-                                "Bloc #$blockId → décision $decision pour \"$refinedText\""
-                            )
+                                // 🔹 Heuristique robuste pour le contexte liste :
+                                //    - si la note est déjà LIST (UI), OK
+                                //    - si on a créé un provisoire de liste, c’est qu’on est en logique LIST
+                                //    - si l’énoncé contient “liste”, on force le contexte liste
+                                val hintList =
+                                    isListNote ||
+                                            (provisionalList != null) ||
+                                            refinedText.contains("liste", ignoreCase = true)
 
-                            if (!FeatureFlags.voiceCommandsEnabled) {
-                                val listFinalized = withContext(Dispatchers.IO) {
-                                    blocksRepo.updateAudioTranscription(blockId, refinedText)
-                                    val listHandle = listManager.removeHandle(blockId)
-                                    if (listHandle != null) {
-                                        listManager.finalize(listHandle, refinedText)
-                                        true
-                                    } else {
-                                        val maybeTextId = bodyManager.textBlockIdFor(blockId)
-                                        if (maybeTextId != null) {
-                                            blocksRepo.updateText(maybeTextId, refinedText)
+                                val decision = voiceCommandRouter.route(
+                                    refinedText,
+                                    assumeListContext = hintList
+                                )
+                                Log.d(
+                                    "VoiceRoute",
+                                    "Bloc #$blockId → décision $decision pour \"$refinedText\""
+                                )
+
+                                if (!FeatureFlags.voiceCommandsEnabled) {
+                                    val listFinalized = withContext(Dispatchers.IO) {
+                                        blocksRepo.updateAudioTranscription(blockId, refinedText)
+                                        val listHandle = listManager.removeHandle(blockId)
+                                        if (listHandle != null) {
+                                            listManager.finalize(listHandle, refinedText)
+                                            true
                                         } else {
-                                            val useGid = bodyManager.groupIdFor(blockId) ?: generateGroupId()
-                                            val createdId = blocksRepo.appendTranscription(
-                                                noteId = targetNoteId,
-                                                text = refinedText,
-                                                groupId = useGid
-                                            )
-                                            bodyManager.recordTextBlock(blockId, createdId)
+                                            val maybeTextId = bodyManager.textBlockIdFor(blockId)
+                                            if (maybeTextId != null) {
+                                                blocksRepo.updateText(maybeTextId, refinedText)
+                                            } else {
+                                                val useGid = bodyManager.groupIdFor(blockId) ?: generateGroupId()
+                                                val createdId = blocksRepo.appendTranscription(
+                                                    noteId = targetNoteId,
+                                                    text = refinedText,
+                                                    groupId = useGid
+                                                )
+                                                bodyManager.recordTextBlock(blockId, createdId)
+                                            }
+                                            false
                                         }
-                                        false
-                                    }
-                                }
-
-                                if (!listFinalized) {
-                                    withContext(Dispatchers.Main) {
-                                        bodyManager.replaceProvisionalWithRefined(blockId, refinedText)
-                                    }
-                                }
-                            } else {
-                                when (decision) {
-                                    VoiceRouteDecision.NOTE -> {
-                                        voiceCommandHandler.handleNoteDecision(targetNoteId, blockId, refinedText)
                                     }
 
-                                    VoiceRouteDecision.REMINDER_TIME,
-                                    VoiceRouteDecision.REMINDER_PLACE -> {
-                                        voiceCommandHandler.handleReminderDecision(
-                                            noteId = targetNoteId,
-                                            audioBlockId = blockId,
-                                            refinedText = refinedText,
-                                            audioPath = wavPath,
-                                            decision = decision
-                                        )
-                                    }
-
-                                    VoiceRouteDecision.INCOMPLETE -> {
-                                        voiceCommandHandler.handleNoteDecision(targetNoteId, blockId, refinedText)
+                                    if (!listFinalized) {
                                         withContext(Dispatchers.Main) {
-                                            showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                                            bodyManager.replaceProvisionalWithRefined(blockId, refinedText)
                                         }
                                     }
-
-                                    VoiceRouteDecision.LIST_INCOMPLETE -> {
-                                        voiceCommandHandler.handleListIncomplete(blockId, wavPath, refinedText)
-                                    }
-
-                                    is VoiceRouteDecision.List -> {
-                                        voiceCommandHandler.handleListDecision(
-                                            noteId = targetNoteId,
-                                            audioBlockId = blockId,
-                                            refinedText = refinedText,
-                                            audioPath = wavPath,
-                                            decision = decision
-                                        )
+                                } else {
+                                    handleVoiceDecision(
+                                        decision = decision,
+                                        targetNoteId = targetNoteId,
+                                        audioBlockId = blockId,
+                                        transcription = refinedText,
+                                        audioPath = wavPath
+                                    )
+                                }
+                            } catch (error: Throwable) {
+                                Log.e("MicCtl", "Erreur Whisper pour le bloc #$blockId", error)
+                                val fallback = if (initialVoskText.isNotBlank()) initialVoskText else listFallbackText
+                                if (listManager.has(blockId)) {
+                                    listManager.finalize(blockId, fallback)
+                                } else {
+                                    withContext(Dispatchers.Main) {
+                                        bodyManager.replaceProvisionalWithRefined(blockId, fallback)
                                     }
                                 }
                             }
-                        } catch (error: Throwable) {
-                            Log.e("MicCtl", "Erreur Whisper pour le bloc #$blockId", error)
-                            val fallback = if (initialVoskText.isNotBlank()) initialVoskText else listFallbackText
-                            if (listManager.has(blockId)) {
-                                listManager.finalize(blockId, fallback)
-                            } else {
-                                withContext(Dispatchers.Main) {
-                                    bodyManager.replaceProvisionalWithRefined(blockId, fallback)
-                                }
-                            }
+                            Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$blockId")
                         }
-                        Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$blockId")
+                    }
+
+                    var handledEarly = false
+                    if (audioBlockId != null && earlyDecision != null && shouldSkipWhisper(earlyDecision)) {
+                        try {
+                            handleVoiceDecision(
+                                decision = earlyDecision,
+                                targetNoteId = targetNoteId,
+                                audioBlockId = audioBlockId,
+                                transcription = initialVoskText,
+                                audioPath = wavPath
+                            )
+                            handledEarly = true
+                        } catch (error: Throwable) {
+                            Log.e(
+                                "MicCtl",
+                                "Erreur exécution commande vocale anticipée pour le bloc #$audioBlockId",
+                                error
+                            )
+                        }
+                    }
+
+                    if (!handledEarly) {
+                        launchWhisper()
                     }
                 } else if (isListNote && provisionalList != null) {
                     listManager.finalizeDetached(provisionalList, listFallbackText)
@@ -397,6 +415,67 @@ class MicBarController(
 
     fun isRecording(): Boolean =
         state == RecordingState.RECORDING_PTT || state == RecordingState.RECORDING_HANDS_FREE
+
+    private suspend fun handleVoiceDecision(
+        decision: VoiceRouteDecision,
+        targetNoteId: Long,
+        audioBlockId: Long,
+        transcription: String,
+        audioPath: String,
+    ) {
+        when (decision) {
+            VoiceRouteDecision.NOTE -> {
+                voiceCommandHandler.handleNoteDecision(targetNoteId, audioBlockId, transcription)
+            }
+
+            VoiceRouteDecision.REMINDER_TIME,
+            VoiceRouteDecision.REMINDER_PLACE -> {
+                voiceCommandHandler.handleReminderDecision(
+                    noteId = targetNoteId,
+                    audioBlockId = audioBlockId,
+                    refinedText = transcription,
+                    audioPath = audioPath,
+                    decision = decision
+                )
+            }
+
+            VoiceRouteDecision.INCOMPLETE -> {
+                voiceCommandHandler.handleNoteDecision(targetNoteId, audioBlockId, transcription)
+                withContext(Dispatchers.Main) {
+                    showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                }
+            }
+
+            VoiceRouteDecision.LIST_INCOMPLETE -> {
+                voiceCommandHandler.handleListIncomplete(audioBlockId, audioPath, transcription)
+            }
+
+            is VoiceRouteDecision.List -> {
+                voiceCommandHandler.handleListDecision(
+                    noteId = targetNoteId,
+                    audioBlockId = audioBlockId,
+                    refinedText = transcription,
+                    audioPath = audioPath,
+                    decision = decision
+                )
+            }
+        }
+    }
+
+    private fun shouldSkipWhisper(decision: VoiceRouteDecision?): Boolean {
+        return when (decision) {
+            is VoiceRouteDecision.List -> when (decision.action) {
+                VoiceListAction.CONVERT_TO_LIST,
+                VoiceListAction.CONVERT_TO_TEXT,
+                VoiceListAction.TOGGLE,
+                VoiceListAction.UNTICK,
+                VoiceListAction.REMOVE -> true
+                else -> false
+            }
+
+            else -> false
+        }
+    }
 
     fun onOpenNoteChanged(newNoteId: Long?) {
         if (newNoteId == null) {
