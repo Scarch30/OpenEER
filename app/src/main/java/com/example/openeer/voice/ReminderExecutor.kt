@@ -512,7 +512,7 @@ class ReminderExecutor(
         )
     }
 
-    private fun PendingVoiceReminder.PlaceSnapshot.ResolvedPlaceSnapshot.toResolvedPlace(): ResolvedPlace {
+    private fun PendingVoiceReminder.ResolvedPlaceSnapshot.toResolvedPlace(): ResolvedPlace {
         return ResolvedPlace(
             latitude = latitude,
             longitude = longitude,
