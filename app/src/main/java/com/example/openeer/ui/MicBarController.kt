@@ -877,7 +877,11 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
-                EarlyHandlingResult(skipWhisper = true)
+                val skipWhisper = requested.size > 1
+                if (!skipWhisper) {
+                    Log.d("VoiceList", "early add single-item → allow refine")
+                }
+                EarlyHandlingResult(skipWhisper = skipWhisper)
             }
 
             VoiceListAction.REMOVE -> {
