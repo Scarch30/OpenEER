@@ -30,6 +30,8 @@ import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
 import kotlinx.coroutines.*
 import java.io.File
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.text.Normalizer
 import java.util.Locale
 import kotlin.math.abs
@@ -98,6 +100,7 @@ class MicBarController(
     private var pendingWhisperJobs = 0
     private var segmentStartRealtime: Long? = null
     private var lastAdaptiveFeedbackAt: Long = 0L
+    private var activeSessionBaseline: SessionBaseline? = null
 
     /** Démarre un appui PTT immédiatement. */
     fun beginPress(initialX: Float) {
@@ -162,14 +165,19 @@ class MicBarController(
         binding.liveTranscriptionText.text = ""
 
         val noteSnapshot = getOpenNote()
-        val canonicalBody = noteSnapshot?.takeIf { it.id == noteId }?.body
+        activeSessionBaseline = noteId?.let { resolveSessionBaseline(it, noteSnapshot?.body) }
+        val canonicalBody = activeSessionBaseline?.body
+            ?: noteSnapshot?.takeIf { it.id == noteId }?.body
         val displayBody = binding.txtBodyDetail.text?.toString().orEmpty()
         bodyManager.buffer.prepare(noteId, canonicalBody, displayBody)
         val currentBodyText = bodyManager.buffer.currentPlain()
         val insertLeadingNewline = noteSnapshot?.isList() == false &&
             currentBodyText.isNotEmpty() &&
             !currentBodyText.endsWith('\n')
-        bodyManager.buffer.beginSession(insertLeadingNewline)
+        bodyManager.buffer.beginSession(
+            insertLeadingNewline,
+            baselineOverride = activeSessionBaseline?.body,
+        )
         activeSessionNoteId = noteId
 
         live = LiveTranscriber(activity).apply {
@@ -251,6 +259,7 @@ class MicBarController(
                         bodyManager.buffer.removeCurrentSession()
                     }
                     activeSessionNoteId = null
+                    activeSessionBaseline = null
                     segmentStartRealtime = null
                     if (!wavPath.isNullOrBlank()) {
                         runCatching { File(wavPath).takeIf { it.exists() }?.delete() }
@@ -356,6 +365,7 @@ class MicBarController(
                         }
                     }
 
+                    val sessionBaselineSnapshot = activeSessionBaseline
                     val launchWhisper = {
                         activity.lifecycleScope.launch {
                             val blockId = audioBlockId ?: return@launch
@@ -432,12 +442,20 @@ class MicBarController(
                                         }
                                     }
                                 } else {
+                                    val intentKey = voiceCommandRouter.intentKeyFor(decision)
+                                    val commitContext = buildCommitContext(
+                                        mode = BodyTranscriptionManager.DictationCommitMode.WHISPER,
+                                        intentKey = intentKey,
+                                        reconciled = true,
+                                        baselineOverride = sessionBaselineSnapshot,
+                                    )
                                     handleVoiceDecision(
                                         decision = decision,
                                         targetNoteId = targetNoteId,
                                         audioBlockId = blockId,
                                         transcription = refinedText,
-                                        audioPath = wavPath
+                                        audioPath = wavPath,
+                                        commitContext = commitContext,
                                     )
                                 }
                             } catch (error: Throwable) {
@@ -547,6 +565,7 @@ class MicBarController(
                 }
             } finally {
                 activeSessionNoteId = null
+                activeSessionBaseline = null
                 segmentStartRealtime = null
             }
         }
@@ -644,12 +663,20 @@ class MicBarController(
                     )
                     handled
                 } else {
+                    val intentKey = voiceCommandRouter.intentKeyFor(decision.command)
+                    val commitContext = buildCommitContext(
+                        mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
+                        intentKey = intentKey,
+                        reconciled = false,
+                        baselineOverride = activeSessionBaseline,
+                    )
                     handleVoiceDecision(
                         decision = decision.command,
                         targetNoteId = targetNoteId,
                         audioBlockId = audioBlockId,
                         transcription = transcription,
-                        audioPath = audioPath
+                        audioPath = audioPath,
+                        commitContext = commitContext,
                     )
                     removeEarlyCommandText(
                         audioBlockId = audioBlockId,
@@ -663,12 +690,21 @@ class MicBarController(
             }
 
             is VoiceEarlyDecision.ReminderTime -> {
+                val intentKey = voiceCommandRouter.intentKeyFor(decision)
+                val commitContext = buildCommitContext(
+                    mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
+                    intentKey = intentKey,
+                    reconciled = false,
+                    baselineOverride = activeSessionBaseline,
+                )
                 val pending = voiceCommandHandler.handleEarlyReminderDecision(
                     noteId = targetNoteId,
                     audioBlockId = audioBlockId,
                     rawText = transcription,
                     audioPath = audioPath,
                     decision = decision,
+                    sessionBaseline = commitContext.baselineBody,
+                    commitContext = commitContext,
                 )
                 if (pending != null) {
                     pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
@@ -682,12 +718,21 @@ class MicBarController(
             }
 
             is VoiceEarlyDecision.ReminderPlace -> {
+                val intentKey = voiceCommandRouter.intentKeyFor(decision)
+                val commitContext = buildCommitContext(
+                    mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
+                    intentKey = intentKey,
+                    reconciled = false,
+                    baselineOverride = activeSessionBaseline,
+                )
                 val pending = voiceCommandHandler.handleEarlyReminderDecision(
                     noteId = targetNoteId,
                     audioBlockId = audioBlockId,
                     rawText = transcription,
                     audioPath = audioPath,
                     decision = decision,
+                    sessionBaseline = commitContext.baselineBody,
+                    commitContext = commitContext,
                 )
                 if (pending != null) {
                     pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
@@ -715,6 +760,7 @@ class MicBarController(
         audioBlockId: Long,
         transcription: String,
         audioPath: String,
+        commitContext: BodyTranscriptionManager.DictationCommitContext,
     ) {
         val sessionIdForIntent = audioSessionIdsByBlock[audioBlockId]
         val intentKey = voiceCommandRouter.intentKeyFor(decision)
@@ -733,7 +779,13 @@ class MicBarController(
         try {
             when (decision) {
             VoiceRouteDecision.NOTE -> {
-                voiceCommandHandler.handleNoteDecision(targetNoteId, audioBlockId, transcription)
+                voiceCommandHandler.handleNoteDecision(
+                    noteId = targetNoteId,
+                    audioBlockId = audioBlockId,
+                    refinedText = transcription,
+                    sessionBaseline = commitContext.baselineBody,
+                    commitContext = commitContext,
+                )
             }
 
             is VoiceRouteDecision.ReminderTime,
@@ -743,12 +795,20 @@ class MicBarController(
                     audioBlockId = audioBlockId,
                     refinedText = transcription,
                     audioPath = audioPath,
-                    decision = decision
+                    decision = decision,
+                    sessionBaseline = commitContext.baselineBody,
+                    commitContext = commitContext,
                 )
             }
 
             VoiceRouteDecision.INCOMPLETE -> {
-                voiceCommandHandler.handleNoteDecision(targetNoteId, audioBlockId, transcription)
+                voiceCommandHandler.handleNoteDecision(
+                    noteId = targetNoteId,
+                    audioBlockId = audioBlockId,
+                    refinedText = transcription,
+                    sessionBaseline = commitContext.baselineBody,
+                    commitContext = commitContext,
+                )
                 withContext(Dispatchers.Main) {
                     showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
                 }
@@ -764,7 +824,9 @@ class MicBarController(
                     audioBlockId = audioBlockId,
                     refinedText = transcription,
                     audioPath = audioPath,
-                    decision = decision
+                    decision = decision,
+                    sessionBaseline = commitContext.baselineBody,
+                    commitContext = commitContext,
                 )
             }
         }
@@ -875,7 +937,47 @@ class MicBarController(
         }
     }
 
+    private fun resolveSessionBaseline(noteId: Long, fallback: String?): SessionBaseline {
+        val body = runBlocking {
+            runCatching { blocksRepo.getNoteBody(noteId) }.getOrNull()
+        } ?: fallback ?: ""
+        val hash = computeBaselineHash(body)
+        return SessionBaseline(noteId, body, hash)
+    }
+
+    private fun computeBaselineHash(body: String): String {
+        if (body.isEmpty()) return "0"
+        val normalized = Normalizer.normalize(body, Normalizer.Form.NFD)
+            .replace(DIACRITIC_REGEX, "")
+            .replace(BASELINE_SPACE_REGEX, " ")
+            .trim()
+            .lowercase(Locale.getDefault())
+        if (normalized.isEmpty()) return "0"
+        val digest = MessageDigest.getInstance("SHA-1")
+        val hashBytes = digest.digest(normalized.toByteArray(StandardCharsets.UTF_8))
+        return hashBytes.joinToString("") { byte -> "%02x".format(byte) }
+    }
+
+    private fun buildCommitContext(
+        mode: BodyTranscriptionManager.DictationCommitMode,
+        intentKey: String?,
+        reconciled: Boolean,
+        baselineOverride: SessionBaseline? = null,
+    ): BodyTranscriptionManager.DictationCommitContext {
+        val snapshot = baselineOverride ?: activeSessionBaseline
+        val baselineHash = snapshot?.hash
+        val baselineBody = snapshot?.body
+        return BodyTranscriptionManager.DictationCommitContext(
+            mode = mode,
+            baselineHash = baselineHash,
+            intentKey = intentKey,
+            reconciled = reconciled,
+            baselineBody = baselineBody,
+        )
+    }
+
     fun onOpenNoteChanged(newNoteId: Long?) {
+        activeSessionBaseline = null
         if (newNoteId == null) {
             activeSessionNoteId = null
             bodyManager.clearAll()
@@ -907,6 +1009,8 @@ class MicBarController(
         private const val INTENT_TTL_MS = 30_000L
         private const val ADAPTIVE_FEEDBACK_THROTTLE_MS = 1500L
         private val WORD_SPLIT_REGEX = "\\s+".toRegex()
+        private val BASELINE_SPACE_REGEX = "\\s+".toRegex()
+        private val DIACRITIC_REGEX = "\\p{Mn}+".toRegex()
     }
 
     private data class EarlyHandlingResult(val skipWhisper: Boolean)
@@ -915,6 +1019,12 @@ class MicBarController(
         val noteId: Long,
         val rawText: String,
         val pending: ReminderExecutor.PendingVoiceReminder,
+    )
+
+    private data class SessionBaseline(
+        val noteId: Long,
+        val body: String,
+        val hash: String,
     )
 
     private data class IntentRecord(

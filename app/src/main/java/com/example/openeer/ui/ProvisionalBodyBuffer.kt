@@ -6,6 +6,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
+import android.util.Log
 import android.widget.TextView
 import androidx.core.text.getSpans
 import com.example.openeer.data.NoteRepository
@@ -41,9 +42,9 @@ internal class ProvisionalBodyBuffer(
 
     fun currentNoteId(): Long? = cachedNoteId
 
-    fun beginSession(insertLeadingNewline: Boolean = false) {
+    fun beginSession(insertLeadingNewline: Boolean = false, baselineOverride: String? = null) {
         val sb = ensureSpannable()
-        sessionBaseline = sb.toString()
+        sessionBaseline = baselineOverride ?: sb.toString()
         val currentLength = sb.length
         sessionStart = currentLength
         sessionEnd = currentLength
@@ -173,7 +174,12 @@ internal class ProvisionalBodyBuffer(
 
     fun currentSessionBaseline(): String? = sessionBaseline
 
-    fun commitToNote(noteId: Long, text: String, baseline: String? = null) {
+    fun commitToNote(
+        noteId: Long,
+        text: String,
+        baseline: String? = null,
+        context: BodyTranscriptionManager.DictationCommitContext,
+    ) {
         scope.launch(Dispatchers.IO) {
             val persisted = runCatching { repo.noteOnce(noteId) }
                 .getOrNull()
@@ -181,9 +187,26 @@ internal class ProvisionalBodyBuffer(
                 .orEmpty()
 
             val merged = mergeBodies(persisted, baseline, text)
-            if (merged != persisted) {
-                blocksRepository.updateNoteBody(noteId, merged)
+            val beforeLen = persisted.length
+            val afterLen = merged.length
+            var success = false
+            try {
+                if (merged != persisted) {
+                    blocksRepository.updateNoteBody(noteId, merged)
+                }
+                success = true
+            } catch (error: Throwable) {
+                Log.e(
+                    "VoiceCommit",
+                    "mode=${context.mode.logToken} noteId=$noteId baselineHash=${context.baselineHash ?: ""} intentKey=${context.intentKey ?: ""} reconciled=${context.reconciled} success=false beforeLen=$beforeLen afterLen=$afterLen",
+                    error,
+                )
+                return@launch
             }
+            Log.i(
+                "VoiceCommit",
+                "mode=${context.mode.logToken} noteId=$noteId baselineHash=${context.baselineHash ?: ""} intentKey=${context.intentKey ?: ""} reconciled=${context.reconciled} success=$success beforeLen=$beforeLen afterLen=$afterLen",
+            )
         }
     }
 

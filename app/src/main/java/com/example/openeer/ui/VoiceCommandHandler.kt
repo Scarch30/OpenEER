@@ -5,6 +5,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.example.openeer.R
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
+import com.example.openeer.ui.BodyTranscriptionManager.DictationCommitContext
 import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceEarlyDecision
@@ -28,6 +29,8 @@ internal class VoiceCommandHandler(
         noteId: Long,
         audioBlockId: Long,
         refinedText: String,
+        sessionBaseline: String?,
+        commitContext: DictationCommitContext,
     ) {
         val listHandle = listManager.removeHandle(audioBlockId)
         withContext(Dispatchers.IO) {
@@ -54,7 +57,7 @@ internal class VoiceCommandHandler(
         if (listHandle == null) {
             withContext(Dispatchers.Main) {
                 val replacement = bodyManager.replaceProvisionalWithRefined(audioBlockId, refinedText)
-                bodyManager.commitNoteBody(noteId, replacement?.baseline)
+                bodyManager.commitNoteBody(noteId, sessionBaseline, commitContext)
             }
         }
     }
@@ -87,6 +90,8 @@ internal class VoiceCommandHandler(
         rawText: String,
         audioPath: String,
         decision: VoiceEarlyDecision,
+        sessionBaseline: String?,
+        commitContext: DictationCommitContext,
     ): ReminderExecutor.PendingVoiceReminder? {
         val intent = when (decision) {
             is VoiceEarlyDecision.ReminderTime -> decision.intent
@@ -101,13 +106,13 @@ internal class VoiceCommandHandler(
         }.onFailure { error ->
             if (error is ReminderExecutor.IncompleteException) {
                 Log.d("MicCtl", "Rappel anticipé incomplet pour note=$noteId", error)
-                handleNoteDecision(noteId, audioBlockId, rawText)
+                handleNoteDecision(noteId, audioBlockId, rawText, sessionBaseline, commitContext)
                 withContext(Dispatchers.Main) {
                     showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
                 }
             } else {
                 Log.e("MicCtl", "Échec création anticipée rappel note=$noteId", error)
-                handleNoteDecision(noteId, audioBlockId, rawText)
+                handleNoteDecision(noteId, audioBlockId, rawText, sessionBaseline, commitContext)
             }
         }
         return result.getOrNull()
@@ -119,6 +124,8 @@ internal class VoiceCommandHandler(
         refinedText: String,
         audioPath: String,
         decision: VoiceRouteDecision,
+        sessionBaseline: String?,
+        commitContext: DictationCommitContext,
     ) {
         val result = runCatching {
             when (decision) {
@@ -133,13 +140,13 @@ internal class VoiceCommandHandler(
         }.onFailure { error ->
             if (error is ReminderExecutor.IncompleteException) {
                 Log.d("MicCtl", "Rappel lieu incomplet pour note=$noteId, fallback note", error)
-                handleNoteDecision(noteId, audioBlockId, refinedText)
+                handleNoteDecision(noteId, audioBlockId, refinedText, sessionBaseline, commitContext)
                 withContext(Dispatchers.Main) {
                     showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
                 }
             } else {
                 Log.e("MicCtl", "Échec de création du rappel pour note=$noteId", error)
-                handleNoteDecision(noteId, audioBlockId, refinedText)
+                handleNoteDecision(noteId, audioBlockId, refinedText, sessionBaseline, commitContext)
             }
         }
     }
@@ -150,6 +157,8 @@ internal class VoiceCommandHandler(
         refinedText: String,
         audioPath: String,
         decision: VoiceRouteDecision.List,
+        sessionBaseline: String?,
+        commitContext: DictationCommitContext,
     ) {
         val result = listExecutor.execute(noteId, decision)
         val hasListHandle = listManager.has(audioBlockId)
@@ -208,7 +217,7 @@ internal class VoiceCommandHandler(
                 Log.e("MicCtl", "Échec commande liste", result.error)
                 val fallbackNoteId = result.noteId ?: noteId
                 if (fallbackNoteId != null) {
-                    handleNoteDecision(fallbackNoteId, audioBlockId, refinedText)
+                    handleNoteDecision(fallbackNoteId, audioBlockId, refinedText, sessionBaseline, commitContext)
                 } else {
                     if (hasListHandle) {
                         listManager.finalize(audioBlockId, refinedText)

@@ -175,6 +175,10 @@ class BlocksRepository(
             dao.updateBody(noteId, body, now)
         }
     }
+
+    suspend fun getNoteBody(noteId: Long): String? = withContext(io) {
+        noteDao?.getByIdOnce(noteId)?.body
+    }
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
 
     suspend fun getBlock(blockId: Long): BlockEntity? = withContext(io) {
