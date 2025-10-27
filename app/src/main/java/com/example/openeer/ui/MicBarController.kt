@@ -966,6 +966,62 @@ class MicBarController(
         }
     }
 
+    private suspend fun reconcileEarlyListAdd(
+        noteId: Long,
+        earlyApplied: SessionIntentRegistry.EarlyApplied,
+        refinedItems: List<String>,
+    ) {
+        val trimmed = refinedItems.map { it.trim() }.filter { it.isNotEmpty() }
+        val earlyIds = earlyApplied.affectedItemIds
+        Log.d(
+            TAG_EARLY,
+            "RECONCILE note=$noteId earlyCount=${earlyIds.size} refinedCount=${trimmed.size}",
+        )
+        if (trimmed.isEmpty()) {
+            if (earlyIds.isNotEmpty()) {
+                repo.removeItems(earlyIds)
+                Log.d(TAG_EARLY, "RECONCILE_REMOVE note=$noteId removed=${earlyIds.size}")
+            }
+            return
+        }
+
+        val sharedCount = minOf(earlyIds.size, trimmed.size)
+        for (index in 0 until sharedCount) {
+            val itemId = earlyIds[index]
+            val newText = trimmed[index]
+            val original = earlyApplied.originalTexts.getOrNull(index)
+            if (original != null && original == newText) continue
+            repo.updateItemText(itemId, newText)
+            Log.d(TAG_EARLY, "RECONCILE_UPDATE note=$noteId item=$itemId text=\"${newText.replace("\n", " ")}\"")
+        }
+
+        if (trimmed.size > earlyIds.size) {
+            val extras = trimmed.subList(earlyIds.size, trimmed.size)
+            val added = blocksRepo.addItemsToNoteList(noteId, extras)
+            if (added.isNotEmpty()) {
+                Log.d(
+                    TAG_EARLY,
+                    "RECONCILE_APPEND note=$noteId added=${added.size} ids=${added.map { it.id }}",
+                )
+            }
+        } else if (earlyIds.size > trimmed.size) {
+            val removeIds = earlyIds.subList(trimmed.size, earlyIds.size)
+            if (removeIds.isNotEmpty()) {
+                repo.removeItems(removeIds)
+                Log.d(TAG_EARLY, "RECONCILE_TRIM note=$noteId removed=${removeIds.size} ids=$removeIds")
+            }
+        }
+    }
+
+    private suspend fun finalizeListCommandCleanup(audioBlockId: Long, audioPath: String) {
+        if (listManager.has(audioBlockId)) {
+            listManager.remove(audioBlockId, "LIST_RECONCILE")
+        } else {
+            withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
+        }
+        voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+    }
+
     private suspend fun handleEarlyListCommand(
         noteId: Long,
         command: VoiceRouteDecision.List,
