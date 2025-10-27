@@ -47,7 +47,7 @@ class NotePanelViewModel(private val repo: NoteRepository) {
             return ConversionMessage(R.string.note_convert_already_plain, false)
         }
 
-        val (itemCount, bodyText) = runCatching { repo.convertNoteToPlain(noteId) }
+        val bodyText = runCatching { repo.convertNoteToPlain(noteId) }
             .onFailure { error -> Log.e(TAG, "convertCurrentNoteToPlain failed for noteId=$noteId", error) }
             .getOrElse { error ->
                 return when (error) {
@@ -57,6 +57,9 @@ class NotePanelViewModel(private val repo: NoteRepository) {
                 }
             }
 
+        val itemCount = bodyText.takeIf { it.isNotEmpty() }?.let { text ->
+            text.count { it == '\n' } + 1
+        } ?: 0
         Log.d(TAG, "convertCurrentNoteToPlain success noteId=$noteId items=$itemCount")
         Log.i(
             TAG,

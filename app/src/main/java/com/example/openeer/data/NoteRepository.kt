@@ -4,6 +4,8 @@ package com.example.openeer.data
 import android.app.AlarmManager
 import android.content.Context
 import android.util.Log
+import androidx.room.Transaction
+import androidx.room.withTransaction
 import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.list.ListItemDao
@@ -13,15 +15,12 @@ import com.example.openeer.data.merge.computeBlockHash
 import com.example.openeer.data.merge.toSnapshot
 import com.example.openeer.domain.ReminderUseCases
 import com.google.gson.Gson
-import androidx.room.withTransaction
 import kotlin.collections.ArrayDeque
 import kotlin.collections.LinkedHashSet
 import kotlin.collections.buildList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withContext
-import androidx.room.withTransaction
 
 class NoteRepository(
     private val appContext: Context,
@@ -477,21 +476,26 @@ class NoteRepository(
         }
     }
 
-    suspend fun convertNoteToPlain(noteId: Long): Pair<Int, String> = withContext(Dispatchers.IO) {
+    @Transaction
+    suspend fun convertNoteToPlain(noteId: Long): String = withContext(Dispatchers.IO) {
         database.withTransaction {
             val note = noteDao.getByIdOnce(noteId) ?: throw NoteNotFoundException(noteId)
             if (note.type == NoteType.PLAIN) {
-                Log.i(TAG, "convertNoteToPlain: noteId=$noteId already PLAIN")
-                return@withTransaction 0 to note.body
+                val body = note.body
+                Log.i(TAG, "convertNoteToPlain: noteId=$noteId bodyLength=${body.length} items=0")
+                return@withTransaction body
             }
 
             val items = listItemDao.listForNote(noteId)
-            val body = items.joinToString(separator = "\n") { it.text }
+            val plainBody = items.joinToString(separator = "\n") { it.text }
             val now = System.currentTimeMillis()
+            noteDao.updateBodyAndType(noteId, plainBody, NoteType.PLAIN, now)
             listItemDao.deleteForNote(noteId)
-            noteDao.updateBodyAndType(noteId, body, NoteType.PLAIN, now)
-            Log.i(TAG, "convertNoteToPlain: noteId=$noteId serialized ${items.size} items")
-            items.size to body
+            Log.i(
+                TAG,
+                "convertNoteToPlain: noteId=$noteId bodyLength=${plainBody.length} items=${items.size}",
+            )
+            plainBody
         }
     }
 
