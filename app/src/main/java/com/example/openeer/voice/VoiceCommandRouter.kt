@@ -98,23 +98,31 @@ class VoiceCommandRouter(
 
     fun route(finalWhisperText: String, assumeListContext: Boolean = false): VoiceRouteDecision {
         val trimmed = finalWhisperText.trim()
+        val sanitizedForListDiag = trimmed.replace("'", "\\'")
         if (!isVoiceCommandsEnabled()) {
             logDecision(VoiceRouteDecision.NOTE, trimmed)
+            Log.d("ListDiag", "ROUTER: decision=${VoiceRouteDecision.NOTE} text='${sanitizedForListDiag}' note=null")
             return VoiceRouteDecision.NOTE
         }
         if (trimmed.isEmpty()) {
             logDecision(VoiceRouteDecision.NOTE, trimmed)
+            Log.d("ListDiag", "ROUTER: decision=${VoiceRouteDecision.NOTE} text='${sanitizedForListDiag}' note=null")
             return VoiceRouteDecision.NOTE
         }
         when (val listResult = listCommandParser.parse(trimmed, assumeListContext)) {
             is VoiceListCommandParser.Result.Command -> {
                 val decision = VoiceRouteDecision.List(listResult.action, listResult.items)
                 logDecision(decision, trimmed)
+                Log.d("ListDiag", "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null")
                 return decision
             }
 
             VoiceListCommandParser.Result.Incomplete -> {
                 logDecision(VoiceRouteDecision.LIST_INCOMPLETE, trimmed, reason = "list_parser")
+                Log.d(
+                    "ListDiag",
+                    "ROUTER: decision=${VoiceRouteDecision.LIST_INCOMPLETE} text='${sanitizedForListDiag}' note=null",
+                )
                 return VoiceRouteDecision.LIST_INCOMPLETE
             }
 
@@ -122,6 +130,7 @@ class VoiceCommandRouter(
         }
         if (!reminderClassifier.hasTrigger(trimmed)) {
             logDecision(VoiceRouteDecision.NOTE, trimmed)
+            Log.d("ListDiag", "ROUTER: decision=${VoiceRouteDecision.NOTE} text='${sanitizedForListDiag}' note=null")
             return VoiceRouteDecision.NOTE
         }
 
@@ -129,17 +138,23 @@ class VoiceCommandRouter(
             is ReminderIntent.Time -> {
                 val decision = VoiceRouteDecision.ReminderTime(intent)
                 logDecision(decision, trimmed)
+                Log.d("ListDiag", "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null")
                 decision
             }
 
             is ReminderIntent.Place -> {
                 val decision = VoiceRouteDecision.ReminderPlace(intent)
                 logDecision(decision, trimmed)
+                Log.d("ListDiag", "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null")
                 decision
             }
 
             null -> {
                 logDecision(VoiceRouteDecision.INCOMPLETE, trimmed, reason = "missing_place_or_time")
+                Log.d(
+                    "ListDiag",
+                    "ROUTER: decision=${VoiceRouteDecision.INCOMPLETE} text='${sanitizedForListDiag}' note=null",
+                )
                 VoiceRouteDecision.INCOMPLETE
             }
         }
@@ -212,11 +227,15 @@ class VoiceCommandRouter(
     }
 
     fun intentKeyFor(decision: VoiceRouteDecision, noteId: Long?, normalizedText: String? = null): String? {
-        return buildIntentKey(decision, normalizedText, noteId)
+        val key = buildIntentKey(decision, normalizedText, noteId)
+        Log.d("ListDiag", "ROUTER: intentKey=$key")
+        return key
     }
 
     fun intentKeyFor(decision: VoiceEarlyDecision, noteId: Long?, normalizedText: String? = null): String? {
-        return buildIntentKey(decision, normalizedText, noteId)
+        val key = buildIntentKey(decision, normalizedText, noteId)
+        Log.d("ListDiag", "ROUTER: intentKey=$key")
+        return key
     }
 
     private fun logDecision(decision: VoiceRouteDecision, text: String, reason: String? = null) {

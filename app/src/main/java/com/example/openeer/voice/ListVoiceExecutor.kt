@@ -35,6 +35,10 @@ class ListVoiceExecutor(
     }
 
     suspend fun execute(noteId: Long?, command: VoiceRouteDecision.List): Result {
+        Log.d(
+            "ListDiag",
+            "EXEC: route=${command.action} items=${command.items} note=$noteId",
+        )
         return when (command.action) {
             VoiceListAction.CONVERT_TO_LIST -> convertToList(noteId)
             VoiceListAction.CONVERT_TO_TEXT -> convertToPlain(noteId)
@@ -43,6 +47,7 @@ class ListVoiceExecutor(
                 if (items.isEmpty()) return@ensureListAnd Result.Incomplete(ensured.noteId, "empty_items")
                 var added = 0
                 for (item in items) {
+                    Log.d("ListDiag", "EXEC: addItem '$item' → note=${ensured.noteId}")
                     runCatching { repo.addItem(ensured.noteId, item) }
                         .onSuccess { added++ }
                         .onFailure { error -> Log.e(TAG, "Failed to add '$item' to note ${ensured.noteId}", error) }
@@ -62,6 +67,10 @@ class ListVoiceExecutor(
                 val matches = matchListItems(ensured.noteId, items)
                 var removed = 0
                 for (match in matches) {
+                    Log.d(
+                        "ListDiag",
+                        "EXEC: removeItem '${match.item.text}' → note=${ensured.noteId}",
+                    )
                     runCatching { repo.removeItem(match.item.id) }
                         .onSuccess { removed++ }
                         .onFailure { error -> Log.e(TAG, "Failed to remove '${match.item.text}' from note ${ensured.noteId}", error) }
@@ -173,6 +182,11 @@ class ListVoiceExecutor(
                 true
             }
             if (!shouldToggle) continue
+            val newState = if (toggleOnly) false else !match.item.done
+            Log.d(
+                "ListDiag",
+                "EXEC: updateItem id=${match.item.id} old='done=${match.item.done}' new='done=$newState'",
+            )
             runCatching { repo.toggleItem(match.item.id) }
                 .onSuccess { toggled++ }
                 .onFailure { error -> Log.e(TAG, "Failed to toggle '${match.item.text}' in note ${ensured.noteId}", error) }

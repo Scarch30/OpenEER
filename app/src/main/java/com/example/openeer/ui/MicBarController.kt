@@ -795,7 +795,25 @@ class MicBarController(
             noteId = targetNoteId,
             normalizedText = transcription,
         )
-        if (intentKey != null && sessionIntentRegistry.shouldSkipFinal(intentKey)) {
+        if (decision is VoiceRouteDecision.List) {
+            Log.d(
+                "ListDiag",
+                "FINAL-LIST: received action=${decision.action} note=$targetNoteId items=${decision.items} key=$intentKey",
+            )
+        }
+        val shouldSkipFinal = if (intentKey != null) {
+            sessionIntentRegistry.shouldSkipFinal(intentKey)
+        } else {
+            false
+        }
+        if (decision is VoiceRouteDecision.List) {
+            val state = intentKey?.let { sessionIntentRegistry.stateOf(it) }
+            Log.d(
+                "ListDiag",
+                "FINAL-LIST: skip=$shouldSkipFinal state=$state",
+            )
+        }
+        if (intentKey != null && shouldSkipFinal) {
             Log.d("MicCtl", "FinalSkip/Resolved key=$intentKey block=$audioBlockId")
             voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
             releaseAudioSessionForBlock(audioBlockId)
@@ -809,8 +827,16 @@ class MicBarController(
             val noteId = targetNoteId
             if (noteId != null) {
                 try {
+                    Log.d(
+                        "ListDiag",
+                        "FINAL-LIST: applying action=${decision.action} refinedItems=${decision.items}",
+                    )
                     reconcileEarlyListAdd(noteId, earlyApplied, decision.items)
                     finalizeListCommandCleanup(audioBlockId, audioPath)
+                    Log.d(
+                        "ListDiag",
+                        "FINAL-LIST: completed action=${decision.action} refinedCount=${decision.items.size}",
+                    )
                     sessionIntentRegistry.markResolved(intentKey)
                 } catch (error: Throwable) {
                     sessionIntentRegistry.remove(intentKey)
@@ -864,6 +890,10 @@ class MicBarController(
             }
 
             is VoiceRouteDecision.List -> {
+                Log.d(
+                    "ListDiag",
+                    "FINAL-LIST: applying action=${decision.action} refinedItems=${decision.items}",
+                )
                 voiceCommandHandler.handleListDecision(
                     noteId = targetNoteId,
                     audioBlockId = audioBlockId,
@@ -872,6 +902,10 @@ class MicBarController(
                     decision = decision,
                     sessionBaseline = commitContext.baselineBody,
                     commitContext = commitContext,
+                )
+                Log.d(
+                    "ListDiag",
+                    "FINAL-LIST: completed action=${decision.action} refinedCount=${decision.items.size}",
                 )
             }
             }
@@ -893,11 +927,19 @@ class MicBarController(
         command: VoiceRouteDecision.List,
         intentKey: String?,
     ): EarlyHandlingResult? {
+        Log.d(
+            "ListDiag",
+            "EARLY-LIST: start action=${command.action} note=$noteId items=${command.items} size=${command.items.size}",
+        )
         if (!FeatureFlags.voiceEarlyCommandsEnabled) return null
         val requested = command.items
         return when (command.action) {
             VoiceListAction.ADD -> {
                 val added = blocksRepo.addItemsToNoteList(noteId, requested)
+                Log.d(
+                    "ListDiag",
+                    "EARLY-LIST: added=${added.map { it.text }} count=${added.size}",
+                )
                 if (!intentKey.isNullOrEmpty()) {
                     val ids = added.map { it.id }
                     val originalTexts = added.map { it.text }
@@ -911,6 +953,7 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
+                Log.d("ListDiag", "EARLY-LIST: done skipWhisper=false")
                 EarlyHandlingResult(skipWhisper = false)
             }
 
@@ -933,6 +976,7 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
+                Log.d("ListDiag", "EARLY-LIST: done skipWhisper=true")
                 EarlyHandlingResult(skipWhisper = true)
             }
 
@@ -960,6 +1004,7 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
+                Log.d("ListDiag", "EARLY-LIST: done skipWhisper=true")
                 EarlyHandlingResult(skipWhisper = true)
             }
 

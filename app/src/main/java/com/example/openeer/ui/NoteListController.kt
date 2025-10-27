@@ -226,11 +226,16 @@ class NoteListController(
         binding.listItemsRecycler.isVisible = items.isNotEmpty()
 
         Log.d(LIST_LOG_TAG, "submit start: adapterCount(before)=${adapter.itemCount}")
+        Log.d(
+            "ListDiag",
+            "UI: emit note=$noteId size=${items.size} ids=${items.map { it.id }}",
+        )
 
         updateListSelectionUi(items)
 
         adapter.submitList(items) {
             Log.d(LIST_LOG_TAG, "submit done: adapterCount(after)=${adapter.itemCount}")
+            Log.d("ListDiag", "UI: submit done adapterCount=${adapter.itemCount}")
 
             if (pendingScrollToBottom && items.isNotEmpty()) {
                 binding.listItemsRecycler.post {
