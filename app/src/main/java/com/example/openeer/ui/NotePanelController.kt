@@ -273,7 +273,15 @@ class NotePanelController(
                 MENU_CONVERT_TO_TEXT -> {
                     val noteSnapshot = currentNote
                     activity.lifecycleScope.launch {
+                        val noteId = noteSnapshot?.id
+                        val isListNote = noteSnapshot?.isList() == true
+                        if (noteId != null && isListNote) {
+                            listController.onListConversionToPlainStarted(noteId)
+                        }
                         val message = viewModel.convertCurrentNoteToPlain(noteSnapshot)
+                        if (noteId != null && isListNote && !message.success) {
+                            listController.onListConversionToPlainCancelled(noteId)
+                        }
                         val duration = if (message.success) Snackbar.LENGTH_SHORT else Snackbar.LENGTH_LONG
                         Snackbar.make(binding.root, activity.getString(message.messageRes), duration).show()
                     }
@@ -406,28 +414,30 @@ class NotePanelController(
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
 
     private fun applyOptimisticPlainBody(event: NotePanelViewModel.NoteConvertedToPlainEvent) {
+        applyListConvertedToPlain(event.noteId, event.body)
+    }
+
+    fun applyListConvertedToPlain(noteId: Long, body: String) {
         val openId = openNoteId ?: return
-        if (event.noteId != openId) return
+        if (noteId != openId) return
 
         Log.i(
             TAG,
-            "NotePanelController  OptimisticPlainBody: applied len=${event.body.length} for note=${event.noteId}.",
+            "NotePanelController  OptimisticPlainBody: applied len=${body.length} for note=$noteId.",
         )
 
-        if (listController.isListMode()) {
-            val snapshot = currentNote?.copy(body = event.body, type = NoteType.PLAIN)
-                ?: Note(id = event.noteId, body = event.body)
-            listController.render(snapshot)
-        }
+        currentNote = currentNote?.copy(body = body, type = NoteType.PLAIN)
+            ?: Note(id = noteId, body = body, type = NoteType.PLAIN)
 
-        currentNote = currentNote?.copy(body = event.body, type = NoteType.PLAIN)
-
-        binding.txtBodyDetail.text = event.body
+        binding.txtBodyDetail.text = body
         binding.txtBodyDetail.isVisible = true
         binding.txtBodyDetail.post {
             binding.txtBodyDetail.requestLayout()
             binding.txtBodyDetail.invalidate()
         }
+
+        listController.onListConversionToPlainApplied(noteId)
+        Log.d("ListUI", "CONVERT_ATOMIC applied bodyLen=${body.length}")
     }
 
     private fun render(note: Note?) {
