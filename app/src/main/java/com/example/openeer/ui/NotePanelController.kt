@@ -20,6 +20,7 @@ import com.example.openeer.core.FeatureFlags
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.NoteType
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
@@ -83,6 +84,7 @@ class NotePanelController(
 
     private var blocksJob: Job? = null
     private var noteJob: Job? = null
+    private var plainConversionJob: Job? = null
 
     private val scrollPositions = mutableMapOf<Long, Int>()
 
@@ -171,6 +173,17 @@ class NotePanelController(
             }
         }
 
+        plainConversionJob?.cancel()
+        plainConversionJob = activity.lifecycleScope.launch {
+            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.noteConvertedToPlainEvents.collectLatest { event ->
+                    if (event.noteId != noteId) return@collectLatest
+                    if (openNoteId != noteId) return@collectLatest
+                    applyOptimisticPlainBody(event)
+                }
+            }
+        }
+
         blocksJob?.cancel()
         blocksJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -203,6 +216,8 @@ class NotePanelController(
 
         noteJob?.cancel()
         noteJob = null
+        plainConversionJob?.cancel()
+        plainConversionJob = null
         blocksJob?.cancel()
         blocksJob = null
 
@@ -389,6 +404,31 @@ class NotePanelController(
     }
 
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
+
+    private fun applyOptimisticPlainBody(event: NotePanelViewModel.NoteConvertedToPlainEvent) {
+        val openId = openNoteId ?: return
+        if (event.noteId != openId) return
+
+        Log.i(
+            TAG,
+            "NotePanelController  OptimisticPlainBody: applied len=${event.body.length} for note=${event.noteId}.",
+        )
+
+        if (listController.isListMode()) {
+            val snapshot = currentNote?.copy(body = event.body, type = NoteType.PLAIN)
+                ?: Note(id = event.noteId, body = event.body)
+            listController.render(snapshot)
+        }
+
+        currentNote = currentNote?.copy(body = event.body, type = NoteType.PLAIN)
+
+        binding.txtBodyDetail.text = event.body
+        binding.txtBodyDetail.isVisible = true
+        binding.txtBodyDetail.post {
+            binding.txtBodyDetail.requestLayout()
+            binding.txtBodyDetail.invalidate()
+        }
+    }
 
     private fun render(note: Note?) {
         val openId = openNoteId
