@@ -11,12 +11,12 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.example.openeer.Injection
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.MergeLogUiRow
 import com.example.openeer.data.NoteDao
 import com.example.openeer.data.NoteRepository
-import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.FragmentMergeHistoryBinding
 import com.example.openeer.databinding.ItemMergeHistoryBinding
 import com.google.android.material.snackbar.Snackbar
@@ -63,12 +63,7 @@ class MergeHistoryFragment : Fragment() {
         val ctx = requireContext().applicationContext
         val db = AppDatabase.get(ctx)
         noteDao = db.noteDao()
-        val blocksRepository = BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao = noteDao,
-            linkDao = db.blockLinkDao(),
-            listItemDao = db.listItemDao(),
-        )
+        val blocksRepository = Injection.provideBlocksRepository(ctx)
         noteRepository = NoteRepository(
             ctx,
             noteDao,

@@ -17,6 +17,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.openeer.Injection
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
@@ -74,12 +75,7 @@ class MainActivity : AppCompatActivity() {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val db = AppDatabase.get(this@MainActivity)
-                val blocksRepo = BlocksRepository(
-                    blockDao = db.blockDao(),
-                    noteDao = db.noteDao(),
-                    linkDao = db.blockLinkDao(),
-                    listItemDao = db.listItemDao(),
-                )
+                val blocksRepo = Injection.provideBlocksRepository(this@MainActivity)
                 return NotesVm(
                     NoteRepository(
                         applicationContext,
@@ -113,13 +109,7 @@ class MainActivity : AppCompatActivity() {
         )
     }
     private val blocksRepo: BlocksRepository by lazy {
-        val db = AppDatabase.get(this)
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao  = db.noteDao(),
-            linkDao  = db.blockLinkDao(),   // ✅ injection pour liens AUDIO→TEXTE
-            listItemDao = db.listItemDao(),
-        )
+        Injection.provideBlocksRepository(this)
     }
 
     private lateinit var importCoordinator: ImportCoordinator
@@ -185,7 +175,7 @@ class MainActivity : AppCompatActivity() {
         topBubble = TopBubbleController(b, lifecycleScope)
 
         // Note panel
-        notePanel = NotePanelController(this, b)
+        notePanel = NotePanelController(this, b, blocksRepo)
         notePanel.attachTopBubble(topBubble)
         notePanel.onOpenNoteChanged = { id ->
             if (::selectionController.isInitialized) {
@@ -251,6 +241,7 @@ class MainActivity : AppCompatActivity() {
         captureLauncher.onCreate(savedInstanceState)
 
         // Mic controller
+        Log.d("ListEarly", "MicCtl uses BlocksRepository singleton")
         micCtl = MicBarController(
             activity = this,
             binding = b,

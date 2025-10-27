@@ -39,8 +39,8 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.example.openeer.Injection
 import com.example.openeer.R
-import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityCameraCaptureBinding
@@ -82,6 +82,7 @@ class CameraCaptureActivity : AppCompatActivity() {
     private val switchThresholdPx by lazy { 40f * resources.displayMetrics.density }
 
     private var noteIdArg: Long = -1L
+    private val blocksRepo: BlocksRepository by lazy { Injection.provideBlocksRepository(this) }
 
     // Permissions
     private val requestCameraPermission =
@@ -231,12 +232,7 @@ class CameraCaptureActivity : AppCompatActivity() {
                     Toast.makeText(this@CameraCaptureActivity, "Import image impossible", Toast.LENGTH_LONG).show()
                     return@launch
                 }
-                val db = AppDatabase.get(this@CameraCaptureActivity)
-                val blocks = BlocksRepository(
-                    blockDao = db.blockDao(),
-                    noteDao = db.noteDao(),
-                    listItemDao = db.listItemDao(),
-                )
+                val blocks = blocksRepo
                 launch(Dispatchers.IO) {
                     blocks.appendPhoto(
                         noteId   = noteIdArg,
@@ -277,12 +273,7 @@ class CameraCaptureActivity : AppCompatActivity() {
                     Toast.makeText(this@CameraCaptureActivity, "Import vidéo impossible", Toast.LENGTH_LONG).show()
                     return@launch
                 }
-                val db = AppDatabase.get(this@CameraCaptureActivity)
-                val blocks = BlocksRepository(
-                    blockDao = db.blockDao(),
-                    noteDao = db.noteDao(),
-                    listItemDao = db.listItemDao(),
-                )
+                val blocks = blocksRepo
                 launch(Dispatchers.IO) {
                     val gid = generateGroupId()
                     val videoId = blocks.appendVideo(
@@ -361,12 +352,7 @@ class CameraCaptureActivity : AppCompatActivity() {
                 }
                 lifecycleScope.launch(Dispatchers.IO) {
                     runCatching {
-                        val db = AppDatabase.get(this@CameraCaptureActivity)
-                        val blocks = BlocksRepository(
-                            blockDao = db.blockDao(),
-                            noteDao = db.noteDao(),
-                            listItemDao = db.listItemDao(),
-                        )
+                        val blocks = blocksRepo
                         blocks.appendPhoto(
                             noteId   = noteIdArg,
                             mediaUri = savedUri.toString(),
@@ -437,12 +423,7 @@ class CameraCaptureActivity : AppCompatActivity() {
                     } else {
                         lifecycleScope.launch(Dispatchers.IO) {
                             runCatching {
-                                val db = AppDatabase.get(this@CameraCaptureActivity)
-                                val blocks = BlocksRepository(
-                                    blockDao = db.blockDao(),
-                                    noteDao = db.noteDao(),
-                                    listItemDao = db.listItemDao(),
-                                )
+                                val blocks = blocksRepo
 
                                 val gid = generateGroupId()
                                 val videoId = blocks.appendVideo(

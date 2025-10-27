@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.example.openeer.Injection
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
@@ -44,13 +45,7 @@ class RecorderService : Service() {
     override fun onCreate() {
         super.onCreate()
         val db = AppDatabase.get(this)
-        // ✅ Injection du linkDao pour activer la création des liens AUDIO→TEXTE
-        val blocks = BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao  = null,
-            linkDao  = db.blockLinkDao(),
-            listItemDao = db.listItemDao(),
-        )
+        val blocks = Injection.provideBlocksRepository(this)
         repo = NoteRepository(
             applicationContext,
             db.noteDao(),

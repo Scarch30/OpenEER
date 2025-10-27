@@ -40,6 +40,7 @@ import android.util.Log
 class NotePanelController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
+    private val blocksRepo: BlocksRepository,
 ) {
 
     private val repo: NoteRepository by lazy {
@@ -65,16 +66,6 @@ class NotePanelController(
     fun currentNoteSnapshot(): Note? = currentNote
 
     private var topBubble: TopBubbleController? = null
-
-    private val blocksRepo: BlocksRepository by lazy {
-        val db = AppDatabase.get(activity)
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao = db.noteDao(),
-            linkDao = db.blockLinkDao(),
-            listItemDao = db.listItemDao(),
-        )
-    }
 
     private val mediaController by lazy {
         NotePanelMediaController(activity, binding, blocksRepo).apply {
@@ -104,6 +95,7 @@ class NotePanelController(
     var onOpenNoteChanged: ((Long?) -> Unit)? = null
 
     init {
+        Log.d("ListUI", "NotePanel uses BlocksRepository singleton")
         mediaController // ensure lazy init for configuration
         listController.setup()
         reminderController.attach()

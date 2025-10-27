@@ -16,8 +16,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.openeer.R
-import com.example.openeer.data.AppDatabase
-import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.Injection
 import com.example.openeer.media.AudioFromVideoExtractor
 import com.example.openeer.media.AudioDenoiser
 import com.example.openeer.media.WavWriter
@@ -76,16 +75,7 @@ class VideoToTextWorker(
         }
     }
 
-    private val db by lazy { AppDatabase.get(applicationContext) }
-    private val blocksRepo by lazy {
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao = db.noteDao(),
-            io = Dispatchers.IO,
-            linkDao = db.blockLinkDao(),
-            listItemDao = db.listItemDao(),
-        )
-    }
+    private val blocksRepo by lazy { Injection.provideBlocksRepository(applicationContext) }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
         // Channel (API 26+)

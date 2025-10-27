@@ -3,10 +3,10 @@ package com.example.openeer.ui.library
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.openeer.Injection
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
-import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.search.SearchRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,12 +73,7 @@ class LibraryViewModel(
                 searchDao = db.searchDao(),
                 tagDao = db.tagDao()
             )
-            val blocksRepo = BlocksRepository(
-                blockDao = db.blockDao(),
-                noteDao = db.noteDao(),
-                linkDao = db.blockLinkDao(),
-                listItemDao = db.listItemDao(),
-            )
+            val blocksRepo = Injection.provideBlocksRepository(context)
             val noteRepo = NoteRepository(
                 context.applicationContext,
                 db.noteDao(),
