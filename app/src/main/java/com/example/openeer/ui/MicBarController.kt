@@ -697,7 +697,7 @@ class MicBarController(
         intentKey: String?,
         reqId: String,
     ): EarlyHandlingResult {
-        return when (decision) {
+        val result = when (decision) {
             VoiceEarlyDecision.None -> EarlyHandlingResult(skipWhisper = false)
 
             is VoiceEarlyDecision.ListCommand -> {
@@ -746,6 +746,7 @@ class MicBarController(
                         skipIfListAdd = skipRemoval,
                     )
                     showEarlyListFeedback(decision.command.action)
+                    Log.d(TAG_EARLY, "EARLY_RESULT req=$reqId action=${decision.command.action} skipWhisper=true")
                     EarlyHandlingResult(skipWhisper = true)
                 }
             }
@@ -825,7 +826,21 @@ class MicBarController(
                 EarlyHandlingResult(skipWhisper = true)
             }
         }
+
+        if (decision !is VoiceEarlyDecision.ListCommand) {
+            val actionToken = when (decision) {
+                VoiceEarlyDecision.None -> "NONE"
+                is VoiceEarlyDecision.ReminderTime -> "REMINDER_TIME"
+                is VoiceEarlyDecision.ReminderPlace -> "REMINDER_PLACE"
+                is VoiceEarlyDecision.ReminderIncomplete -> "REMINDER_INCOMPLETE"
+                is VoiceEarlyDecision.ListCommand -> decision.command.action.name
+            }
+            Log.d(TAG_EARLY, "EARLY_RESULT req=$reqId action=$actionToken skipWhisper=${result.skipWhisper}")
+        }
+
+        return result
     }
+
 
     private suspend fun handleVoiceDecision(
         decision: VoiceRouteDecision,
@@ -1049,10 +1064,11 @@ class MicBarController(
     ): EarlyHandlingResult? {
         ListUiLogTracker.mark(noteId, reqId)
         val noteType = getOpenNote()?.takeIf { it.id == noteId }?.type?.name ?: "unknown"
-        val baselineHash = activeSessionBaseline?.takeIf { it.noteId == noteId }?.hash
+        val baselineHash = activeSessionBaseline?.takeIf { it.noteId == noteId }?.hash ?: "none"
+        val intentToken = intentKey ?: "none"
         Log.d(
             TAG_EARLY,
-            "ENTER req=$reqId note=$noteId action=${command.action} items=${command.items} feature=${FeatureFlags.voiceEarlyCommandsEnabled} intentKey=$intentKey noteType=$noteType baselineHash=${baselineHash ?: "none"}",
+            "ENTER req=$reqId note=$noteId action=${command.action} items=${command.items} feature=${FeatureFlags.voiceEarlyCommandsEnabled} intentKey=$intentToken noteType=$noteType baselineHash=$baselineHash",
         )
         if (!FeatureFlags.voiceEarlyCommandsEnabled) {
             Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=flagDisabled")
@@ -1073,7 +1089,7 @@ class MicBarController(
                     val whyEmpty = added.whyEmpty?.name ?: "UNKNOWN"
                     Log.d(TAG_EARLY, "NO_ADD req=$reqId whyEmpty=$whyEmpty")
                 } else {
-                    Log.d(TAG_EARLY, "ADDED req=$reqId count=${addedIds.size} ids=$addedIds")
+                    Log.d(TAG_EARLY, "RESULT req=$reqId added=${addedIds.size} ids=$addedIds")
                 }
                 if (!intentKey.isNullOrEmpty()) {
                     val originalTexts = addedEntities.map { it.text }
@@ -1092,16 +1108,18 @@ class MicBarController(
             }
 
             VoiceListAction.REMOVE -> {
+                Log.d(TAG_EARLY, "CALL_REPO req=$reqId note=$noteId size=${requested.size}")
                 var removedCount = 0
                 var ambiguous = false
                 for (item in requested) {
-                    val result = blocksRepo.removeItemsByApprox(noteId, item)
+                    val result = blocksRepo.removeItemsByApprox(noteId, item, reqId = reqId)
                     if (result.ambiguous) {
                         ambiguous = true
                     } else {
                         removedCount += result.affectedItems.size
                     }
                 }
+                Log.d(TAG_EARLY, "RESULT req=$reqId affected=$removedCount ambiguous=$ambiguous")
                 withContext(Dispatchers.Main) {
                     val messageRes = when {
                         ambiguous -> R.string.voice_early_list_multiple_matches
@@ -1118,17 +1136,19 @@ class MicBarController(
             }
 
             VoiceListAction.TOGGLE, VoiceListAction.UNTICK -> {
+                Log.d(TAG_EARLY, "CALL_REPO req=$reqId note=$noteId size=${requested.size}")
                 var updatedCount = 0
                 var ambiguous = false
                 val targetDone = command.action == VoiceListAction.TOGGLE
                 for (item in requested) {
-                    val result = blocksRepo.toggleItemsByApprox(noteId, item, done = targetDone)
+                    val result = blocksRepo.toggleItemsByApprox(noteId, item, done = targetDone, reqId = reqId)
                     if (result.ambiguous) {
                         ambiguous = true
                     } else {
                         updatedCount += result.affectedItems.size
                     }
                 }
+                Log.d(TAG_EARLY, "RESULT req=$reqId affected=$updatedCount ambiguous=$ambiguous")
                 withContext(Dispatchers.Main) {
                     val messageRes = when {
                         ambiguous -> R.string.voice_early_list_multiple_matches
@@ -1286,6 +1306,8 @@ class MicBarController(
 
         private val entries = mutableMapOf<String, Entry>()
 
+        private fun reqToken(reqId: String?): String = reqId ?: "none"
+
         @Synchronized
         fun registerEarlyApplied(
             intentKey: String,
@@ -1303,7 +1325,7 @@ class MicBarController(
             entry.originalTexts = originalTexts.toList()
             Log.d(
                 TAG_INTENT,
-                "INTENT_REGISTER req=$reqId key=$intentKey state=APPLIED_EARLY ids=$affectedItemIds",
+                "INTENT_REGISTER req=${reqToken(reqId)} key=$intentKey state=APPLIED_EARLY ids=$affectedItemIds",
             )
         }
 
@@ -1316,7 +1338,10 @@ class MicBarController(
             entry.state = State.RESOLVED
             entry.affectedItemIds = emptyList()
             entry.originalTexts = emptyList()
-            Log.d(TAG_INTENT, "INTENT_REGISTER req=$reqId key=$intentKey state=RESOLVED")
+            Log.d(
+                TAG_INTENT,
+                "INTENT_REGISTER req=${reqToken(reqId)} key=$intentKey state=RESOLVED ids=[]",
+            )
         }
 
         @Synchronized
@@ -1329,7 +1354,7 @@ class MicBarController(
             val before = entries[intentKey]
             purgeExpired(now, ttlMs)
             val after = entries[intentKey]
-            logTtlCheck(reqId, intentKey, before, after, now, ttlMs)
+            logTtlCheck(reqToken(reqId), intentKey, before, after, now, ttlMs)
             if (after?.state != State.APPLIED_EARLY) return null
             return EarlyApplied(after.affectedItemIds, after.originalTexts)
         }
@@ -1344,7 +1369,7 @@ class MicBarController(
             val before = entries[intentKey]
             purgeExpired(now, ttlMs)
             val after = entries[intentKey]
-            logTtlCheck(reqId, intentKey, before, after, now, ttlMs)
+            logTtlCheck(reqToken(reqId), intentKey, before, after, now, ttlMs)
             return after?.state == State.RESOLVED
         }
 
@@ -1358,7 +1383,7 @@ class MicBarController(
             val before = entries[intentKey]
             purgeExpired(now, ttlMs)
             val after = entries[intentKey]
-            logTtlCheck(reqId, intentKey, before, after, now, ttlMs)
+            logTtlCheck(reqToken(reqId), intentKey, before, after, now, ttlMs)
             return after?.state ?: State.NONE
         }
 
@@ -1368,7 +1393,7 @@ class MicBarController(
         }
 
         private fun logTtlCheck(
-            reqId: String?,
+            reqToken: String,
             intentKey: String,
             before: Entry?,
             after: Entry?,
@@ -1384,7 +1409,7 @@ class MicBarController(
                 before == null -> "NEW"
                 else -> "NEW"
             }
-            Log.d(TAG_INTENT, "INTENT_TTL_CHECK req=$reqId key=$intentKey state=$stateToken age=$age")
+            Log.d(TAG_INTENT, "INTENT_TTL_CHECK req=$reqToken key=$intentKey state=$stateToken age=$age")
         }
 
         @Synchronized
