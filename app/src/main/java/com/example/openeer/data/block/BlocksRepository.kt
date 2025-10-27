@@ -5,9 +5,11 @@ import androidx.room.RoomDatabase
 import androidx.room.withTransaction
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteDao
+import com.example.openeer.data.NoteType
 import com.example.openeer.data.list.ListItemDao
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.data.merge.BlockSnapshot
+import com.example.openeer.core.FeatureFlags
 import com.example.openeer.voice.SmartListSplitter
 import com.google.gson.Gson
 import java.text.Normalizer
@@ -61,9 +63,23 @@ class BlocksRepository(
         const val LINK_VIDEO_TRANSCRIPTION = "VIDEO_TRANSCRIPTION"
         const val MIME_TYPE_TEXT_BLOCK_LIST = "text/x-openeer-list"
         private const val BLOCK_LIST_LOG_TAG = "BlockListUI"
+        private const val LIST_REPO_LOG_TAG = "ListRepo"
         private const val EXTRA_KEY_TITLE = "title"
         private val DIACRITIC_REGEX = "\\p{Mn}+".toRegex()
     }
+
+    enum class AddEmptyReason {
+        FLAG_DISABLED,
+        NOTE_NOT_LIST_AND_CONVERSION_BLOCKED,
+        NO_ITEMS_AFTER_NORMALIZATION,
+        ALL_DUPLICATES,
+        DB_ERROR,
+        INTENT_ALREADY_APPLIED_TTL,
+        NOTE_ID_MISMATCH,
+        READONLY_STATE,
+    }
+
+    data class AddItemsResult(val addedIds: List<Long>, val whyEmpty: AddEmptyReason? = null)
 
     data class TextBlockContent(
         val title: String,
@@ -481,44 +497,147 @@ class BlocksRepository(
         }
     }
 
-    suspend fun addItemsToNoteList(noteId: Long, items: List<String>): List<ListItemEntity> {
+    suspend fun addItemsToNoteList(
+        noteId: Long,
+        requested: List<String>,
+        reqId: String? = null,
+    ): AddItemsResult {
+        val requestToken = reqId ?: UUID.randomUUID().toString().take(8)
+        Log.d(
+            LIST_REPO_LOG_TAG,
+            "REPO_ENTER req=$requestToken note=$noteId requested=${requested.joinToString(prefix = "[", postfix = "]")}",
+        )
+        if (!FeatureFlags.listsEnabled) {
+            Log.d(
+                LIST_REPO_LOG_TAG,
+                "REPO_RESULT req=$requestToken added=0 whyEmpty=${AddEmptyReason.FLAG_DISABLED}",
+            )
+            return AddItemsResult(emptyList(), AddEmptyReason.FLAG_DISABLED)
+        }
+
+        val whitespaceRegex = "\\s+".toRegex()
+        val normalizedItems = mutableListOf<String>()
+        val rejectedItems = mutableListOf<String>()
+        requested.forEach { candidate ->
+            val parts = SmartListSplitter.splitAllCandidates(candidate).ifEmpty { listOf(candidate) }
+            parts.forEach { part ->
+                val sanitized = part.replace(whitespaceRegex, " ").trim()
+                if (sanitized.isEmpty()) {
+                    rejectedItems += part.trim()
+                } else {
+                    normalizedItems += sanitized
+                }
+            }
+        }
+
+        Log.d(
+            LIST_REPO_LOG_TAG,
+            "REPO_SANITIZE req=$requestToken itemsNorm=${normalizedItems.joinToString(prefix = "[", postfix = "]") { "'${it}'" }} rejected=${rejectedItems.joinToString(prefix = "[", postfix = "]") { if (it.isEmpty()) "''" else "'${it}'" }}",
+        )
+
+        if (normalizedItems.isEmpty()) {
+            Log.d(
+                LIST_REPO_LOG_TAG,
+                "REPO_RESULT req=$requestToken added=0 whyEmpty=${AddEmptyReason.NO_ITEMS_AFTER_NORMALIZATION}",
+            )
+            return AddItemsResult(emptyList(), AddEmptyReason.NO_ITEMS_AFTER_NORMALIZATION)
+        }
+
+        val dao = listItemDao ?: run {
+            Log.d(
+                LIST_REPO_LOG_TAG,
+                "REPO_RESULT req=$requestToken added=0 whyEmpty=${AddEmptyReason.READONLY_STATE}",
+            )
+            return AddItemsResult(emptyList(), AddEmptyReason.READONLY_STATE)
+        }
+
+        val note = noteDao?.getByIdOnce(noteId)
+        val noteTypeToken = note?.type?.name ?: "UNKNOWN"
+        val canConvert = note != null && note.type != NoteType.LIST && noteDao != null
+        Log.d(
+            LIST_REPO_LOG_TAG,
+            "REPO_NOTE_STATE req=$requestToken type=$noteTypeToken canConvert=$canConvert",
+        )
+
+        if (note == null) {
+            Log.d(
+                LIST_REPO_LOG_TAG,
+                "REPO_RESULT req=$requestToken added=0 whyEmpty=${AddEmptyReason.NOTE_ID_MISMATCH}",
+            )
+            return AddItemsResult(emptyList(), AddEmptyReason.NOTE_ID_MISMATCH)
+        }
+
+        return withContext(io) {
+            try {
+                Log.d(LIST_REPO_LOG_TAG, "REPO_DB_TX_START req=$requestToken")
+                val (insertedIds, duplicatesOnly) = runInRoomTransaction {
+                    val existing = dao.listForNote(noteId)
+                    normalizedItems.forEach { candidate ->
+                        val existsExact = existing.any { it.text == candidate }
+                        val normalizedTarget = normalizeListText(candidate)
+                        val approxMatch = !existsExact && existing.any {
+                            normalizeListText(it.text) == normalizedTarget
+                        }
+                        Log.d(
+                            LIST_REPO_LOG_TAG,
+                            "REPO_EXISTING_MATCH req=$requestToken item='${candidate}' exists=$existsExact approx=$approxMatch",
+                        )
+                    }
+
+                    val now = System.currentTimeMillis()
+                    var order = (dao.maxOrderForNote(noteId) ?: -1) + 1
+                    val ids = mutableListOf<Long>()
+                    normalizedItems.forEachIndexed { index, textLine ->
+                        val entity = ListItemEntity(
+                            noteId = noteId,
+                            text = textLine,
+                            order = order++,
+                            createdAt = now + index,
+                        )
+                        val id = dao.insert(entity, requestToken)
+                        ids += id
+                    }
+                    val duplicatesOnly = normalizedItems.isNotEmpty() && normalizedItems.all { candidate ->
+                        existing.any { it.text == candidate }
+                    }
+                    ids.toList() to duplicatesOnly
+                }
+                Log.d(LIST_REPO_LOG_TAG, "REPO_DB_TX_END req=$requestToken")
+                if (insertedIds.isEmpty()) {
+                    Log.d(
+                        LIST_REPO_LOG_TAG,
+                        "REPO_RESULT req=$requestToken added=0 whyEmpty=${if (duplicatesOnly) AddEmptyReason.ALL_DUPLICATES else AddEmptyReason.DB_ERROR}",
+                    )
+                    val reason = if (duplicatesOnly) AddEmptyReason.ALL_DUPLICATES else AddEmptyReason.DB_ERROR
+                    AddItemsResult(emptyList(), reason)
+                } else {
+                    Log.d(
+                        LIST_REPO_LOG_TAG,
+                        "REPO_RESULT req=$requestToken added=${insertedIds.size} ids=$insertedIds",
+                    )
+                    AddItemsResult(insertedIds)
+                }
+            } catch (error: Throwable) {
+                Log.e(
+                    LIST_REPO_LOG_TAG,
+                    "REPO_DB_TX_END req=$requestToken error=${error.message}",
+                    error,
+                )
+                Log.d(
+                    LIST_REPO_LOG_TAG,
+                    "REPO_RESULT req=$requestToken added=0 whyEmpty=${AddEmptyReason.DB_ERROR}",
+                )
+                throw error
+            }
+        }
+    }
+
+    suspend fun getListItemsByIds(itemIds: List<Long>): List<ListItemEntity> {
         val dao = listItemDao ?: return emptyList()
-        if (items.isEmpty()) return emptyList()
+        if (itemIds.isEmpty()) return emptyList()
         return withContext(io) {
             runInRoomTransaction {
-                val trimmed = items.flatMap { candidate ->
-                    SmartListSplitter.splitAllCandidates(candidate).map { part ->
-                        part.replace("\\s+".toRegex(), " ").trim()
-                    }
-                }.filter { it.isNotEmpty() }
-
-                if (trimmed.isEmpty()) {
-                    Log.i(
-                        BLOCK_LIST_LOG_TAG,
-                        "note=$noteId action=ADD count=0 reason=EMPTY"
-                    )
-                    return@runInRoomTransaction emptyList<ListItemEntity>()
-                }
-
-                val now = System.currentTimeMillis()
-                var order = (dao.maxOrderForNote(noteId) ?: -1) + 1
-                val inserted = mutableListOf<ListItemEntity>()
-                for ((index, textLine) in trimmed.withIndex()) {
-                    val entity = ListItemEntity(
-                        noteId = noteId,
-                        text = textLine,
-                        order = order++,
-                        createdAt = now + index,
-                    )
-                    val id = dao.insert(entity)
-                    inserted += entity.copy(id = id)
-                }
-
-                Log.i(
-                    BLOCK_LIST_LOG_TAG,
-                    "note=$noteId action=ADD count=${inserted.size} items=${inserted.joinToString { "\"${it.text}\"" }}"
-                )
-                inserted
+                itemIds.mapNotNull { id -> dao.findById(id) }
             }
         }
     }

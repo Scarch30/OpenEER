@@ -998,10 +998,10 @@ class MicBarController(
         if (trimmed.size > earlyIds.size) {
             val extras = trimmed.subList(earlyIds.size, trimmed.size)
             val added = blocksRepo.addItemsToNoteList(noteId, extras)
-            if (added.isNotEmpty()) {
+            if (added.addedIds.isNotEmpty()) {
                 Log.d(
                     TAG_EARLY,
-                    "RECONCILE_APPEND note=$noteId added=${added.size} ids=${added.map { it.id }}",
+                    "RECONCILE_APPEND note=$noteId added=${added.addedIds.size} ids=${added.addedIds}",
                 )
             }
         } else if (earlyIds.size > trimmed.size) {
@@ -1042,25 +1042,25 @@ class MicBarController(
         return when (command.action) {
             VoiceListAction.ADD -> {
                 Log.d(TAG_EARLY, "CALL_REPO req=$reqId note=$noteId size=${requested.size}")
-                val added = blocksRepo.addItemsToNoteList(noteId, requested)
-                val addedIds = added.map { it.id }
+                val added = blocksRepo.addItemsToNoteList(noteId, requested, reqId = reqId)
+                val addedIds = added.addedIds
+                val addedEntities = if (addedIds.isNotEmpty()) {
+                    blocksRepo.getListItemsByIds(addedIds)
+                } else {
+                    emptyList()
+                }
                 if (addedIds.isEmpty()) {
-                    val whyEmpty = when {
-                        requested.isEmpty() -> "requested_empty"
-                        requested.all { it.isBlank() } -> "requested_blank"
-                        else -> "normalized_empty"
-                    }
+                    val whyEmpty = added.whyEmpty?.name ?: "UNKNOWN"
                     Log.d(TAG_EARLY, "NO_ADD req=$reqId whyEmpty=$whyEmpty")
                 } else {
                     Log.d(TAG_EARLY, "ADDED req=$reqId count=${addedIds.size} ids=$addedIds")
                 }
                 if (!intentKey.isNullOrEmpty()) {
-                    val ids = added.map { it.id }
-                    val originalTexts = added.map { it.text }
-                    sessionIntentRegistry.registerEarlyApplied(intentKey, ids, originalTexts, reqId = reqId)
+                    val originalTexts = addedEntities.map { it.text }
+                    sessionIntentRegistry.registerEarlyApplied(intentKey, addedIds, originalTexts, reqId = reqId)
                 }
                 withContext(Dispatchers.Main) {
-                    val messageRes = if (added.isNotEmpty()) {
+                    val messageRes = if (addedIds.isNotEmpty()) {
                         R.string.voice_early_list_added
                     } else {
                         R.string.voice_list_item_not_found
