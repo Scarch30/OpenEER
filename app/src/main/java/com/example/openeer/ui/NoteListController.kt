@@ -43,6 +43,7 @@ class NoteListController(
     private var listItemsJob: Job? = null
     private var observedListNoteId: Long? = null
     private var pendingScrollToBottom = false
+    private var suppressListUpdatesForConversion = false
 
     fun setup() {
         binding.listItemsRecycler.apply {
@@ -88,6 +89,7 @@ class NoteListController(
         listMode = false
         openNoteId = null
         pendingScrollToBottom = false
+        suppressListUpdatesForConversion = false
         adapter.submitList(emptyList())
         binding.listItemsContainer.isGone = true
         binding.listItemsRecycler.isGone = true
@@ -130,7 +132,7 @@ class NoteListController(
             }
             updateListSelectionUi(adapter.currentList)
         } else {
-            if (previousMode) {
+            if (previousMode && !suppressListUpdatesForConversion) {
                 Log.w(
                     TAG_UI,
                     "ListUI: disabling list UI note=${note.id} type=${note.type} items=${adapter.currentList.size}.",
@@ -142,7 +144,9 @@ class NoteListController(
             binding.listAddItemInput.text?.clear()
             binding.listAddItemInput.clearFocus()
             stopListObservation()
-            adapter.submitList(emptyList())
+            if (!suppressListUpdatesForConversion && adapter.currentList.isNotEmpty()) {
+                adapter.submitList(emptyList())
+            }
             binding.listSelectionBar.isGone = true
             binding.listSelectionCounter.text = ""
             binding.btnListSelectionDelete.isEnabled = false
@@ -214,6 +218,14 @@ class NoteListController(
             return
         }
 
+        if (suppressListUpdatesForConversion) {
+            Log.d(
+                TAG_UI,
+                "UI: emit skipped note=${openNoteId ?: "<none>"} size=${items.size} (convert_to_plain)",
+            )
+            return
+        }
+
         val currentNoteId = openNoteId
         val noteId = currentNoteId ?: -1L
         val reqId = ListUiLogTracker.last(currentNoteId)
@@ -243,6 +255,46 @@ class NoteListController(
                 pendingScrollToBottom = false
             }
         }
+    }
+
+    fun onListConversionToPlainStarted(noteId: Long) {
+        if (openNoteId != noteId) return
+        if (!listMode) return
+        suppressListUpdatesForConversion = true
+        Log.d(TAG_UI, "CONVERT_ATOMIC start note=$noteId")
+    }
+
+    fun onListConversionToPlainCancelled(noteId: Long) {
+        if (openNoteId != noteId) return
+        suppressListUpdatesForConversion = false
+    }
+
+    fun onListConversionToPlainApplied(noteId: Long) {
+        if (openNoteId != noteId) return
+
+        suppressListUpdatesForConversion = false
+        pendingScrollToBottom = false
+        listMode = false
+
+        binding.listItemsContainer.isGone = true
+        binding.listItemsPlaceholder.isGone = true
+        binding.listItemsRecycler.isGone = true
+        binding.listAddItemInput.text?.clear()
+        binding.listAddItemInput.clearFocus()
+        binding.listAddItemInput.isEnabled = false
+        binding.noteBodySurface.isClickable = true
+
+        stopListObservation()
+
+        if (adapter.currentList.isNotEmpty()) {
+            adapter.submitList(emptyList())
+        }
+
+        binding.listSelectionBar.isGone = true
+        binding.listSelectionCounter.text = ""
+        binding.btnListSelectionDelete.isEnabled = false
+        binding.btnListSelectionCopy.isEnabled = false
+        binding.btnListSelectionReminder.isEnabled = false
     }
 
     private fun toggleListItem(itemId: Long) {
