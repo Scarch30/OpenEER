@@ -705,6 +705,7 @@ class MicBarController(
                 val skipRemoval = decision.command.action == VoiceListAction.ADD && listManager.has(audioBlockId)
                 val handled = handleEarlyListCommand(
                     noteId = targetNoteId,
+                    audioBlockId = audioBlockId,
                     command = decision.command,
                     intentKey = intentKey,
                     reqId = reqId,
@@ -1048,9 +1049,13 @@ class MicBarController(
         audioPath: String,
         reqId: String,
     ) {
-        if (listManager.has(audioBlockId)) {
-            listManager.remove(audioBlockId, ProvisionalRemovalReason.LIST_COMMAND, reqId)
-        } else {
+        val removed = listManager.removeProvisionalForBlock(
+            audioBlockId,
+            ProvisionalRemovalReason.LIST_COMMAND,
+            reqId,
+        )
+        if (!removed) {
+            Log.d("ListUI", "PROVISIONAL already removed for block=$audioBlockId (early applied)")
             withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
         }
         voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
@@ -1058,6 +1063,7 @@ class MicBarController(
 
     private suspend fun handleEarlyListCommand(
         noteId: Long,
+        audioBlockId: Long,
         command: VoiceRouteDecision.List,
         intentKey: String?,
         reqId: String,
@@ -1102,6 +1108,12 @@ class MicBarController(
                         R.string.voice_list_item_not_found
                     }
                     showTopBubble(activity.getString(messageRes))
+                    if (addedIds.isNotEmpty()) {
+                        listManager.removeProvisionalForBlock(
+                            audioBlockId,
+                            ProvisionalRemovalReason.EARLY_APPLIED,
+                        )
+                    }
                 }
                 Log.d(TAG_EARLY, "EARLY_RESULT req=$reqId action=${command.action} skipWhisper=false")
                 EarlyHandlingResult(skipWhisper = false)

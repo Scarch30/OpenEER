@@ -3,6 +3,7 @@ package com.example.openeer.ui
 import android.util.Log
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.ui.editor.NoteListItemsAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -66,9 +67,10 @@ internal class ListProvisionalManager(
         repo.finalizeItemText(handle.itemId, finalText)
         val effectiveReq = reqId ?: handle.reqId
         ListUiLogTracker.mark(handle.noteId, effectiveReq)
+        val removalToken = ProvisionalRemovalReason.LIST_COMMAND.token
         Log.d(
             TAG_UI,
-            "PROVISIONAL removed req=${effectiveReq.orPlaceholder()} id=${handle.itemId} dueTo=${ProvisionalRemovalReason.LIST_COMMAND.token}",
+            "PROVISIONAL removed req=${effectiveReq.orPlaceholder()} id=${handle.itemId} dueTo=$removalToken",
         )
     }
 
@@ -85,14 +87,37 @@ internal class ListProvisionalManager(
         dueTo: ProvisionalRemovalReason,
         reqId: String?,
     ) {
-        val handle = removeHandle(audioBlockId) ?: return
+        removeProvisionalForBlock(audioBlockId, dueTo, reqId)
+    }
+
+    suspend fun removeProvisionalForBlock(
+        blockId: Long,
+        reason: ProvisionalRemovalReason = ProvisionalRemovalReason.EARLY_APPLIED,
+        reqId: String? = null,
+    ): Boolean {
+        val handle = removeHandle(blockId) ?: return false
+
+        withContext(Dispatchers.Main) {
+            val adapter = binding.listItemsRecycler.adapter
+            if (adapter is NoteListItemsAdapter) {
+                val current = adapter.currentList
+                val index = current.indexOfFirst { it.id == handle.itemId }
+                if (index >= 0) {
+                    val updated = current.toMutableList().also { it.removeAt(index) }
+                    adapter.submitList(updated)
+                }
+            }
+        }
+
         repo.removeItem(handle.itemId)
+
         val effectiveReq = reqId ?: handle.reqId
         ListUiLogTracker.mark(handle.noteId, effectiveReq)
         Log.d(
             TAG_UI,
-            "PROVISIONAL removed req=${effectiveReq.orPlaceholder()} id=${handle.itemId} dueTo=${dueTo.token}",
+            "PROVISIONAL removed req=${effectiveReq.orPlaceholder()} id=${handle.itemId} dueTo=${reason.token}",
         )
+        return true
     }
 
     fun discard(audioBlockId: Long) {
@@ -117,6 +142,7 @@ internal data class ListProvisionalItem(
 
 internal enum class ProvisionalRemovalReason(val token: String) {
     LIST_COMMAND("LIST_COMMAND"),
+    EARLY_APPLIED("EARLY_APPLIED"),
     REMINDER("REMINDER"),
     CANCEL("CANCEL"),
     ERROR("ERROR"),
