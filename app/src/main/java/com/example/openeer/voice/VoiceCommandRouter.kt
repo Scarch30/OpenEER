@@ -7,6 +7,8 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Locale
 
+private const val TAG_INTENT = "ListIntent"
+
 /**
  * Routes the final Whisper transcription to the appropriate voice command handler.
  * For now this distinguishes between a regular note, list commands, reminders or an
@@ -173,6 +175,7 @@ class VoiceCommandRouter(
         normalizedText: String?,
         noteId: Long?,
         extras: IntentKeyExtras = IntentKeyExtras(),
+        reqId: String? = null,
     ): String? {
         return when (decision) {
             VoiceRouteDecision.NOTE -> null
@@ -184,16 +187,19 @@ class VoiceCommandRouter(
                 items = decision.items,
                 normalizedText = normalizedText,
                 extras = extras,
+                reqId = reqId,
             )
             is VoiceRouteDecision.ReminderTime -> reminderTimeIntentKey(
                 intent = decision.intent,
                 noteId = noteId,
                 extras = extras,
+                reqId = reqId,
             )
             is VoiceRouteDecision.ReminderPlace -> reminderPlaceIntentKey(
                 intent = decision.intent,
                 noteId = noteId,
                 extras = extras,
+                reqId = reqId,
             )
         }
     }
@@ -203,6 +209,7 @@ class VoiceCommandRouter(
         normalizedText: String?,
         noteId: Long?,
         extras: IntentKeyExtras = IntentKeyExtras(),
+        reqId: String? = null,
     ): String? {
         return when (decision) {
             VoiceEarlyDecision.None -> null
@@ -211,29 +218,42 @@ class VoiceCommandRouter(
                 normalizedText = normalizedText ?: decision.rawText,
                 noteId = noteId,
                 extras = extras,
+                reqId = reqId,
             )
             is VoiceEarlyDecision.ReminderTime -> reminderTimeIntentKey(
                 intent = decision.intent,
                 noteId = noteId,
                 extras = extras,
+                reqId = reqId,
             )
             is VoiceEarlyDecision.ReminderPlace -> reminderPlaceIntentKey(
                 intent = decision.intent,
                 noteId = noteId,
                 extras = extras,
+                reqId = reqId,
             )
             is VoiceEarlyDecision.ReminderIncomplete -> null
         }
     }
 
-    fun intentKeyFor(decision: VoiceRouteDecision, noteId: Long?, normalizedText: String? = null): String? {
-        val key = buildIntentKey(decision, normalizedText, noteId)
+    fun intentKeyFor(
+        decision: VoiceRouteDecision,
+        noteId: Long?,
+        normalizedText: String? = null,
+        reqId: String? = null,
+    ): String? {
+        val key = buildIntentKey(decision, normalizedText, noteId, reqId = reqId)
         Log.d("ListDiag", "ROUTER: intentKey=$key")
         return key
     }
 
-    fun intentKeyFor(decision: VoiceEarlyDecision, noteId: Long?, normalizedText: String? = null): String? {
-        val key = buildIntentKey(decision, normalizedText, noteId)
+    fun intentKeyFor(
+        decision: VoiceEarlyDecision,
+        noteId: Long?,
+        normalizedText: String? = null,
+        reqId: String? = null,
+    ): String? {
+        val key = buildIntentKey(decision, normalizedText, noteId, reqId = reqId)
         Log.d("ListDiag", "ROUTER: intentKey=$key")
         return key
     }
@@ -250,6 +270,7 @@ class VoiceCommandRouter(
         items: List<String>,
         normalizedText: String?,
         extras: IntentKeyExtras,
+        reqId: String?,
     ): String {
         val base = when (action) {
             VoiceListAction.CONVERT_TO_LIST -> "list:convert_to_list"
@@ -261,7 +282,9 @@ class VoiceCommandRouter(
         }
         val notePart = noteId?.toString() ?: "none"
         if (action == VoiceListAction.CONVERT_TO_LIST || action == VoiceListAction.CONVERT_TO_TEXT) {
-            return "$base:$notePart"
+            val key = "$base:$notePart"
+            logIntentKeyBuild(reqId, noteId, emptyList(), key)
+            return key
         }
         val candidates = when {
             extras.normalizedCandidates.isNotEmpty() -> extras.normalizedCandidates
@@ -269,25 +292,31 @@ class VoiceCommandRouter(
         }
         val hashed = stableHash(candidates)
         val payload = if (hashed.isNotEmpty()) hashed else stableHash(listOfNotNull(normalizedText?.let(::normalizeForKey)))
-        return "$base:$notePart:$payload"
+        val key = "$base:$notePart:$payload"
+        logIntentKeyBuild(reqId, noteId, if (candidates.isNotEmpty()) candidates else listOfNotNull(normalizedText?.let(::normalizeForKey)), key)
+        return key
     }
 
     private fun reminderTimeIntentKey(
         intent: ReminderIntent.Time,
         noteId: Long?,
         extras: IntentKeyExtras,
+        reqId: String?,
     ): String {
         val notePart = noteId?.toString() ?: "none"
         val normalizedLabel = normalizeForKey(extras.reminderLabelOverride) ?: normalizeForKey(intent.label) ?: ""
         val bucket = ((extras.reminderTimeOverride ?: intent.triggerAtMillis) / REMINDER_TIME_BUCKET_MS).toString()
         val hash = stableHash(listOf(normalizedLabel, bucket))
-        return "reminder:time:$notePart:$hash"
+        val key = "reminder:time:$notePart:$hash"
+        logIntentKeyBuild(reqId, noteId, listOf(normalizedLabel, bucket), key)
+        return key
     }
 
     private fun reminderPlaceIntentKey(
         intent: ReminderIntent.Place,
         noteId: Long?,
         extras: IntentKeyExtras,
+        reqId: String?,
     ): String {
         val notePart = noteId?.toString() ?: "none"
         val normalizedLabel = normalizeForKey(extras.reminderLabelOverride) ?: normalizeForKey(intent.label) ?: ""
@@ -306,7 +335,30 @@ class VoiceCommandRouter(
                 placeKey,
             )
         )
-        return "reminder:place:$notePart:$hash"
+        val key = "reminder:place:$notePart:$hash"
+        logIntentKeyBuild(
+            reqId,
+            noteId,
+            listOf(
+                normalizedLabel,
+                transition,
+                "radius:$radius",
+                "cooldown:$cooldown",
+                "every:$every",
+                placeKey,
+            ),
+            key,
+        )
+        return key
+    }
+
+    private fun logIntentKeyBuild(
+        reqId: String?,
+        noteId: Long?,
+        normalizedItems: List<String>,
+        key: String,
+    ) {
+        Log.d(TAG_INTENT, "INTENT_KEY_BUILD req=$reqId note=$noteId itemsNorm=$normalizedItems key=$key")
     }
 
     private fun buildPlaceKey(place: LocalPlaceIntentParser.PlaceQuery): String {

@@ -34,6 +34,7 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.text.Normalizer
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.abs
 
 class MicBarController(
@@ -201,6 +202,8 @@ class MicBarController(
         }
     }
 
+    private fun newReqId(): String = UUID.randomUUID().toString().take(8)
+
     private fun switchPttToHandsFree() {
         if (state != RecordingState.RECORDING_PTT) return
         state = RecordingState.RECORDING_HANDS_FREE
@@ -236,6 +239,7 @@ class MicBarController(
                 }
                 val segmentDurationMs = segmentStartRealtime?.let { SystemClock.elapsedRealtime() - it }
                 val finalResult = withContext(Dispatchers.IO) { live?.stopDetailed() } ?: FinalResult.Empty
+                val reqId = newReqId()
                 val initialVoskText = finalResult.text.trim()
                 live = null
 
@@ -446,6 +450,7 @@ class MicBarController(
                                         decision = decision,
                                         noteId = targetNoteId,
                                         normalizedText = refinedText,
+                                        reqId = reqId,
                                     )
                                     val commitContext = buildCommitContext(
                                         mode = BodyTranscriptionManager.DictationCommitMode.WHISPER,
@@ -460,6 +465,7 @@ class MicBarController(
                                         transcription = refinedText,
                                         audioPath = wavPath,
                                         commitContext = commitContext,
+                                        reqId = reqId,
                                     )
                                 }
                             } catch (error: Throwable) {
@@ -491,27 +497,45 @@ class MicBarController(
                                 "MicCtl",
                                 "Commande vocale anticipée ignorée: note cible introuvable"
                             )
+                            Log.d(
+                                TAG_EARLY,
+                                "EARLY_EXIT req=$reqId reason=noteNotFound"
+                            )
                         } else {
                             val sessionIdForIntent = audioSessionId
                             val intentKey = voiceCommandRouter.intentKeyFor(
                                 decision = earlyDecision,
                                 noteId = resolvedTarget,
                                 normalizedText = initialVoskText,
+                                reqId = reqId,
                             )
                             var skipEarly = false
                             var skipDueToResolution = false
+                            var skipDueToDuplicate = false
                             if (intentKey != null) {
-                                if (sessionIntentRegistry.shouldSkipFinal(intentKey)) {
+                                if (sessionIntentRegistry.shouldSkipFinal(intentKey, reqId = reqId)) {
                                     skipEarly = true
                                     skipDueToResolution = true
-                                } else if (sessionIntentRegistry.getEarlyApplied(intentKey) != null) {
+                                } else if (sessionIntentRegistry.getEarlyApplied(intentKey, reqId = reqId) != null) {
                                     skipEarly = true
+                                    skipDueToDuplicate = true
                                 }
                             }
                             if (skipEarly) {
+                                val skipReason = when {
+                                    skipDueToResolution -> "duplicate_final"
+                                    skipDueToDuplicate -> "duplicate_early"
+                                    else -> "unknown"
+                                }
+                                if (intentKey != null) {
+                                    Log.d(
+                                        TAG_INTENT,
+                                        "INTENT_SKIP_REASON req=$reqId key=$intentKey reason=$skipReason",
+                                    )
+                                }
                                 Log.d(
-                                    "MicCtl",
-                                    "EarlySkip/${if (skipDueToResolution) "Resolved" else "Duplicate"} key=$intentKey block=$audioBlockId"
+                                    TAG_EARLY,
+                                    "EARLY_EXIT req=$reqId reason=${if (skipDueToResolution) "intentResolved" else "intentDuplicate"} key=$intentKey",
                                 )
                                 if (skipDueToResolution && !wavPath.isNullOrBlank()) {
                                     voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, wavPath)
@@ -529,9 +553,10 @@ class MicBarController(
                                         transcription = initialVoskText,
                                         audioPath = wavPath,
                                         intentKey = intentKey,
+                                        reqId = reqId,
                                     )
                                     if (intentKey != null && result.skipWhisper) {
-                                        sessionIntentRegistry.markResolved(intentKey)
+                                        sessionIntentRegistry.markResolved(intentKey, reqId = reqId)
                                     }
                                     if (result.skipWhisper) {
                                         releaseAudioSessionForBlock(audioBlockId)
@@ -554,6 +579,15 @@ class MicBarController(
                     if (adaptiveDecision.mode == AdaptiveRouter.DecisionMode.REFLEX_ONLY) {
                         skipWhisper = true
                     }
+                    val whisperReason = when (earlyDecision) {
+                        is VoiceEarlyDecision.ListCommand -> if (earlyDecision.command.items.size <= 1) {
+                            "singleItem"
+                        } else {
+                            "multiItem"
+                        }
+                        else -> "unsupported"
+                    }
+                    Log.d(TAG_EARLY, "WHISPER req=$reqId skip=$skipWhisper reason=$whisperReason")
                     if (!skipWhisper) {
                         launchWhisper()
                     } else if (audioBlockId != null) {
@@ -658,6 +692,7 @@ class MicBarController(
         transcription: String,
         audioPath: String,
         intentKey: String?,
+        reqId: String,
     ): EarlyHandlingResult {
         return when (decision) {
             VoiceEarlyDecision.None -> EarlyHandlingResult(skipWhisper = false)
@@ -669,6 +704,7 @@ class MicBarController(
                     noteId = targetNoteId,
                     command = decision.command,
                     intentKey = intentKey,
+                    reqId = reqId,
                 )
                 if (handled != null) {
                     removeEarlyCommandText(
@@ -683,6 +719,7 @@ class MicBarController(
                         decision = decision.command,
                         noteId = targetNoteId,
                         normalizedText = transcription,
+                        reqId = reqId,
                     )
                     val commitContext = buildCommitContext(
                         mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
@@ -697,6 +734,7 @@ class MicBarController(
                         transcription = transcription,
                         audioPath = audioPath,
                         commitContext = commitContext,
+                        reqId = reqId,
                     )
                     removeEarlyCommandText(
                         audioBlockId = audioBlockId,
@@ -714,6 +752,7 @@ class MicBarController(
                     decision = decision,
                     noteId = targetNoteId,
                     normalizedText = transcription,
+                    reqId = reqId,
                 )
                 val commitContext = buildCommitContext(
                     mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
@@ -746,6 +785,7 @@ class MicBarController(
                     decision = decision,
                     noteId = targetNoteId,
                     normalizedText = transcription,
+                    reqId = reqId,
                 )
                 val commitContext = buildCommitContext(
                     mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
@@ -789,11 +829,13 @@ class MicBarController(
         transcription: String,
         audioPath: String,
         commitContext: BodyTranscriptionManager.DictationCommitContext,
+        reqId: String,
     ) {
         val intentKey = voiceCommandRouter.intentKeyFor(
             decision = decision,
             noteId = targetNoteId,
             normalizedText = transcription,
+            reqId = reqId,
         )
         if (decision is VoiceRouteDecision.List) {
             Log.d(
@@ -802,24 +844,26 @@ class MicBarController(
             )
         }
         val shouldSkipFinal = if (intentKey != null) {
-            sessionIntentRegistry.shouldSkipFinal(intentKey)
+            sessionIntentRegistry.shouldSkipFinal(intentKey, reqId = reqId)
         } else {
             false
         }
         if (decision is VoiceRouteDecision.List) {
-            val state = intentKey?.let { sessionIntentRegistry.stateOf(it) }
+            val state = intentKey?.let { sessionIntentRegistry.stateOf(it, reqId = reqId) }
             Log.d(
                 "ListDiag",
                 "FINAL-LIST: skip=$shouldSkipFinal state=$state",
             )
         }
         if (intentKey != null && shouldSkipFinal) {
+            Log.d(TAG_INTENT, "INTENT_SKIP_REASON req=$reqId key=$intentKey reason=duplicate_final")
+            Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=intentResolved key=$intentKey")
             Log.d("MicCtl", "FinalSkip/Resolved key=$intentKey block=$audioBlockId")
             voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
             releaseAudioSessionForBlock(audioBlockId)
             return
         }
-        val earlyApplied = intentKey?.let { sessionIntentRegistry.getEarlyApplied(it) }
+        val earlyApplied = intentKey?.let { sessionIntentRegistry.getEarlyApplied(it, reqId = reqId) }
         if (intentKey != null && earlyApplied != null &&
             decision is VoiceRouteDecision.List &&
             decision.action == VoiceListAction.ADD
@@ -837,7 +881,7 @@ class MicBarController(
                         "ListDiag",
                         "FINAL-LIST: completed action=${decision.action} refinedCount=${decision.items.size}",
                     )
-                    sessionIntentRegistry.markResolved(intentKey)
+                    sessionIntentRegistry.markResolved(intentKey, reqId = reqId)
                 } catch (error: Throwable) {
                     sessionIntentRegistry.remove(intentKey)
                     throw error
@@ -916,7 +960,7 @@ class MicBarController(
             throw error
         } finally {
             if (intentKey != null) {
-                sessionIntentRegistry.markResolved(intentKey)
+                sessionIntentRegistry.markResolved(intentKey, reqId = reqId)
             }
             releaseAudioSessionForBlock(audioBlockId)
         }
@@ -926,24 +970,38 @@ class MicBarController(
         noteId: Long,
         command: VoiceRouteDecision.List,
         intentKey: String?,
+        reqId: String,
     ): EarlyHandlingResult? {
+        val noteType = getOpenNote()?.takeIf { it.id == noteId }?.type?.name ?: "unknown"
+        val baselineHash = activeSessionBaseline?.takeIf { it.noteId == noteId }?.hash
         Log.d(
-            "ListDiag",
-            "EARLY-LIST: start action=${command.action} note=$noteId items=${command.items} size=${command.items.size}",
+            TAG_EARLY,
+            "ENTER req=$reqId note=$noteId action=${command.action} items=${command.items} feature=${FeatureFlags.voiceEarlyCommandsEnabled} intentKey=$intentKey noteType=$noteType baselineHash=${baselineHash ?: "none"}",
         )
-        if (!FeatureFlags.voiceEarlyCommandsEnabled) return null
+        if (!FeatureFlags.voiceEarlyCommandsEnabled) {
+            Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=flagDisabled")
+            return null
+        }
         val requested = command.items
         return when (command.action) {
             VoiceListAction.ADD -> {
+                Log.d(TAG_EARLY, "CALL_REPO req=$reqId note=$noteId size=${requested.size}")
                 val added = blocksRepo.addItemsToNoteList(noteId, requested)
-                Log.d(
-                    "ListDiag",
-                    "EARLY-LIST: added=${added.map { it.text }} count=${added.size}",
-                )
+                val addedIds = added.map { it.id }
+                if (addedIds.isEmpty()) {
+                    val whyEmpty = when {
+                        requested.isEmpty() -> "requested_empty"
+                        requested.all { it.isBlank() } -> "requested_blank"
+                        else -> "normalized_empty"
+                    }
+                    Log.d(TAG_EARLY, "NO_ADD req=$reqId whyEmpty=$whyEmpty")
+                } else {
+                    Log.d(TAG_EARLY, "ADDED req=$reqId count=${addedIds.size} ids=$addedIds")
+                }
                 if (!intentKey.isNullOrEmpty()) {
                     val ids = added.map { it.id }
                     val originalTexts = added.map { it.text }
-                    sessionIntentRegistry.registerEarlyApplied(intentKey, ids, originalTexts)
+                    sessionIntentRegistry.registerEarlyApplied(intentKey, ids, originalTexts, reqId = reqId)
                 }
                 withContext(Dispatchers.Main) {
                     val messageRes = if (added.isNotEmpty()) {
@@ -953,7 +1011,7 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
-                Log.d("ListDiag", "EARLY-LIST: done skipWhisper=false")
+                Log.d(TAG_EARLY, "EARLY_RESULT req=$reqId action=${command.action} skipWhisper=false")
                 EarlyHandlingResult(skipWhisper = false)
             }
 
@@ -976,7 +1034,10 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
-                Log.d("ListDiag", "EARLY-LIST: done skipWhisper=true")
+                Log.d(
+                    TAG_EARLY,
+                    "EARLY_RESULT req=$reqId action=${command.action} skipWhisper=true ambiguous=$ambiguous count=$removedCount",
+                )
                 EarlyHandlingResult(skipWhisper = true)
             }
 
@@ -1004,46 +1065,17 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
-                Log.d("ListDiag", "EARLY-LIST: done skipWhisper=true")
+                Log.d(
+                    TAG_EARLY,
+                    "EARLY_RESULT req=$reqId action=${command.action} skipWhisper=true ambiguous=$ambiguous count=$updatedCount",
+                )
                 EarlyHandlingResult(skipWhisper = true)
             }
 
             VoiceListAction.CONVERT_TO_LIST,
-            VoiceListAction.CONVERT_TO_TEXT -> null
-        }
-    }
-
-    private suspend fun finalizeListCommandCleanup(audioBlockId: Long, audioPath: String) {
-        val hasListHandle = listManager.has(audioBlockId)
-        if (hasListHandle) {
-            listManager.remove(audioBlockId, "LIST_COMMAND")
-        } else {
-            withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
-        }
-        voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
-    }
-
-    private suspend fun reconcileEarlyListAdd(
-        noteId: Long,
-        earlyApplied: SessionIntentRegistry.EarlyApplied,
-        refinedItems: List<String>,
-    ) {
-        val earlyIds = earlyApplied.affectedItemIds
-        val earlyCount = minOf(earlyIds.size, earlyApplied.originalTexts.size)
-        val updates = minOf(earlyCount, refinedItems.size)
-        for (index in 0 until updates) {
-            val itemId = earlyIds[index]
-            val refinedText = refinedItems[index]
-            blocksRepo.updateItemTextForBlock(itemId, refinedText)
-        }
-
-        if (refinedItems.size > earlyCount) {
-            val toAppend = refinedItems.subList(earlyCount, refinedItems.size)
-            blocksRepo.addItemsToNoteList(noteId, toAppend)
-        } else if (refinedItems.size < earlyCount) {
-            val orphanIds = earlyIds.subList(refinedItems.size, earlyCount)
-            for (itemId in orphanIds) {
-                blocksRepo.removeItemForBlock(itemId)
+            VoiceListAction.CONVERT_TO_TEXT -> {
+                Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=unsupportedAction action=${command.action}")
+                null
             }
         }
     }
@@ -1139,6 +1171,8 @@ class MicBarController(
         private const val LIST_VOICE_TAG = "ListVoice"
         private const val INTENT_TTL_MS = 20_000L
         private const val ADAPTIVE_FEEDBACK_THROTTLE_MS = 1500L
+        private const val TAG_EARLY = "ListEarly"
+        private const val TAG_INTENT = "ListIntent"
         private val WORD_SPLIT_REGEX = "\\s+".toRegex()
         private val BASELINE_SPACE_REGEX = "\\s+".toRegex()
         private val DIACRITIC_REGEX = "\\p{Mn}+".toRegex()
@@ -1183,6 +1217,7 @@ class MicBarController(
             affectedItemIds: List<Long>,
             originalTexts: List<String>,
             ttlMs: Long = INTENT_TTL_MS,
+            reqId: String? = null,
         ) {
             val now = clock()
             purgeExpired(now, ttlMs)
@@ -1191,10 +1226,14 @@ class MicBarController(
             entry.state = State.APPLIED_EARLY
             entry.affectedItemIds = affectedItemIds.toList()
             entry.originalTexts = originalTexts.toList()
+            Log.d(
+                TAG_INTENT,
+                "INTENT_REGISTER req=$reqId key=$intentKey state=APPLIED_EARLY ids=$affectedItemIds",
+            )
         }
 
         @Synchronized
-        fun markResolved(intentKey: String, ttlMs: Long = INTENT_TTL_MS) {
+        fun markResolved(intentKey: String, ttlMs: Long = INTENT_TTL_MS, reqId: String? = null) {
             val now = clock()
             purgeExpired(now, ttlMs)
             val entry = entries.getOrPut(intentKey) { Entry(now, State.NONE) }
@@ -1202,31 +1241,75 @@ class MicBarController(
             entry.state = State.RESOLVED
             entry.affectedItemIds = emptyList()
             entry.originalTexts = emptyList()
+            Log.d(TAG_INTENT, "INTENT_REGISTER req=$reqId key=$intentKey state=RESOLVED")
         }
 
         @Synchronized
-        fun getEarlyApplied(intentKey: String, ttlMs: Long = INTENT_TTL_MS): EarlyApplied? {
-            purgeExpired(clock(), ttlMs)
-            val entry = entries[intentKey]
-            if (entry?.state != State.APPLIED_EARLY) return null
-            return EarlyApplied(entry.affectedItemIds, entry.originalTexts)
+        fun getEarlyApplied(
+            intentKey: String,
+            ttlMs: Long = INTENT_TTL_MS,
+            reqId: String? = null,
+        ): EarlyApplied? {
+            val now = clock()
+            val before = entries[intentKey]
+            purgeExpired(now, ttlMs)
+            val after = entries[intentKey]
+            logTtlCheck(reqId, intentKey, before, after, now, ttlMs)
+            if (after?.state != State.APPLIED_EARLY) return null
+            return EarlyApplied(after.affectedItemIds, after.originalTexts)
         }
 
         @Synchronized
-        fun shouldSkipFinal(intentKey: String, ttlMs: Long = INTENT_TTL_MS): Boolean {
-            purgeExpired(clock(), ttlMs)
-            return entries[intentKey]?.state == State.RESOLVED
+        fun shouldSkipFinal(
+            intentKey: String,
+            ttlMs: Long = INTENT_TTL_MS,
+            reqId: String? = null,
+        ): Boolean {
+            val now = clock()
+            val before = entries[intentKey]
+            purgeExpired(now, ttlMs)
+            val after = entries[intentKey]
+            logTtlCheck(reqId, intentKey, before, after, now, ttlMs)
+            return after?.state == State.RESOLVED
         }
 
         @Synchronized
-        fun stateOf(intentKey: String, ttlMs: Long = INTENT_TTL_MS): State {
-            purgeExpired(clock(), ttlMs)
-            return entries[intentKey]?.state ?: State.NONE
+        fun stateOf(
+            intentKey: String,
+            ttlMs: Long = INTENT_TTL_MS,
+            reqId: String? = null,
+        ): State {
+            val now = clock()
+            val before = entries[intentKey]
+            purgeExpired(now, ttlMs)
+            val after = entries[intentKey]
+            logTtlCheck(reqId, intentKey, before, after, now, ttlMs)
+            return after?.state ?: State.NONE
         }
 
         @Synchronized
         fun remove(intentKey: String) {
             entries.remove(intentKey)
+        }
+
+        private fun logTtlCheck(
+            reqId: String?,
+            intentKey: String,
+            before: Entry?,
+            after: Entry?,
+            now: Long,
+            ttlMs: Long,
+        ) {
+            val age = before?.let { now - it.registeredAt } ?: 0L
+            val expired = before != null && now - before.registeredAt > ttlMs
+            val stateToken = when {
+                expired -> "EXPIRED"
+                after?.state == State.APPLIED_EARLY -> "APPLIED_EARLY"
+                after?.state == State.RESOLVED -> "RESOLVED"
+                before == null -> "NEW"
+                else -> "NEW"
+            }
+            Log.d(TAG_INTENT, "INTENT_TTL_CHECK req=$reqId key=$intentKey state=$stateToken age=$age")
         }
 
         @Synchronized
