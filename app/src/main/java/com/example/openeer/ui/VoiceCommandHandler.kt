@@ -31,13 +31,15 @@ internal class VoiceCommandHandler(
         refinedText: String,
         sessionBaseline: String?,
         commitContext: DictationCommitContext,
+        reqId: String?,
     ) {
+        ListUiLogTracker.mark(noteId, reqId)
         val listHandle = listManager.removeHandle(audioBlockId)
         withContext(Dispatchers.IO) {
             blocksRepo.updateAudioTranscription(audioBlockId, refinedText)
 
             if (listHandle != null) {
-                listManager.finalize(listHandle, refinedText)
+                listManager.finalize(listHandle, refinedText, reqId)
             }
 
             val maybeTextId = bodyManager.textBlockIdFor(audioBlockId)
@@ -67,9 +69,11 @@ internal class VoiceCommandHandler(
         audioBlockId: Long,
         audioPath: String,
         reminderId: Long,
+        reqId: String,
     ) {
+        ListUiLogTracker.mark(noteId, reqId)
         if (listManager.has(audioBlockId)) {
-            listManager.remove(audioBlockId, "REMINDER")
+            listManager.remove(audioBlockId, ProvisionalRemovalReason.REMINDER, reqId)
         } else {
             withContext(Dispatchers.Main) {
                 val removed = bodyManager.buffer.removeCurrentSession()
@@ -92,7 +96,9 @@ internal class VoiceCommandHandler(
         decision: VoiceEarlyDecision,
         sessionBaseline: String?,
         commitContext: DictationCommitContext,
+        reqId: String,
     ): ReminderExecutor.PendingVoiceReminder? {
+        ListUiLogTracker.mark(noteId, reqId)
         val intent = when (decision) {
             is VoiceEarlyDecision.ReminderTime -> decision.intent
             is VoiceEarlyDecision.ReminderPlace -> decision.intent
@@ -102,17 +108,17 @@ internal class VoiceCommandHandler(
             reminderExecutor.createEarlyReminderFromVosk(noteId, rawText, intent)
         }
         result.onSuccess { pending ->
-            onReminderCreated(noteId, audioBlockId, audioPath, pending.reminderId)
+            onReminderCreated(noteId, audioBlockId, audioPath, pending.reminderId, reqId)
         }.onFailure { error ->
             if (error is ReminderExecutor.IncompleteException) {
                 Log.d("MicCtl", "Rappel anticipé incomplet pour note=$noteId", error)
-                handleNoteDecision(noteId, audioBlockId, rawText, sessionBaseline, commitContext)
+                handleNoteDecision(noteId, audioBlockId, rawText, sessionBaseline, commitContext, reqId)
                 withContext(Dispatchers.Main) {
                     showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
                 }
             } else {
                 Log.e("MicCtl", "Échec création anticipée rappel note=$noteId", error)
-                handleNoteDecision(noteId, audioBlockId, rawText, sessionBaseline, commitContext)
+                handleNoteDecision(noteId, audioBlockId, rawText, sessionBaseline, commitContext, reqId)
             }
         }
         return result.getOrNull()
@@ -126,7 +132,9 @@ internal class VoiceCommandHandler(
         decision: VoiceRouteDecision,
         sessionBaseline: String?,
         commitContext: DictationCommitContext,
+        reqId: String,
     ) {
+        ListUiLogTracker.mark(noteId, reqId)
         val result = runCatching {
             when (decision) {
                 is VoiceRouteDecision.ReminderTime -> reminderExecutor.createFromVoice(noteId, refinedText)
@@ -136,17 +144,17 @@ internal class VoiceCommandHandler(
         }
 
         result.onSuccess { reminderId ->
-            onReminderCreated(noteId, audioBlockId, audioPath, reminderId)
+            onReminderCreated(noteId, audioBlockId, audioPath, reminderId, reqId)
         }.onFailure { error ->
             if (error is ReminderExecutor.IncompleteException) {
                 Log.d("MicCtl", "Rappel lieu incomplet pour note=$noteId, fallback note", error)
-                handleNoteDecision(noteId, audioBlockId, refinedText, sessionBaseline, commitContext)
+                handleNoteDecision(noteId, audioBlockId, refinedText, sessionBaseline, commitContext, reqId)
                 withContext(Dispatchers.Main) {
                     showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
                 }
             } else {
                 Log.e("MicCtl", "Échec de création du rappel pour note=$noteId", error)
-                handleNoteDecision(noteId, audioBlockId, refinedText, sessionBaseline, commitContext)
+                handleNoteDecision(noteId, audioBlockId, refinedText, sessionBaseline, commitContext, reqId)
             }
         }
     }
@@ -159,20 +167,22 @@ internal class VoiceCommandHandler(
         decision: VoiceRouteDecision.List,
         sessionBaseline: String?,
         commitContext: DictationCommitContext,
+        reqId: String,
     ) {
         val result = listExecutor.execute(noteId, decision)
         val hasListHandle = listManager.has(audioBlockId)
         when (result) {
             is ListVoiceExecutor.Result.Success -> {
+                ListUiLogTracker.mark(result.noteId, reqId)
                 if (decision.action == VoiceListAction.CONVERT_TO_TEXT) {
                     if (hasListHandle) {
-                        listManager.remove(audioBlockId, "LIST_CONVERT_TO_TEXT")
+                        listManager.remove(audioBlockId, ProvisionalRemovalReason.LIST_COMMAND, reqId)
                     } else {
                         withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
                     }
                 } else {
                     if (hasListHandle) {
-                        listManager.remove(audioBlockId, "LIST_COMMAND")
+                        listManager.remove(audioBlockId, ProvisionalRemovalReason.LIST_COMMAND, reqId)
                         if ((decision.action == VoiceListAction.TOGGLE ||
                                 decision.action == VoiceListAction.UNTICK ||
                                 decision.action == VoiceListAction.REMOVE) &&
@@ -199,8 +209,9 @@ internal class VoiceCommandHandler(
             }
 
             is ListVoiceExecutor.Result.Incomplete -> {
+                result.noteId?.let { ListUiLogTracker.mark(it, reqId) }
                 if (hasListHandle) {
-                    listManager.finalize(audioBlockId, refinedText)
+                    listManager.finalize(audioBlockId, refinedText, reqId)
                     withContext(Dispatchers.Main) {
                         showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
                     }
@@ -216,11 +227,12 @@ internal class VoiceCommandHandler(
             is ListVoiceExecutor.Result.Failure -> {
                 Log.e("MicCtl", "Échec commande liste", result.error)
                 val fallbackNoteId = result.noteId ?: noteId
+                fallbackNoteId?.let { ListUiLogTracker.mark(it, reqId) }
                 if (fallbackNoteId != null) {
-                    handleNoteDecision(fallbackNoteId, audioBlockId, refinedText, sessionBaseline, commitContext)
+                    handleNoteDecision(fallbackNoteId, audioBlockId, refinedText, sessionBaseline, commitContext, reqId)
                 } else {
                     if (hasListHandle) {
-                        listManager.finalize(audioBlockId, refinedText)
+                        listManager.finalize(audioBlockId, refinedText, reqId)
                     } else {
                         withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
                     }
@@ -230,9 +242,16 @@ internal class VoiceCommandHandler(
         }
     }
 
-    suspend fun handleListIncomplete(audioBlockId: Long, audioPath: String, refinedText: String) {
+    suspend fun handleListIncomplete(
+        noteId: Long?,
+        audioBlockId: Long,
+        audioPath: String,
+        refinedText: String,
+        reqId: String,
+    ) {
+        noteId?.let { ListUiLogTracker.mark(it, reqId) }
         if (listManager.has(audioBlockId)) {
-            listManager.finalize(audioBlockId, refinedText)
+            listManager.finalize(audioBlockId, refinedText, reqId)
             withContext(Dispatchers.Main) {
                 showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
             }

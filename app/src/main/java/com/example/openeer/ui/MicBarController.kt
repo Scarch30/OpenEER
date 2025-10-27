@@ -74,7 +74,6 @@ class MicBarController(
         repo,
         binding,
         LIST_PLACEHOLDER,
-        LIST_VOICE_TAG,
     )
     private val voiceDependencies = VoiceComponents.obtain(activity.applicationContext)
     private val voiceCommandRouter = VoiceCommandRouter(voiceDependencies.placeParser)
@@ -272,7 +271,11 @@ class MicBarController(
                 }
 
                 if (isListNote) {
-                    provisionalList = listManager.createProvisionalItem(targetNoteId, listFallbackText)
+                    provisionalList = listManager.createProvisionalItem(
+                        targetNoteId,
+                        listFallbackText,
+                        reqId,
+                    )
                 }
 
                 if (!wavPath.isNullOrBlank()) {
@@ -421,7 +424,7 @@ class MicBarController(
                                         blocksRepo.updateAudioTranscription(blockId, refinedText)
                                         val listHandle = listManager.removeHandle(blockId)
                                         if (listHandle != null) {
-                                            listManager.finalize(listHandle, refinedText)
+                                            listManager.finalize(listHandle, refinedText, reqId)
                                             true
                                         } else {
                                             val maybeTextId = bodyManager.textBlockIdFor(blockId)
@@ -472,7 +475,7 @@ class MicBarController(
                                 Log.e("MicCtl", "Erreur Whisper pour le bloc #$blockId", error)
                                 val fallback = if (initialVoskText.isNotBlank()) initialVoskText else listFallbackText
                                 if (listManager.has(blockId)) {
-                                    listManager.finalize(blockId, fallback)
+                                    listManager.finalize(blockId, fallback, reqId)
                                 } else {
                                     withContext(Dispatchers.Main) {
                                         bodyManager.replaceProvisionalWithRefined(blockId, fallback)
@@ -594,7 +597,7 @@ class MicBarController(
                         releaseAudioSessionForBlock(audioBlockId)
                     }
                 } else if (isListNote && provisionalList != null) {
-                    listManager.finalizeDetached(provisionalList, listFallbackText)
+                    listManager.finalizeDetached(provisionalList, listFallbackText, reqId)
                 }
 
                 if (binding.liveTranscriptionBar.isVisible) {
@@ -609,7 +612,7 @@ class MicBarController(
                 val detachedHandle = provisionalList
                 if (detachedHandle != null) {
                     val fallback = detachedHandle.initialText
-                    listManager.finalizeDetached(detachedHandle, fallback)
+                    listManager.finalizeDetached(detachedHandle, fallback, reqId)
                 }
             } finally {
                 activeSessionNoteId = null
@@ -768,6 +771,7 @@ class MicBarController(
                     decision = decision,
                     sessionBaseline = commitContext.baselineBody,
                     commitContext = commitContext,
+                    reqId = reqId,
                 )
                 if (pending != null) {
                     pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
@@ -801,6 +805,7 @@ class MicBarController(
                     decision = decision,
                     sessionBaseline = commitContext.baselineBody,
                     commitContext = commitContext,
+                    reqId = reqId,
                 )
                 if (pending != null) {
                     pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
@@ -876,7 +881,7 @@ class MicBarController(
                         "FINAL-LIST: applying action=${decision.action} refinedItems=${decision.items}",
                     )
                     reconcileEarlyListAdd(noteId, earlyApplied, decision.items)
-                    finalizeListCommandCleanup(audioBlockId, audioPath)
+                    finalizeListCommandCleanup(audioBlockId, audioPath, reqId)
                     Log.d(
                         "ListDiag",
                         "FINAL-LIST: completed action=${decision.action} refinedCount=${decision.items.size}",
@@ -900,6 +905,7 @@ class MicBarController(
                     refinedText = transcription,
                     sessionBaseline = commitContext.baselineBody,
                     commitContext = commitContext,
+                    reqId = reqId,
                 )
             }
 
@@ -913,6 +919,7 @@ class MicBarController(
                     decision = decision,
                     sessionBaseline = commitContext.baselineBody,
                     commitContext = commitContext,
+                    reqId = reqId,
                 )
             }
 
@@ -923,6 +930,7 @@ class MicBarController(
                     refinedText = transcription,
                     sessionBaseline = commitContext.baselineBody,
                     commitContext = commitContext,
+                    reqId = reqId,
                 )
                 withContext(Dispatchers.Main) {
                     showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
@@ -930,7 +938,13 @@ class MicBarController(
             }
 
             VoiceRouteDecision.LIST_INCOMPLETE -> {
-                voiceCommandHandler.handleListIncomplete(audioBlockId, audioPath, transcription)
+                voiceCommandHandler.handleListIncomplete(
+                    noteId = targetNoteId,
+                    audioBlockId = audioBlockId,
+                    audioPath = audioPath,
+                    refinedText = transcription,
+                    reqId = reqId,
+                )
             }
 
             is VoiceRouteDecision.List -> {
@@ -946,6 +960,7 @@ class MicBarController(
                     decision = decision,
                     sessionBaseline = commitContext.baselineBody,
                     commitContext = commitContext,
+                    reqId = reqId,
                 )
                 Log.d(
                     "ListDiag",
@@ -1013,9 +1028,13 @@ class MicBarController(
         }
     }
 
-    private suspend fun finalizeListCommandCleanup(audioBlockId: Long, audioPath: String) {
+    private suspend fun finalizeListCommandCleanup(
+        audioBlockId: Long,
+        audioPath: String,
+        reqId: String,
+    ) {
         if (listManager.has(audioBlockId)) {
-            listManager.remove(audioBlockId, "LIST_RECONCILE")
+            listManager.remove(audioBlockId, ProvisionalRemovalReason.LIST_COMMAND, reqId)
         } else {
             withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
         }
@@ -1028,6 +1047,7 @@ class MicBarController(
         intentKey: String?,
         reqId: String,
     ): EarlyHandlingResult? {
+        ListUiLogTracker.mark(noteId, reqId)
         val noteType = getOpenNote()?.takeIf { it.id == noteId }?.type?.name ?: "unknown"
         val baselineHash = activeSessionBaseline?.takeIf { it.noteId == noteId }?.hash
         Log.d(
@@ -1224,7 +1244,6 @@ class MicBarController(
 
     companion object {
         private const val LIST_PLACEHOLDER = "(transcription en cours…)"
-        private const val LIST_VOICE_TAG = "ListVoice"
         private const val INTENT_TTL_MS = 20_000L
         private const val ADAPTIVE_FEEDBACK_THROTTLE_MS = 1500L
         private const val TAG_EARLY = "ListEarly"
