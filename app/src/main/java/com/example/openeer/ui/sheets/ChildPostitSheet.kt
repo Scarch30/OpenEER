@@ -22,7 +22,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.example.openeer.R
-import com.example.openeer.data.AppDatabase
+import com.example.openeer.Injection
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository.ChecklistItemDraft
@@ -563,12 +563,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private data class EditorContent(val title: String, val body: String)
 
     private val blocksRepo: BlocksRepository by lazy {
-        val db = AppDatabase.get(requireContext())
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao = db.noteDao(),
-            listItemDao = db.listItemDao(),
-        )
+        Injection.provideBlocksRepository(requireContext())
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

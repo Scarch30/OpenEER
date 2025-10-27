@@ -22,7 +22,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
-import com.example.openeer.data.AppDatabase
+import com.example.openeer.Injection
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivitySketchCaptureBinding
 import com.example.openeer.ui.sketch.HsvColorPickerDialog
@@ -47,12 +47,7 @@ class SketchCaptureActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySketchCaptureBinding
 
     private val repository: BlocksRepository by lazy {
-        val db = AppDatabase.get(this)
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao = db.noteDao(),
-            listItemDao = db.listItemDao(),
-        )
+        Injection.provideBlocksRepository(this)
     }
 
     private var noteId: Long? = null

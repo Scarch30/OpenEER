@@ -17,6 +17,7 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.openeer.R
+import com.example.openeer.Injection
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
@@ -238,12 +239,7 @@ class RouteRecordingService : Service(), LocationListener {
         val attachmentDao = db.attachmentDao()
         val blockReadDao  = db.blockReadDao()
 
-        blocksRepo = BlocksRepository(
-            blockDao = blockDao,
-            noteDao  = noteDao,
-            linkDao  = db.blockLinkDao(),
-            listItemDao = db.listItemDao(),
-        )
+        blocksRepo = Injection.provideBlocksRepository(this)
         noteRepo   = NoteRepository(
             applicationContext,
             noteDao,

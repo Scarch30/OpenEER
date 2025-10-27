@@ -14,6 +14,7 @@ import android.widget.ArrayAdapter
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import com.example.openeer.Injection
 import com.example.openeer.R
 import com.example.openeer.core.Place
 import com.example.openeer.data.AppDatabase
@@ -178,12 +179,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         super.onAttach(context)
         val appCtx = context.applicationContext
         database = AppDatabase.get(appCtx)
-        blocksRepo = BlocksRepository(
-            blockDao = database.blockDao(),
-            noteDao = database.noteDao(),
-            linkDao = database.blockLinkDao(),
-            listItemDao = database.listItemDao(),
-        )
+        blocksRepo = Injection.provideBlocksRepository(appCtx)
         attachmentDao = database.attachmentDao()
         noteRepo = NoteRepository(
             appCtx,

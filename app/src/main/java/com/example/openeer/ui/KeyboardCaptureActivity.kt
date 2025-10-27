@@ -8,7 +8,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.example.openeer.data.AppDatabase
+import com.example.openeer.Injection
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityKeyboardCaptureBinding
 import kotlinx.coroutines.Dispatchers
@@ -26,12 +26,7 @@ class KeyboardCaptureActivity : AppCompatActivity() {
     private lateinit var binding: ActivityKeyboardCaptureBinding
 
     private val repo: BlocksRepository by lazy {
-        val db = AppDatabase.get(this)
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao = db.noteDao(),
-            listItemDao = db.listItemDao(),
-        )
+        Injection.provideBlocksRepository(this)
     }
 
     private var noteId: Long = -1L

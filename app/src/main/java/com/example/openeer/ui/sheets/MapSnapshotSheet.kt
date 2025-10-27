@@ -14,7 +14,7 @@ import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.example.openeer.R
-import com.example.openeer.data.AppDatabase
+import com.example.openeer.Injection
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
@@ -50,13 +50,7 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
     }
 
     private val blocksRepo: BlocksRepository by lazy {
-        val db = AppDatabase.get(requireContext())
-        BlocksRepository(
-            blockDao = db.blockDao(),
-            noteDao = db.noteDao(),
-            linkDao = db.blockLinkDao(),
-            listItemDao = db.listItemDao(),
-        )
+        Injection.provideBlocksRepository(requireContext())
     }
 
     private val routeGson by lazy { Gson() }
