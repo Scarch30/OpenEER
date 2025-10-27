@@ -181,7 +181,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         blocksRepo = BlocksRepository(
             blockDao = database.blockDao(),
             noteDao = database.noteDao(),
-            linkDao = database.blockLinkDao()
+            linkDao = database.blockLinkDao(),
+            listItemDao = database.listItemDao(),
         )
         attachmentDao = database.attachmentDao()
         noteRepo = NoteRepository(

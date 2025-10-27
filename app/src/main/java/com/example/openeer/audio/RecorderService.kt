@@ -48,7 +48,8 @@ class RecorderService : Service() {
         val blocks = BlocksRepository(
             blockDao = db.blockDao(),
             noteDao  = null,
-            linkDao  = db.blockLinkDao()
+            linkDao  = db.blockLinkDao(),
+            listItemDao = db.listItemDao(),
         )
         repo = NoteRepository(
             applicationContext,

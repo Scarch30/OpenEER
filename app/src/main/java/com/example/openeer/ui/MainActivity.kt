@@ -77,7 +77,8 @@ class MainActivity : AppCompatActivity() {
                 val blocksRepo = BlocksRepository(
                     blockDao = db.blockDao(),
                     noteDao = db.noteDao(),
-                    linkDao = db.blockLinkDao()
+                    linkDao = db.blockLinkDao(),
+                    listItemDao = db.listItemDao(),
                 )
                 return NotesVm(
                     NoteRepository(
@@ -116,7 +117,8 @@ class MainActivity : AppCompatActivity() {
         BlocksRepository(
             blockDao = db.blockDao(),
             noteDao  = db.noteDao(),
-            linkDao  = db.blockLinkDao()   // ✅ injection pour liens AUDIO→TEXTE
+            linkDao  = db.blockLinkDao(),   // ✅ injection pour liens AUDIO→TEXTE
+            listItemDao = db.listItemDao(),
         )
     }
 

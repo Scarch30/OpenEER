@@ -18,7 +18,6 @@ import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -29,11 +28,16 @@ class BlocksRepository(
     private val noteDao: NoteDao? = null,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val linkDao: BlockLinkDao? = null, // 🔗 optionnel pour liens AUDIO↔TEXTE / VIDEO↔TEXTE
-    private val listItemDao: ListItemDao? = null,
+    private val listItemDao: ListItemDao,
 ) {
 
     private val snapshotGson by lazy { Gson() }
     private val roomDatabase: RoomDatabase? by lazy { resolveRoomDatabase() }
+    internal val hasListWrite: Boolean = true
+
+    init {
+        Log.d(LIST_REPO_LOG_TAG, "INIT list write support = true (dao wired)")
+    }
 
     private fun resolveRoomDatabase(): RoomDatabase? {
         val daos = listOf(blockDao, listItemDao, noteDao, linkDao)
@@ -76,7 +80,6 @@ class BlocksRepository(
         DB_ERROR,
         INTENT_ALREADY_APPLIED_TTL,
         NOTE_ID_MISMATCH,
-        READONLY_STATE,
     }
 
     data class AddItemsResult(val addedIds: List<Long>, val whyEmpty: AddEmptyReason? = null)
@@ -278,7 +281,7 @@ class BlocksRepository(
         blockId: Long,
         allowEmpty: Boolean = true,
     ): BlockConversionResult {
-        val dao = listItemDao ?: return BlockConversionResult.Unsupported
+        val dao = listItemDao
         return withContext(io) {
             val block = blockDao.getById(blockId) ?: return@withContext BlockConversionResult.NotFound
             if (block.type != BlockType.TEXT) return@withContext BlockConversionResult.Unsupported
@@ -357,7 +360,7 @@ class BlocksRepository(
 
 
     suspend fun convertListBlockToText(blockId: Long): BlockConversionResult {
-        val dao = listItemDao ?: return BlockConversionResult.Unsupported
+        val dao = listItemDao
         return withContext(io) {
             val block = blockDao.getById(blockId) ?: return@withContext BlockConversionResult.NotFound
             if (block.type != BlockType.TEXT) {
@@ -400,7 +403,7 @@ class BlocksRepository(
     }
 
     suspend fun upsertChecklistItems(blockId: Long, drafts: List<ChecklistItemDraft>) {
-        val dao = listItemDao ?: return
+        val dao = listItemDao
         withContext(io) {
             runInRoomTransaction {
                 val block = blockDao.getById(blockId) ?: return@runInRoomTransaction
@@ -464,20 +467,17 @@ class BlocksRepository(
         }
     }
 
-    fun observeItemsForBlock(blockId: Long): Flow<List<ListItemEntity>> {
-        val dao = listItemDao ?: return flowOf(emptyList())
-        return dao.listForBlockFlow(blockId)
-    }
+    fun observeItemsForBlock(blockId: Long): Flow<List<ListItemEntity>> =
+        listItemDao.listForBlockFlow(blockId)
 
     suspend fun getItemsForBlock(blockId: Long): List<ListItemEntity> = withContext(io) {
-        val dao = listItemDao ?: return@withContext emptyList()
-        dao.listForBlock(blockId)
+        listItemDao.listForBlock(blockId)
     }
 
     suspend fun addItemForBlock(blockId: Long, text: String): Long {
-        val dao = listItemDao ?: return -1L
         return withContext(io) {
             runInRoomTransaction {
+                val dao = listItemDao
                 val nextOrder = (dao.maxOrderForBlock(blockId) ?: -1) + 1
                 val trimmed = text.trim()
                 val isBlank = trimmed.isEmpty()
@@ -543,14 +543,6 @@ class BlocksRepository(
             return AddItemsResult(emptyList(), AddEmptyReason.NO_ITEMS_AFTER_NORMALIZATION)
         }
 
-        val dao = listItemDao ?: run {
-            Log.d(
-                LIST_REPO_LOG_TAG,
-                "REPO_RESULT req=$requestToken added=0 whyEmpty=${AddEmptyReason.READONLY_STATE}",
-            )
-            return AddItemsResult(emptyList(), AddEmptyReason.READONLY_STATE)
-        }
-
         val note = noteDao?.getByIdOnce(noteId)
         val noteTypeToken = note?.type?.name ?: "UNKNOWN"
         val canConvert = note != null && note.type != NoteType.LIST && noteDao != null
@@ -571,6 +563,7 @@ class BlocksRepository(
             try {
                 Log.d(LIST_REPO_LOG_TAG, "REPO_DB_TX_START req=$requestToken")
                 val (insertedIds, duplicatesOnly) = runInRoomTransaction {
+                    val dao = listItemDao
                     val existing = dao.listForNote(noteId)
                     normalizedItems.forEach { candidate ->
                         val existsExact = existing.any { it.text == candidate }
@@ -633,19 +626,19 @@ class BlocksRepository(
     }
 
     suspend fun getListItemsByIds(itemIds: List<Long>): List<ListItemEntity> {
-        val dao = listItemDao ?: return emptyList()
         if (itemIds.isEmpty()) return emptyList()
         return withContext(io) {
             runInRoomTransaction {
+                val dao = listItemDao
                 itemIds.mapNotNull { id -> dao.findById(id) }
             }
         }
     }
 
     suspend fun removeItemsByApprox(noteId: Long, query: String): ListApproxResult {
-        val dao = listItemDao ?: return ListApproxResult(emptyList(), ambiguous = false)
         return withContext(io) {
             runInRoomTransaction {
+                val dao = listItemDao
                 val normalizedQuery = normalizeListText(query)
                 if (normalizedQuery.isEmpty()) {
                     return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
@@ -683,9 +676,9 @@ class BlocksRepository(
     }
 
     suspend fun toggleItemsByApprox(noteId: Long, query: String, done: Boolean): ListApproxResult {
-        val dao = listItemDao ?: return ListApproxResult(emptyList(), ambiguous = false)
         return withContext(io) {
             runInRoomTransaction {
+                val dao = listItemDao
                 val normalizedQuery = normalizeListText(query)
                 if (normalizedQuery.isEmpty()) {
                     return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
@@ -731,9 +724,9 @@ class BlocksRepository(
     }
 
     suspend fun updateItemTextForBlock(itemId: Long, text: String) {
-        val dao = listItemDao ?: return
         withContext(io) {
             runInRoomTransaction {
+                val dao = listItemDao
                 val current = dao.findById(itemId) ?: return@runInRoomTransaction
                 val blockId = current.ownerBlockId ?: return@runInRoomTransaction
                 val sanitized = text.trim()
@@ -761,9 +754,9 @@ class BlocksRepository(
     }
 
     suspend fun toggleItemForBlock(itemId: Long) {
-        val dao = listItemDao ?: return
         withContext(io) {
             runInRoomTransaction {
+                val dao = listItemDao
                 val current = dao.findById(itemId) ?: return@runInRoomTransaction
                 val blockId = current.ownerBlockId ?: return@runInRoomTransaction
                 val newValue = !current.done
@@ -777,9 +770,9 @@ class BlocksRepository(
     }
 
     suspend fun removeItemForBlock(itemId: Long) {
-        val dao = listItemDao ?: return
         withContext(io) {
             runInRoomTransaction {
+                val dao = listItemDao
                 val current = dao.findById(itemId) ?: return@runInRoomTransaction
                 val blockId = current.ownerBlockId ?: return@runInRoomTransaction
                 dao.delete(itemId)
@@ -790,12 +783,11 @@ class BlocksRepository(
     }
 
     private suspend fun updateBlockTextFromItems(blockId: Long) {
-        val dao = listItemDao ?: return
         val block = blockDao.getById(blockId) ?: return
         if (block.type != BlockType.TEXT || block.mimeType != MIME_TYPE_TEXT_BLOCK_LIST) {
             return
         }
-        val items = dao.listForBlock(blockId)
+        val items = listItemDao.listForBlock(blockId)
         val content = extractTextContent(block)
         val joined = items.joinToString(separator = "\n") { it.text }
         blockDao.update(

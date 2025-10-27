@@ -54,7 +54,8 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
         BlocksRepository(
             blockDao = db.blockDao(),
             noteDao = db.noteDao(),
-            linkDao = db.blockLinkDao()
+            linkDao = db.blockLinkDao(),
+            listItemDao = db.listItemDao(),
         )
     }
 
