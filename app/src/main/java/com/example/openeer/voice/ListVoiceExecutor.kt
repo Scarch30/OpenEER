@@ -111,13 +111,17 @@ class ListVoiceExecutor(
     private suspend fun convertToPlain(noteId: Long?): Result = withContext(Dispatchers.IO) {
         val targetId = noteId ?: repo.createTextNote("")
         repo.finalizeAllProvisional(targetId)
-        val (convertedCount, _) = try {
+        val plainBody = try {
             repo.convertNoteToPlain(targetId)
         } catch (error: Throwable) {
             Log.e(TAG, "decision=CONVERT_TO_TEXT failed note=$targetId", error)
             return@withContext Result.Failure(targetId, error)
         }
         val created = noteId == null
+
+        val convertedCount = plainBody.takeIf { it.isNotEmpty() }?.let { text ->
+            text.count { it == '\n' } + 1
+        } ?: 0
 
         Log.d(TAG, "decision=CONVERT_TO_TEXT items=[] note=$targetId matched=$convertedCount/$convertedCount")
         Result.Success(
