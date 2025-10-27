@@ -111,19 +111,13 @@ class ListVoiceExecutor(
     private suspend fun convertToPlain(noteId: Long?): Result = withContext(Dispatchers.IO) {
         val targetId = noteId ?: repo.createTextNote("")
         repo.finalizeAllProvisional(targetId)
-        val conversion = repo.convertNoteToPlain(targetId)
-        val created = noteId == null
-        val convertedCount = when (conversion) {
-            is NoteRepository.NoteConversionResult.Converted -> conversion.itemCount
-            NoteRepository.NoteConversionResult.AlreadyTarget -> 0
-            NoteRepository.NoteConversionResult.NotFound -> null
-        }
-
-        if (convertedCount == null) {
-            val error = IllegalStateException("Note $targetId not found for conversion")
+        val (convertedCount, _) = try {
+            repo.convertNoteToPlain(targetId)
+        } catch (error: Throwable) {
             Log.e(TAG, "decision=CONVERT_TO_TEXT failed note=$targetId", error)
             return@withContext Result.Failure(targetId, error)
         }
+        val created = noteId == null
 
         Log.d(TAG, "decision=CONVERT_TO_TEXT items=[] note=$targetId matched=$convertedCount/$convertedCount")
         Result.Success(
