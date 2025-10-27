@@ -229,6 +229,7 @@ class MicBarController(
         state = RecordingState.IDLE
 
         activity.lifecycleScope.launch {
+            val reqId = newReqId()
             var newBlockId: Long? = null
             var provisionalList: ListProvisionalItem? = null
             try {
@@ -238,7 +239,6 @@ class MicBarController(
                 }
                 val segmentDurationMs = segmentStartRealtime?.let { SystemClock.elapsedRealtime() - it }
                 val finalResult = withContext(Dispatchers.IO) { live?.stopDetailed() } ?: FinalResult.Empty
-                val reqId = newReqId()
                 val initialVoskText = finalResult.text.trim()
                 live = null
 
