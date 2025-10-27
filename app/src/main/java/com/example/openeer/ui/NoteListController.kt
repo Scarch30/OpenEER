@@ -108,7 +108,7 @@ class NoteListController(
         val shouldShowList = FeatureFlags.listsEnabled && note.isList()
         if (previousMode != shouldShowList) {
             Log.i(
-                LIST_LOG_TAG,
+                TAG_UI,
                 "ListUI: mode change note=${note.id} type=${note.type} -> listMode=$shouldShowList (was $previousMode).",
             )
         }
@@ -120,7 +120,7 @@ class NoteListController(
 
         if (shouldShowList) {
             Log.d(
-                LIST_LOG_TAG,
+                TAG_UI,
                 "ListUI: enabling list UI note=${note.id} items=${adapter.currentList.size}.",
             )
             ensureListObservation(note.id)
@@ -132,7 +132,7 @@ class NoteListController(
         } else {
             if (previousMode) {
                 Log.w(
-                    LIST_LOG_TAG,
+                    TAG_UI,
                     "ListUI: disabling list UI note=${note.id} type=${note.type} items=${adapter.currentList.size}.",
                 )
             }
@@ -157,7 +157,7 @@ class NoteListController(
         if (!listMode) {
             val noteId = openNoteId
             Log.w(
-                LIST_LOG_TAG,
+                TAG_UI,
                 "ListUI: tryAddListItem ignored — listMode=false note=${noteId ?: "<none>"}.",
             )
             return false
@@ -177,18 +177,18 @@ class NoteListController(
         binding.listAddItemInput.text?.clear()
         activity.lifecycleScope.launch {
             val newId = repo.addItem(noteId, text)
-            Log.i(LIST_LOG_TAG, "ListUI: add note=$noteId item=$newId.")
+            Log.i(TAG_UI, "ListUI: add note=$noteId item=$newId.")
         }
     }
 
     private fun ensureListObservation(noteId: Long) {
         if (observedListNoteId == noteId && listItemsJob?.isActive == true) {
-            Log.d(LIST_LOG_TAG, "ListUI: observation already active for note=$noteId.")
+            Log.d(TAG_UI, "ListUI: observation already active for note=$noteId.")
             return
         }
         listItemsJob?.cancel()
         observedListNoteId = noteId
-        Log.d(LIST_LOG_TAG, "ListUI: start observing items for note=$noteId.")
+        Log.d(TAG_UI, "ListUI: start observing items for note=$noteId.")
         listItemsJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 repo.listItems(noteId).collectLatest { items ->
@@ -199,7 +199,7 @@ class NoteListController(
     }
 
     private fun stopListObservation() {
-        observedListNoteId?.let { Log.d(LIST_LOG_TAG, "ListUI: stop observing items for note=$it.") }
+        observedListNoteId?.let { Log.d(TAG_UI, "ListUI: stop observing items for note=$it.") }
         listItemsJob?.cancel()
         listItemsJob = null
         observedListNoteId = null
@@ -208,39 +208,37 @@ class NoteListController(
     private fun renderListItems(items: List<ListItemEntity>) {
         if (!listMode) {
             Log.w(
-                LIST_LOG_TAG,
+                TAG_UI,
                 "ListUI: render skipped — listMode=false note=${openNoteId ?: "<none>"} items=${items.size}.",
             )
             return
         }
 
-        val noteId = openNoteId ?: -1L
+        val currentNoteId = openNoteId
+        val noteId = currentNoteId ?: -1L
+        val reqId = ListUiLogTracker.last(currentNoteId)
+        val reqToken = reqId.orPlaceholder()
         val ids = items.joinToString { it.id.toString() }
         Log.d(
-            LIST_LOG_TAG,
-            "emit note=$noteId size=${items.size} ids=[$ids]",
+            TAG_UI,
+            "UI: emit req=$reqToken note=$noteId size=${items.size} ids=[$ids]",
         )
 
         binding.listItemsContainer.isVisible = true
         binding.listItemsPlaceholder.isVisible = items.isEmpty()
         binding.listItemsRecycler.isVisible = items.isNotEmpty()
 
-        Log.d(LIST_LOG_TAG, "submit start: adapterCount(before)=${adapter.itemCount}")
-        Log.d(
-            "ListDiag",
-            "UI: emit note=$noteId size=${items.size} ids=${items.map { it.id }}",
-        )
+        Log.d(TAG_UI, "UI: submit start req=$reqToken")
 
         updateListSelectionUi(items)
 
         adapter.submitList(items) {
-            Log.d(LIST_LOG_TAG, "submit done: adapterCount(after)=${adapter.itemCount}")
-            Log.d("ListDiag", "UI: submit done adapterCount=${adapter.itemCount}")
+            Log.d(TAG_UI, "UI: submit done req=$reqToken adapterCount=${adapter.itemCount}")
 
             if (pendingScrollToBottom && items.isNotEmpty()) {
                 binding.listItemsRecycler.post {
                     binding.listItemsRecycler.scrollToPosition(items.size - 1)
-                    Log.d(LIST_LOG_TAG, "rv.scrollToPosition executed (pos=${items.size - 1})")
+                    Log.d(TAG_UI, "rv.scrollToPosition executed (pos=${items.size - 1})")
                 }
                 pendingScrollToBottom = false
             }
@@ -251,7 +249,7 @@ class NoteListController(
         val noteId = openNoteId ?: return
         activity.lifecycleScope.launch {
             repo.toggleItem(itemId)
-            Log.i(LIST_LOG_TAG, "ListUI: toggle note=$noteId item=$itemId.")
+            Log.i(TAG_UI, "ListUI: toggle note=$noteId item=$itemId.")
         }
     }
 
@@ -261,7 +259,7 @@ class NoteListController(
         if (current == text) return
         activity.lifecycleScope.launch {
             repo.updateItemText(itemId, text)
-            Log.i(LIST_LOG_TAG, "ListUI: edit note=$noteId item=$itemId.")
+            Log.i(TAG_UI, "ListUI: edit note=$noteId item=$itemId.")
         }
     }
 
@@ -305,7 +303,7 @@ class NoteListController(
         activity.lifecycleScope.launch {
             repo.removeItems(ids)
             Log.i(
-                LIST_LOG_TAG,
+                TAG_UI,
                 "ListUI: bulk delete note=$noteId items=${ids.joinToString()}",
             )
         }
@@ -362,11 +360,13 @@ class NoteListController(
         val noteId = openNoteId ?: return
         activity.lifecycleScope.launch {
             repo.removeItem(itemId)
-            Log.i(LIST_LOG_TAG, "ListUI: delete note=$noteId item=$itemId.")
+            Log.i(TAG_UI, "ListUI: delete note=$noteId item=$itemId.")
         }
     }
 
+    private fun String?.orPlaceholder(): String = this ?: "<none>"
+
     companion object {
-        private const val LIST_LOG_TAG = "NoteListUI"
+        private const val TAG_UI = "ListUI"
     }
 }
