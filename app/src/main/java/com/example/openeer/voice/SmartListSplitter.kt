@@ -1,5 +1,6 @@
 package com.example.openeer.voice
 
+import android.util.Log
 import java.text.Normalizer
 import java.util.Locale
 
@@ -38,8 +39,11 @@ object SmartListSplitter {
         val refinedSegments = commaSegments.flatMap { splitSegmentOnEtNorm(it) }
         if (refinedSegments.isEmpty()) return emptyList()
 
+        val pass2Segments = applyArticleRepetitionSplit(refinedSegments, ::splitSegmentOnArticleRepetitionNorm)
+        if (pass2Segments.isEmpty()) return emptyList()
+
         // 3) Normaliser l’intérieur de chaque segment (sans toucher aux \n puisqu’on a déjà splitté)
-        val normalizedSegments = refinedSegments.map { seg ->
+        val normalizedSegments = pass2Segments.map { seg ->
             WHITESPACE_REGEX.replace(seg.trim(*TRIM_CHARS), " ")
         }.filter { it.isNotEmpty() }
         if (normalizedSegments.isEmpty()) return emptyList()
@@ -77,8 +81,10 @@ object SmartListSplitter {
         // 2) « et »
         val refinedSegments = commaSegments.flatMap { splitSegmentOnEt(it) }
 
+        val pass2Segments = applyArticleRepetitionSplit(refinedSegments, ::splitSegmentOnArticleRepetitionRaw)
+
         // 3) Puis normaliser chaque segment
-        val normalizedSegments = refinedSegments.map {
+        val normalizedSegments = pass2Segments.map {
             WHITESPACE_REGEX.replace(it.trim(*TRIM_CHARS), " ")
         }.filter { it.isNotEmpty() }
 
@@ -134,6 +140,68 @@ object SmartListSplitter {
         return FrenchLexicon.isDeterminer(firstToken.normalized)
     }
 
+    private fun applyArticleRepetitionSplit(
+        segments: List<String>,
+        splitter: (String) -> List<String>,
+    ): List<String> {
+        if (segments.isEmpty()) return segments
+        val trimmedOriginal = segments.map { it.trim(*TRIM_CHARS) }
+        val result = segments.flatMap { splitter(it) }
+        if (result != trimmedOriginal) {
+            logPass2(result)
+        }
+        return result
+    }
+
+    private fun splitSegmentOnArticleRepetitionNorm(segmentNorm: String): List<String> {
+        return splitSegmentOnArticleRepetition(segmentNorm, ARTICLE_PATTERN_NORM)
+    }
+
+    private fun splitSegmentOnArticleRepetitionRaw(segment: String): List<String> {
+        return splitSegmentOnArticleRepetition(segment, ARTICLE_PATTERN_RAW)
+    }
+
+    private fun splitSegmentOnArticleRepetition(segment: String, articlePattern: Regex): List<String> {
+        val matches = articlePattern.findAll(segment)
+            .filter { hasFollowingWord(segment, it) }
+            .toList()
+        if (matches.size < 2) {
+            val trimmed = segment.trim(*TRIM_CHARS)
+            return if (trimmed.isNotEmpty()) listOf(trimmed) else emptyList()
+        }
+
+        val parts = mutableListOf<String>()
+        var lastIndex = 0
+        matches.forEachIndexed { index, match ->
+            if (index == 0) return@forEachIndexed
+            val boundary = match.range.first
+            val part = segment.substring(lastIndex, boundary).trim(*TRIM_CHARS)
+            if (part.isNotEmpty()) parts.add(part)
+            lastIndex = boundary
+        }
+        val tail = segment.substring(lastIndex).trim(*TRIM_CHARS)
+        if (tail.isNotEmpty()) parts.add(tail)
+        return if (parts.isNotEmpty()) parts else emptyList()
+    }
+
+    private fun hasFollowingWord(segment: String, match: MatchResult): Boolean {
+        var index = match.range.last + 1
+        while (index < segment.length && segment[index].isWhitespace()) {
+            index++
+        }
+        if (index >= segment.length) return false
+        val ch = segment[index]
+        return ch.isLetterOrDigit()
+    }
+
+    private fun logPass2(segments: List<String>) {
+        if (segments.isEmpty()) return
+        val formatted = segments.joinToString(prefix = "[", postfix = "]") {
+            "\"" + it.replace("\"", "\\\"") + "\""
+        }
+        Log.d(LOG_TAG, "splitSmart-pass2 -> ${segments.size} items: $formatted")
+    }
+
     private fun countNouns(tokens: List<Token>): Int {
         return tokens.count { FrenchLexicon.isLikelyNoun(it.normalized) }
     }
@@ -155,4 +223,10 @@ object SmartListSplitter {
     private val ET_SPLIT_REGEX = Regex("\\s+et\\s+", RegexOption.IGNORE_CASE)
     private val WHITESPACE_REGEX = "\\s+".toRegex()
     private val TRIM_CHARS = charArrayOf(' ', ',', ';', '.', '\'', '"')
+    private val ARTICLE_PATTERN_NORM = Regex(
+        "\\b(?:de\\s+l['’]|de\\s+la|des|les|du|l['’]|la|le)\\b",
+        RegexOption.IGNORE_CASE
+    )
+    private val ARTICLE_PATTERN_RAW = ARTICLE_PATTERN_NORM
+    private const val LOG_TAG = "ListParse"
 }
