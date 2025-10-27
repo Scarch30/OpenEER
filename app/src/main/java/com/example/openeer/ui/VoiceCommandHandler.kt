@@ -73,7 +73,11 @@ internal class VoiceCommandHandler(
     ) {
         ListUiLogTracker.mark(noteId, reqId)
         if (listManager.has(audioBlockId)) {
-            listManager.remove(audioBlockId, ProvisionalRemovalReason.REMINDER, reqId)
+            listManager.removeProvisionalForBlock(
+                audioBlockId,
+                ProvisionalRemovalReason.REMINDER,
+                reqId,
+            )
         } else {
             withContext(Dispatchers.Main) {
                 val removed = bodyManager.buffer.removeCurrentSession()
@@ -176,13 +180,33 @@ internal class VoiceCommandHandler(
                 ListUiLogTracker.mark(result.noteId, reqId)
                 if (decision.action == VoiceListAction.CONVERT_TO_TEXT) {
                     if (hasListHandle) {
-                        listManager.remove(audioBlockId, ProvisionalRemovalReason.LIST_COMMAND, reqId)
+                        val removed = listManager.removeProvisionalForBlock(
+                            audioBlockId,
+                            ProvisionalRemovalReason.LIST_COMMAND,
+                            reqId,
+                        )
+                        if (!removed) {
+                            Log.d(
+                                "ListUI",
+                                "PROVISIONAL already removed for block=$audioBlockId (early applied)",
+                            )
+                        }
                     } else {
                         withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
                     }
                 } else {
                     if (hasListHandle) {
-                        listManager.remove(audioBlockId, ProvisionalRemovalReason.LIST_COMMAND, reqId)
+                        val removed = listManager.removeProvisionalForBlock(
+                            audioBlockId,
+                            ProvisionalRemovalReason.LIST_COMMAND,
+                            reqId,
+                        )
+                        if (!removed) {
+                            Log.d(
+                                "ListUI",
+                                "PROVISIONAL already removed for block=$audioBlockId (early applied)",
+                            )
+                        }
                         if ((decision.action == VoiceListAction.TOGGLE ||
                                 decision.action == VoiceListAction.UNTICK ||
                                 decision.action == VoiceListAction.REMOVE) &&
