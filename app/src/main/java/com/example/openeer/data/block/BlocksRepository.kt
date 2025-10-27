@@ -635,6 +635,23 @@ class BlocksRepository(
         }
     }
 
+    suspend fun removeListItems(noteId: Long, itemIds: List<Long>): List<Long> {
+        if (itemIds.isEmpty()) return emptyList()
+        return withContext(io) {
+            runInRoomTransaction {
+                val dao = listItemDao
+                val existing = itemIds.mapNotNull { id ->
+                    val entity = dao.findById(id)
+                    if (entity?.noteId == noteId) entity.id else null
+                }
+                if (existing.isNotEmpty()) {
+                    dao.deleteMany(existing)
+                }
+                existing
+            }
+        }
+    }
+
     suspend fun removeItemsByApprox(
         noteId: Long,
         query: String,

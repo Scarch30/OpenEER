@@ -36,6 +36,7 @@ import java.text.Normalizer
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
+import kotlin.text.RegexOption
 
 class MicBarController(
     private val activity: AppCompatActivity,
@@ -896,7 +897,8 @@ class MicBarController(
                         "ListDiag",
                         "FINAL-LIST: applying action=${decision.action} refinedItems=${decision.items}",
                     )
-                    reconcileEarlyListAdd(noteId, earlyApplied, decision.items)
+                    val sanitizedEarly = cleanupEarlyFusion(noteId, earlyApplied, decision.items, reqId)
+                    reconcileEarlyListAdd(noteId, sanitizedEarly, decision.items)
                     finalizeListCommandCleanup(audioBlockId, audioPath, reqId)
                     Log.d(
                         "ListDiag",
@@ -1044,6 +1046,79 @@ class MicBarController(
         }
     }
 
+    private suspend fun cleanupEarlyFusion(
+        noteId: Long,
+        earlyApplied: SessionIntentRegistry.EarlyApplied,
+        refinedItems: List<String>,
+        reqId: String,
+    ): SessionIntentRegistry.EarlyApplied {
+        val refinedCount = refinedItems.count { it.trim().isNotEmpty() }
+        val earlyIds = earlyApplied.affectedItemIds
+        if (refinedCount <= earlyIds.size) return earlyApplied
+
+        val earlyTexts = earlyApplied.appliedTexts
+        if (earlyIds.isEmpty() || earlyTexts.isEmpty()) return earlyApplied
+
+        val candidates = earlyIds.mapIndexedNotNull { index, id ->
+            val text = earlyTexts.getOrNull(index) ?: return@mapIndexedNotNull null
+            if (hasAtLeastTwoArticles(text)) {
+                Triple(index, id, text)
+            } else {
+                null
+            }
+        }
+        if (candidates.isEmpty()) return earlyApplied
+
+        val removedIds = mutableListOf<Long>()
+        val removedTexts = mutableListOf<String>()
+        val removedIndices = mutableListOf<Int>()
+        candidates.forEach { (index, id, text) ->
+            val removed = blocksRepo.removeListItems(noteId, listOf(id))
+            if (removed.isEmpty()) {
+                Log.d(TAG_EARLY, "FUSION_CLEANUP req=$reqId already gone id=$id")
+            } else {
+                removedIds.addAll(removed)
+                removedTexts.add(text)
+            }
+            removedIndices.add(index)
+        }
+        if (removedIds.isNotEmpty()) {
+            Log.d(
+                TAG_EARLY,
+                "FUSION_CLEANUP req=$reqId removedIds=${removedIds.formatIdsForLog()} earlyTexts=${removedTexts.formatTextsForLog()}",
+            )
+        }
+        if (removedIndices.isEmpty()) return earlyApplied
+
+        val filteredIds = earlyApplied.affectedItemIds.toMutableList()
+        val filteredOriginal = earlyApplied.originalTexts.toMutableList()
+        val filteredApplied = earlyApplied.appliedTexts.toMutableList()
+        removedIndices.sortedDescending().forEach { idx ->
+            if (idx in filteredIds.indices) filteredIds.removeAt(idx)
+            if (idx in filteredOriginal.indices) filteredOriginal.removeAt(idx)
+            if (idx in filteredApplied.indices) filteredApplied.removeAt(idx)
+        }
+        return SessionIntentRegistry.EarlyApplied(filteredIds, filteredOriginal, filteredApplied)
+    }
+
+    private fun hasAtLeastTwoArticles(text: String): Boolean {
+        val matches = ARTICLE_REPETITION_REGEX.findAll(text)
+        return matches.take(2).count() >= 2
+    }
+
+    private fun List<Long>.formatIdsForLog(): String {
+        if (isEmpty()) return "[]"
+        return joinToString(prefix = "[", postfix = "]")
+    }
+
+    private fun List<String>.formatTextsForLog(): String {
+        if (isEmpty()) return "[]"
+        return joinToString(prefix = "[", postfix = "]") { text ->
+            val sanitized = text.replace("\n", " ").replace("\r", " ")
+            "\"" + sanitized.replace("\"", "\\\"") + "\""
+        }
+    }
+
     private suspend fun finalizeListCommandCleanup(
         audioBlockId: Long,
         audioPath: String,
@@ -1098,8 +1173,14 @@ class MicBarController(
                     Log.d(TAG_EARLY, "RESULT req=$reqId added=${addedIds.size} ids=$addedIds")
                 }
                 if (!intentKey.isNullOrEmpty()) {
-                    val originalTexts = addedEntities.map { it.text }
-                    sessionIntentRegistry.registerEarlyApplied(intentKey, addedIds, originalTexts, reqId = reqId)
+                    val storedTexts = addedEntities.map { it.text }
+                    sessionIntentRegistry.registerEarlyApplied(
+                        intentKey,
+                        addedIds,
+                        originalTexts = storedTexts,
+                        appliedTexts = storedTexts,
+                        reqId = reqId,
+                    )
                 }
                 withContext(Dispatchers.Main) {
                     val messageRes = if (addedIds.isNotEmpty()) {
@@ -1283,6 +1364,10 @@ class MicBarController(
         private val WORD_SPLIT_REGEX = "\\s+".toRegex()
         private val BASELINE_SPACE_REGEX = "\\s+".toRegex()
         private val DIACRITIC_REGEX = "\\p{Mn}+".toRegex()
+        private val ARTICLE_REPETITION_REGEX = Regex(
+            "\\b(?:de\\s+l['’]|de\\s+la|des|les|du|l['’]|la|le)\\b",
+            RegexOption.IGNORE_CASE,
+        )
     }
 
     private data class EarlyHandlingResult(val skipWhisper: Boolean)
@@ -1307,6 +1392,7 @@ class MicBarController(
         data class EarlyApplied(
             val affectedItemIds: List<Long>,
             val originalTexts: List<String>,
+            val appliedTexts: List<String>,
         )
 
         private data class Entry(
@@ -1314,6 +1400,7 @@ class MicBarController(
             var state: State,
             var affectedItemIds: List<Long> = emptyList(),
             var originalTexts: List<String> = emptyList(),
+            var appliedTexts: List<String> = emptyList(),
         )
 
         private val entries = mutableMapOf<String, Entry>()
@@ -1325,6 +1412,7 @@ class MicBarController(
             intentKey: String,
             affectedItemIds: List<Long>,
             originalTexts: List<String>,
+            appliedTexts: List<String>,
             ttlMs: Long = INTENT_TTL_MS,
             reqId: String? = null,
         ) {
@@ -1335,6 +1423,7 @@ class MicBarController(
             entry.state = State.APPLIED_EARLY
             entry.affectedItemIds = affectedItemIds.toList()
             entry.originalTexts = originalTexts.toList()
+            entry.appliedTexts = appliedTexts.toList()
             Log.d(
                 TAG_INTENT,
                 "INTENT_REGISTER req=${reqToken(reqId)} key=$intentKey state=APPLIED_EARLY ids=$affectedItemIds",
@@ -1350,6 +1439,7 @@ class MicBarController(
             entry.state = State.RESOLVED
             entry.affectedItemIds = emptyList()
             entry.originalTexts = emptyList()
+            entry.appliedTexts = emptyList()
             Log.d(
                 TAG_INTENT,
                 "INTENT_REGISTER req=${reqToken(reqId)} key=$intentKey state=RESOLVED ids=[]",
@@ -1368,7 +1458,7 @@ class MicBarController(
             val after = entries[intentKey]
             logTtlCheck(reqToken(reqId), intentKey, before, after, now, ttlMs)
             if (after?.state != State.APPLIED_EARLY) return null
-            return EarlyApplied(after.affectedItemIds, after.originalTexts)
+            return EarlyApplied(after.affectedItemIds, after.originalTexts, after.appliedTexts)
         }
 
         @Synchronized
