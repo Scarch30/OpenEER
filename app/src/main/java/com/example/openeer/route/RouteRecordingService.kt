@@ -241,7 +241,8 @@ class RouteRecordingService : Service(), LocationListener {
         blocksRepo = BlocksRepository(
             blockDao = blockDao,
             noteDao  = noteDao,
-            linkDao  = db.blockLinkDao()
+            linkDao  = db.blockLinkDao(),
+            listItemDao = db.listItemDao(),
         )
         noteRepo   = NoteRepository(
             applicationContext,

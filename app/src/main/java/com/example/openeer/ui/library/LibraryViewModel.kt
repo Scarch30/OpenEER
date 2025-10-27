@@ -76,7 +76,8 @@ class LibraryViewModel(
             val blocksRepo = BlocksRepository(
                 blockDao = db.blockDao(),
                 noteDao = db.noteDao(),
-                linkDao = db.blockLinkDao()
+                linkDao = db.blockLinkDao(),
+                listItemDao = db.listItemDao(),
             )
             val noteRepo = NoteRepository(
                 context.applicationContext,

@@ -66,7 +66,8 @@ class MergeHistoryFragment : Fragment() {
         val blocksRepository = BlocksRepository(
             blockDao = db.blockDao(),
             noteDao = noteDao,
-            linkDao = db.blockLinkDao()
+            linkDao = db.blockLinkDao(),
+            listItemDao = db.listItemDao(),
         )
         noteRepository = NoteRepository(
             ctx,

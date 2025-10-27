@@ -82,7 +82,8 @@ class VideoToTextWorker(
             blockDao = db.blockDao(),
             noteDao = db.noteDao(),
             io = Dispatchers.IO,
-            linkDao = db.blockLinkDao()
+            linkDao = db.blockLinkDao(),
+            listItemDao = db.listItemDao(),
         )
     }
 
