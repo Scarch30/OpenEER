@@ -1219,6 +1219,12 @@ class MicBarController(
         }
 
         @Synchronized
+        fun stateOf(intentKey: String, ttlMs: Long = INTENT_TTL_MS): State {
+            purgeExpired(clock(), ttlMs)
+            return entries[intentKey]?.state ?: State.NONE
+        }
+
+        @Synchronized
         fun remove(intentKey: String) {
             entries.remove(intentKey)
         }
