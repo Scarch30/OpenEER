@@ -190,6 +190,8 @@ class NoteRepository(
         object NotFound : NoteConversionResult
     }
 
+    class NoteNotFoundException(noteId: Long) : IllegalStateException("Note $noteId not found")
+
     suspend fun addItem(noteId: Long, text: String): Long = withContext(Dispatchers.IO) {
         database.withTransaction {
             val t = text.trim()
@@ -475,12 +477,12 @@ class NoteRepository(
         }
     }
 
-    suspend fun convertNoteToPlain(noteId: Long): NoteConversionResult = withContext(Dispatchers.IO) {
+    suspend fun convertNoteToPlain(noteId: Long): Pair<Int, String> = withContext(Dispatchers.IO) {
         database.withTransaction {
-            val note = noteDao.getByIdOnce(noteId) ?: return@withTransaction NoteConversionResult.NotFound
+            val note = noteDao.getByIdOnce(noteId) ?: throw NoteNotFoundException(noteId)
             if (note.type == NoteType.PLAIN) {
                 Log.i(TAG, "convertNoteToPlain: noteId=$noteId already PLAIN")
-                return@withTransaction NoteConversionResult.AlreadyTarget
+                return@withTransaction 0 to note.body
             }
 
             val items = listItemDao.listForNote(noteId)
@@ -489,7 +491,7 @@ class NoteRepository(
             listItemDao.deleteForNote(noteId)
             noteDao.updateBodyAndType(noteId, body, NoteType.PLAIN, now)
             Log.i(TAG, "convertNoteToPlain: noteId=$noteId serialized ${items.size} items")
-            NoteConversionResult.Converted(items.size)
+            items.size to body
         }
     }
 
