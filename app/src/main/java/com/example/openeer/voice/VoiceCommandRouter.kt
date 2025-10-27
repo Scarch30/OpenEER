@@ -358,7 +358,8 @@ class VoiceCommandRouter(
         normalizedItems: List<String>,
         key: String,
     ) {
-        Log.d(TAG_INTENT, "INTENT_KEY_BUILD req=$reqId note=$noteId itemsNorm=$normalizedItems key=$key")
+        val token = reqId ?: "none"
+        Log.d(TAG_INTENT, "INTENT_KEY_BUILD req=$token note=$noteId itemsNorm=$normalizedItems key=$key")
     }
 
     private fun buildPlaceKey(place: LocalPlaceIntentParser.PlaceQuery): String {

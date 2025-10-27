@@ -635,21 +635,43 @@ class BlocksRepository(
         }
     }
 
-    suspend fun removeItemsByApprox(noteId: Long, query: String): ListApproxResult {
+    suspend fun removeItemsByApprox(
+        noteId: Long,
+        query: String,
+        reqId: String? = null,
+    ): ListApproxResult {
+        val requestToken = reqId ?: UUID.randomUUID().toString().take(8)
+        val sanitizedQuery = query.replace("\n", " ").replace("\r", " ")
+        Log.d(
+            LIST_REPO_LOG_TAG,
+            "REPO_ENTER req=$requestToken note=$noteId requested='$sanitizedQuery'"
+        )
         return withContext(io) {
             runInRoomTransaction {
                 val dao = listItemDao
                 val normalizedQuery = normalizeListText(query)
+                Log.d(
+                    LIST_REPO_LOG_TAG,
+                    "REPO_SANITIZE req=$requestToken itemsNorm=['$normalizedQuery'] rejected=[]"
+                )
                 if (normalizedQuery.isEmpty()) {
+                    Log.d(
+                        LIST_REPO_LOG_TAG,
+                        "REPO_RESULT req=$requestToken affected=0 ambiguous=false whyEmpty=NORMALIZED_EMPTY"
+                    )
                     return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
                 }
 
                 val items = dao.listForNote(noteId).filterNot { it.provisional }
                 val matches = items.filter { normalizeListText(it.text).contains(normalizedQuery) }
+                Log.d(
+                    LIST_REPO_LOG_TAG,
+                    "REPO_MATCH req=$requestToken candidates=${matches.map { it.id }} size=${matches.size}"
+                )
                 if (matches.isEmpty()) {
-                    Log.i(
-                        BLOCK_LIST_LOG_TAG,
-                        "note=$noteId action=REMOVE count=0 reason=NOT_FOUND query=\"$query\""
+                    Log.d(
+                        LIST_REPO_LOG_TAG,
+                        "REPO_RESULT req=$requestToken affected=0 ambiguous=false whyEmpty=NOT_FOUND"
                     )
                     return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
                 }
@@ -657,39 +679,62 @@ class BlocksRepository(
                 val longestLength = matches.maxOf { it.text.length }
                 val longest = matches.filter { it.text.length == longestLength }
                 if (longest.size != 1) {
-                    Log.w(
-                        BLOCK_LIST_LOG_TAG,
-                        "note=$noteId action=REMOVE count=0 reason=AMBIGUOUS candidates=${longest.size} query=\"$query\""
+                    Log.d(
+                        LIST_REPO_LOG_TAG,
+                        "REPO_RESULT req=$requestToken affected=0 ambiguous=true whyEmpty=AMBIGUOUS"
                     )
                     return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = true)
                 }
 
                 val target = longest.first()
                 dao.delete(target.id)
-                Log.i(
-                    BLOCK_LIST_LOG_TAG,
-                    "note=$noteId action=REMOVE count=1 items=\"${target.text}\" query=\"$query\""
+                Log.d(
+                    LIST_REPO_LOG_TAG,
+                    "REPO_RESULT req=$requestToken affected=1 ambiguous=false ids=[${target.id}]"
                 )
                 ListApproxResult(listOf(target), ambiguous = false)
             }
         }
     }
 
-    suspend fun toggleItemsByApprox(noteId: Long, query: String, done: Boolean): ListApproxResult {
+    suspend fun toggleItemsByApprox(
+        noteId: Long,
+        query: String,
+        done: Boolean,
+        reqId: String? = null,
+    ): ListApproxResult {
+        val requestToken = reqId ?: UUID.randomUUID().toString().take(8)
+        val sanitizedQuery = query.replace("\n", " ").replace("\r", " ")
+        Log.d(
+            LIST_REPO_LOG_TAG,
+            "REPO_ENTER req=$requestToken note=$noteId requested='$sanitizedQuery'"
+        )
         return withContext(io) {
             runInRoomTransaction {
                 val dao = listItemDao
                 val normalizedQuery = normalizeListText(query)
+                Log.d(
+                    LIST_REPO_LOG_TAG,
+                    "REPO_SANITIZE req=$requestToken itemsNorm=['$normalizedQuery'] rejected=[]"
+                )
                 if (normalizedQuery.isEmpty()) {
+                    Log.d(
+                        LIST_REPO_LOG_TAG,
+                        "REPO_RESULT req=$requestToken affected=0 ambiguous=false whyEmpty=NORMALIZED_EMPTY"
+                    )
                     return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
                 }
 
                 val items = dao.listForNote(noteId).filterNot { it.provisional }
                 val matches = items.filter { normalizeListText(it.text).contains(normalizedQuery) }
+                Log.d(
+                    LIST_REPO_LOG_TAG,
+                    "REPO_MATCH req=$requestToken candidates=${matches.map { it.id }} size=${matches.size}"
+                )
                 if (matches.isEmpty()) {
-                    Log.i(
-                        BLOCK_LIST_LOG_TAG,
-                        "note=$noteId action=${if (done) "CHECK" else "UNCHECK"} count=0 reason=NOT_FOUND query=\"$query\""
+                    Log.d(
+                        LIST_REPO_LOG_TAG,
+                        "REPO_RESULT req=$requestToken affected=0 ambiguous=false whyEmpty=NOT_FOUND"
                     )
                     return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = false)
                 }
@@ -697,9 +742,9 @@ class BlocksRepository(
                 val longestLength = matches.maxOf { it.text.length }
                 val longest = matches.filter { it.text.length == longestLength }
                 if (longest.size != 1) {
-                    Log.w(
-                        BLOCK_LIST_LOG_TAG,
-                        "note=$noteId action=${if (done) "CHECK" else "UNCHECK"} count=0 reason=AMBIGUOUS candidates=${longest.size} query=\"$query\""
+                    Log.d(
+                        LIST_REPO_LOG_TAG,
+                        "REPO_RESULT req=$requestToken affected=0 ambiguous=true whyEmpty=AMBIGUOUS"
                     )
                     return@runInRoomTransaction ListApproxResult(emptyList(), ambiguous = true)
                 }
@@ -708,9 +753,9 @@ class BlocksRepository(
                 if (target.done != done) {
                     dao.updateDone(target.id, done)
                 }
-                Log.i(
-                    BLOCK_LIST_LOG_TAG,
-                    "note=$noteId action=${if (done) "CHECK" else "UNCHECK"} count=1 items=\"${target.text}\" query=\"$query\""
+                Log.d(
+                    LIST_REPO_LOG_TAG,
+                    "REPO_RESULT req=$requestToken affected=1 ambiguous=false ids=[${target.id}]"
                 )
                 ListApproxResult(listOf(target.copy(done = done)), ambiguous = false)
             }
