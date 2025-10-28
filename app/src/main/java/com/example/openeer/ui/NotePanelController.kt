@@ -90,6 +90,9 @@ class NotePanelController(
     private var noteJob: Job? = null
     private var plainConversionJob: Job? = null
 
+    // Empêche la toute prochaine passe de render() d’écraser le corps appliqué en optimiste
+    private var suppressNextBodyResync = false
+
     private val scrollPositions = mutableMapOf<Long, Int>()
 
     var onPileCountsChanged: ((PileCounts) -> Unit)? = null
@@ -452,9 +455,14 @@ class NotePanelController(
 
         Log.i(TAG, "NotePanel applyConvertedBody note=$noteId bodyLen=${body.length}")
 
+        // Mémorise le nouvel état local
         currentNote = currentNote?.copy(body = body, type = NoteType.PLAIN)
             ?: Note(id = noteId, body = body, type = NoteType.PLAIN)
 
+        // Bloque la toute prochaine passe de render() (évite d'écraser ce corps optimiste)
+        suppressNextBodyResync = true
+
+        // Applique visuellement le corps tout de suite
         val editor = binding.bodyEditor
         editor.setText(body)
         if (body.isNotEmpty()) {
@@ -488,28 +496,50 @@ class NotePanelController(
         val title = note.title?.takeIf { it.isNotBlank() } ?: "Sans titre"
         binding.txtTitleDetail.text = title
 
+        // 1) Si la note est une LISTE → ne touche pas à bodyEditor
+        if (note.type == NoteType.LIST) {
+            // Assure la vue: liste visible, éditeur masqué
+            crossFadeBodyToList(binding.bodyEditor, binding.listContainer)
+            listController.render(note)
+
+            val meta = note.formatMeta()
+            if (meta.isBlank()) {
+                binding.noteMetaFooter.text = ""
+                binding.noteMetaFooter.isGone = true
+            } else {
+                binding.noteMetaFooter.isVisible = true
+                binding.noteMetaFooter.text = meta
+            }
+            binding.noteMetaFooterRow.isVisible =
+                binding.noteMetaFooter.isVisible || binding.noteReminderBadge.isVisible
+
+            return // très important: on ne passe pas par la logique de bodyEditor
+        }
+
+        // 2) Sinon, note PLAIN → on peut resynchroniser l'éditeur
         val editorText = binding.bodyEditor.text
         val keepCurrentStyled =
             (editorText is Spanned) &&
-                editorText.getSpans(
-                    0,
-                    editorText.length,
-                    StyleSpan::class.java,
-                ).any { it.style == Typeface.ITALIC }
+                    editorText.getSpans(0, editorText.length, StyleSpan::class.java)
+                        .any { it.style == Typeface.ITALIC }
 
-        if (keepCurrentStyled) {
+        if (suppressNextBodyResync) {
+            Log.d(TAG, "Skip canonical body resync once (optimistic plain body already applied)")
+            suppressNextBodyResync = false
+        } else if (keepCurrentStyled) {
             val currentPlain = editorText?.toString()
             if (currentPlain != note.body) {
-                Log.w(
-                    TAG,
-                    "Temporary body styling detected for note=${note.id}; forcing resync with canonical body",
-                )
+                Log.w(TAG, "Temporary body styling detected for note=${note.id}; forcing resync with canonical body")
                 binding.bodyEditor.setText(note.body)
             }
         } else {
             binding.bodyEditor.setText(note.body)
         }
 
+        // Assure la vue: éditeur visible, liste masquée
+        crossFadeListToBody(binding.listContainer, binding.bodyEditor)
+
+        // Toujours rendre la partie liste (compteurs, badge, etc.) pour cohérence interne
         listController.render(note)
 
         val meta = note.formatMeta()
@@ -523,6 +553,7 @@ class NotePanelController(
         binding.noteMetaFooterRow.isVisible =
             binding.noteMetaFooter.isVisible || binding.noteReminderBadge.isVisible
     }
+
 
     private fun promptEditTitle() {
         val note = currentNote ?: return
