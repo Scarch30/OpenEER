@@ -478,16 +478,17 @@ class NotePanelController(
         val title = note.title?.takeIf { it.isNotBlank() } ?: "Sans titre"
         binding.txtTitleDetail.text = title
 
+        val editorText = binding.bodyEditor.text
         val keepCurrentStyled =
-            (binding.bodyEditor.text is Spanned) &&
-                (binding.bodyEditor.text as Spanned).getSpans(
+            (editorText is Spanned) &&
+                editorText.getSpans(
                     0,
-                    binding.bodyEditor.text.length,
+                    editorText.length,
                     StyleSpan::class.java,
                 ).any { it.style == Typeface.ITALIC }
 
         if (keepCurrentStyled) {
-            val currentPlain = binding.bodyEditor.text?.toString()
+            val currentPlain = editorText?.toString()
             if (currentPlain != note.body) {
                 Log.w(
                     TAG,
