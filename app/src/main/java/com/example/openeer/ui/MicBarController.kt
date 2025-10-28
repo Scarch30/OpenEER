@@ -1342,6 +1342,10 @@ class MicBarController(
         bodyManager.prepareForNote(newNoteId, snapshot, display)
     }
 
+    fun onCanonicalBodyReplaced(noteId: Long, body: String) {
+        bodyManager.onCanonicalBodyReplaced(noteId, body)
+    }
+
     private fun maybeShowAdaptiveFeedback(mode: AdaptiveRouter.DecisionMode) {
         if (!FeatureFlags.voiceAdaptiveRoutingEnabled) return
         val now = SystemClock.elapsedRealtime()

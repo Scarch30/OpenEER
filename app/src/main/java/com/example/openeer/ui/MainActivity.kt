@@ -185,6 +185,11 @@ class MainActivity : AppCompatActivity() {
                 micCtl.onOpenNoteChanged(id)
             }
         }
+        notePanel.onPlainBodyApplied = { noteId, body ->
+            if (::micCtl.isInitialized) {
+                micCtl.onCanonicalBodyReplaced(noteId, body)
+            }
+        }
         pileUiController = PileUiController(this, b, notePanel)
         notePanel.onPileCountsChanged = { counts -> pileUiController.onPileCountsChanged(counts) }
         noteCreationHelper = NoteCreationHelper(this, repo, notePanel)
