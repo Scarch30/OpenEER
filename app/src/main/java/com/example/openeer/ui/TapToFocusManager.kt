@@ -30,7 +30,7 @@ class TapToFocusManager(
             false
         }
         binding.noteBodySurface.setOnClickListener { handleTapToFocus() }
-        binding.txtBodyDetail.setOnClickListener { handleTapToFocus() }
+        binding.bodyEditor.setOnClickListener { handleTapToFocus() }
     }
 
     fun onMediaStripScrollStateChanged(newState: Int) {

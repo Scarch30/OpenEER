@@ -55,6 +55,8 @@ class NoteListController(
 
     private val pendingConversions = mutableSetOf<Long>()
 
+    var onListModeChanged: ((noteId: Long, type: NoteType, listMode: Boolean) -> Unit)? = null
+
     val conversionSync: ListConversionSync = object : ListConversionSync {
         override fun onConversionStart(noteId: Long) {
             val added = pendingConversions.add(noteId)
@@ -127,6 +129,7 @@ class NoteListController(
         currentNoteType = null
         adapter.submitList(emptyList())
         binding.listItemsContainer.isGone = true
+        binding.listContainer.isGone = true
         binding.listItemsRecycler.isGone = true
         binding.listItemsPlaceholder.isGone = true
         binding.listAddItemInput.text?.clear()
@@ -151,10 +154,14 @@ class NoteListController(
             )
         }
         listMode = shouldShowList
-        binding.txtBodyDetail.isVisible = !shouldShowList
-        binding.listItemsContainer.isVisible = shouldShowList
+        if (shouldShowList) {
+            binding.listContainer.isVisible = true
+            binding.listItemsContainer.isVisible = true
+        }
         binding.listAddItemInput.isEnabled = shouldShowList
         binding.noteBodySurface.isClickable = !shouldShowList
+
+        onListModeChanged?.invoke(note.id, note.type, shouldShowList)
 
         if (shouldShowList) {
             Log.d(
@@ -175,8 +182,17 @@ class NoteListController(
                 )
             }
             pendingScrollToBottom = false
-            binding.listItemsPlaceholder.isGone = true
-            binding.listItemsRecycler.isGone = true
+            if (previousMode) {
+                binding.listContainer.postDelayed({
+                    binding.listItemsContainer.isGone = true
+                    binding.listItemsPlaceholder.isGone = true
+                    binding.listItemsRecycler.isGone = true
+                }, 250L)
+            } else {
+                binding.listItemsContainer.isGone = true
+                binding.listItemsPlaceholder.isGone = true
+                binding.listItemsRecycler.isGone = true
+            }
             binding.listAddItemInput.text?.clear()
             binding.listAddItemInput.clearFocus()
             stopListObservation()
@@ -321,10 +337,11 @@ class NoteListController(
         listMode = false
 
         submitEmptyIfNeeded(noteId)
-
-        binding.listItemsContainer.isGone = true
-        binding.listItemsPlaceholder.isGone = true
-        binding.listItemsRecycler.isGone = true
+        binding.listContainer.postDelayed({
+            binding.listItemsContainer.isGone = true
+            binding.listItemsPlaceholder.isGone = true
+            binding.listItemsRecycler.isGone = true
+        }, 250L)
         binding.listAddItemInput.text?.clear()
         binding.listAddItemInput.clearFocus()
         binding.listAddItemInput.isEnabled = false

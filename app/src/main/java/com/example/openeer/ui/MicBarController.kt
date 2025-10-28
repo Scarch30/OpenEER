@@ -64,7 +64,7 @@ class MicBarController(
     private var lastWasHandsFree = false
 
     private val bodyManager = BodyTranscriptionManager(
-        binding.txtBodyDetail,
+        binding.bodyEditor,
         repo,
         blocksRepo,
         activity.lifecycleScope,
@@ -169,7 +169,7 @@ class MicBarController(
         activeSessionBaseline = noteId?.let { resolveSessionBaseline(it, noteSnapshot?.body) }
         val canonicalBody = activeSessionBaseline?.body
             ?: noteSnapshot?.takeIf { it.id == noteId }?.body
-        val displayBody = binding.txtBodyDetail.text?.toString().orEmpty()
+        val displayBody = binding.bodyEditor.text?.toString().orEmpty()
         bodyManager.buffer.prepare(noteId, canonicalBody, displayBody)
         val currentBodyText = bodyManager.buffer.currentPlain()
         val insertLeadingNewline = noteSnapshot?.isList() == false &&
@@ -674,7 +674,7 @@ class MicBarController(
 
             val removedRange = IntRange(application.start, application.endExclusive)
             spannable.replace(application.start, application.endExclusive, application.replacement)
-            binding.txtBodyDetail.text = spannable
+            binding.bodyEditor.text = spannable
             bodyManager.onProvisionalRangeRemoved(audioBlockId, removedRange)
             bodyManager.buffer.clearSession()
             bodyManager.maybeCommitBody()
@@ -1338,7 +1338,7 @@ class MicBarController(
         }
 
         val snapshot = getOpenNote()?.takeIf { it.id == newNoteId }
-        val display = binding.txtBodyDetail.text?.toString().orEmpty()
+        val display = binding.bodyEditor.text?.toString().orEmpty()
         bodyManager.prepareForNote(newNoteId, snapshot, display)
     }
 
