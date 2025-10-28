@@ -26,15 +26,24 @@ internal class ProvisionalBodyBuffer(
     private var cachedNoteId: Long? = null
     private var cachedSpannable: SpannableStringBuilder? = null
     private var sessionBaseline: String? = null
+    private var cachedResolvedBody: String? = null
 
     fun prepare(noteId: Long?, canonicalBody: String?, displayFallback: String) {
-        if (cachedNoteId != noteId) {
+        val resolvedBody = canonicalBody ?: displayFallback
+        val noteChanged = cachedNoteId != noteId
+        val bodyChanged = cachedResolvedBody != resolvedBody
+
+        if (noteChanged || bodyChanged) {
             cachedNoteId = noteId
-            cachedSpannable = null
+            cachedResolvedBody = resolvedBody
+            cachedSpannable = SpannableStringBuilder(resolvedBody)
+            clearSession()
+        } else if (cachedSpannable == null) {
+            cachedNoteId = noteId
+            cachedResolvedBody = resolvedBody
+            cachedSpannable = SpannableStringBuilder(resolvedBody)
         }
-        if (cachedSpannable == null) {
-            cachedSpannable = SpannableStringBuilder(canonicalBody ?: displayFallback)
-        }
+
         ensureViewBound()
     }
 
@@ -131,6 +140,7 @@ internal class ProvisionalBodyBuffer(
             else -> SpannableStringBuilder(cur)
         }
         cachedSpannable = builder
+        cachedResolvedBody = builder.toString()
         ensureViewBound()
         return builder
     }
@@ -160,6 +170,7 @@ internal class ProvisionalBodyBuffer(
     fun clear() {
         cachedSpannable = null
         cachedNoteId = null
+        cachedResolvedBody = null
         textView.text = null
         clearSession()
     }

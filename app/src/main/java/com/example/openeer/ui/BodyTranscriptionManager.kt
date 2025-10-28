@@ -30,6 +30,8 @@ internal class BodyTranscriptionManager(
     private val textBlockIdByAudio = mutableMapOf<Long, Long>()
     private val groupIdByAudio = mutableMapOf<Long, String>()
     private var pendingBaseline: String? = null
+    private var lastPreparedNoteId: Long? = null
+    private var lastPreparedCanonicalBody: String? = null
 
     data class DictationCommitContext(
         val mode: DictationCommitMode,
@@ -223,9 +225,23 @@ internal class BodyTranscriptionManager(
             return
         }
 
-        if (buffer.currentNoteId() != newNoteId) {
-            val canonicalBody = noteSnapshot?.body
+        val canonicalBody = noteSnapshot?.body
+        val noteChanged = lastPreparedNoteId != newNoteId
+        val canonicalChanged = lastPreparedCanonicalBody != canonicalBody
+
+        if (noteChanged || canonicalChanged) {
             buffer.prepare(newNoteId, canonicalBody, display)
+            buffer.clearSession()
+            lastPreparedNoteId = newNoteId
+            lastPreparedCanonicalBody = canonicalBody
+        }
+    }
+
+    fun onCanonicalBodyReplaced(noteId: Long, body: String) {
+        lastPreparedNoteId = noteId
+        lastPreparedCanonicalBody = body
+        if (buffer.currentNoteId() == noteId) {
+            buffer.prepare(noteId, body, body)
             buffer.clearSession()
         }
     }
@@ -236,6 +252,8 @@ internal class BodyTranscriptionManager(
         groupIdByAudio.clear()
         pendingBaseline = null
         buffer.clear()
+        lastPreparedNoteId = null
+        lastPreparedCanonicalBody = null
     }
 
     private data class BlockAnchor(

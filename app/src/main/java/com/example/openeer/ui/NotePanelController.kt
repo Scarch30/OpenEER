@@ -102,6 +102,7 @@ class NotePanelController(
         }
 
     var onOpenNoteChanged: ((Long?) -> Unit)? = null
+    var onPlainBodyApplied: ((Long, String) -> Unit)? = null
 
     init {
         Log.d("ListUI", "NotePanel uses BlocksRepository singleton")
@@ -477,6 +478,7 @@ class NotePanelController(
         }
 
         listSync.onBodyApplied(noteId)
+        onPlainBodyApplied?.invoke(noteId, body)
     }
 
     private fun onListModeChanged(noteId: Long, type: NoteType, listMode: Boolean) {
