@@ -75,7 +75,11 @@ class NotePanelController(
         }
     }
     private val blocksRenderer by lazy { NoteBlockRenderer(binding, mediaController) }
-    private val listController by lazy { NoteListController(activity, binding, repo) }
+    private val listController by lazy {
+        NoteListController(activity, binding, repo).apply {
+            onListModeChanged = this@NotePanelController::onListModeChanged
+        }
+    }
     private val reminderController by lazy {
         NoteReminderController(activity, binding).apply {
             openNoteIdProvider = { openNoteId }
@@ -156,7 +160,7 @@ class NotePanelController(
         listController.onNoteOpened(noteId)
         reminderController.resetUi()
 
-        binding.txtBodyDetail.text = ""
+        binding.bodyEditor.setText("")
         binding.noteMetaFooter.text = ""
         binding.noteMetaFooter.isGone = true
         binding.noteMetaFooterRow.isGone = true
@@ -209,7 +213,7 @@ class NotePanelController(
         binding.notePanel.isGone = true
         binding.recycler.isVisible = true
 
-        binding.txtBodyDetail.text = ""
+        binding.bodyEditor.setText("")
         binding.noteMetaFooter.isGone = true
         binding.noteMetaFooterRow.isGone = true
         binding.btnReminders.isVisible = false
@@ -441,14 +445,30 @@ class NotePanelController(
         currentNote = currentNote?.copy(body = body, type = NoteType.PLAIN)
             ?: Note(id = noteId, body = body, type = NoteType.PLAIN)
 
-        binding.txtBodyDetail.text = body
-        binding.txtBodyDetail.isVisible = true
-        binding.txtBodyDetail.post {
-            binding.txtBodyDetail.requestLayout()
-            binding.txtBodyDetail.invalidate()
+        val editor = binding.bodyEditor
+        editor.setText(body)
+        if (body.isNotEmpty()) {
+            editor.setSelection(body.length)
+        }
+        crossFadeListToBody(binding.listContainer, editor)
+        Log.i(TAG, "LIST→PLAIN UI applied note=$noteId len=${body.length}")
+
+        editor.post {
+            editor.requestLayout()
+            editor.invalidate()
         }
 
         listSync.onBodyApplied(noteId)
+    }
+
+    private fun onListModeChanged(noteId: Long, type: NoteType, listMode: Boolean) {
+        if (openNoteId != noteId) return
+        Log.d("ListUI", "mode change note=$noteId type=$type listMode=$listMode")
+        if (listMode) {
+            crossFadeBodyToList(binding.bodyEditor, binding.listContainer)
+        } else {
+            crossFadeListToBody(binding.listContainer, binding.bodyEditor)
+        }
     }
 
     private fun render(note: Note?) {
@@ -459,24 +479,24 @@ class NotePanelController(
         binding.txtTitleDetail.text = title
 
         val keepCurrentStyled =
-            (binding.txtBodyDetail.text is Spanned) &&
-                (binding.txtBodyDetail.text as Spanned).getSpans(
+            (binding.bodyEditor.text is Spanned) &&
+                (binding.bodyEditor.text as Spanned).getSpans(
                     0,
-                    binding.txtBodyDetail.text.length,
+                    binding.bodyEditor.text.length,
                     StyleSpan::class.java,
                 ).any { it.style == Typeface.ITALIC }
 
         if (keepCurrentStyled) {
-            val currentPlain = binding.txtBodyDetail.text?.toString()
+            val currentPlain = binding.bodyEditor.text?.toString()
             if (currentPlain != note.body) {
                 Log.w(
                     TAG,
                     "Temporary body styling detected for note=${note.id}; forcing resync with canonical body",
                 )
-                binding.txtBodyDetail.text = note.body
+                binding.bodyEditor.setText(note.body)
             }
         } else {
-            binding.txtBodyDetail.text = note.body
+            binding.bodyEditor.setText(note.body)
         }
 
         listController.render(note)
@@ -518,5 +538,41 @@ class NotePanelController(
         private const val MENU_MERGE_WITH = 2
         private const val MENU_CONVERT_TO_LIST = 3
         private const val MENU_CONVERT_TO_TEXT = 4
+    }
+
+    private fun crossFade(from: View, to: View, duration: Long = 250L, startDelay: Long = 50L) {
+        if (from.visibility == View.GONE) {
+            if (to.visibility != View.VISIBLE || to.alpha != 1f) {
+                to.alpha = 1f
+                to.visibility = View.VISIBLE
+            }
+            return
+        }
+        if (to.visibility == View.VISIBLE && to.alpha == 1f) return
+        to.apply {
+            alpha = 0f
+            visibility = View.VISIBLE
+        }
+        from.animate()
+            .alpha(0f)
+            .setDuration(duration)
+            .withEndAction {
+                from.alpha = 1f
+                from.visibility = View.GONE
+            }
+            .start()
+        to.animate()
+            .alpha(1f)
+            .setStartDelay(startDelay)
+            .setDuration(duration)
+            .start()
+    }
+
+    private fun crossFadeListToBody(listView: View, bodyView: View) {
+        crossFade(listView, bodyView, duration = 250L, startDelay = 50L)
+    }
+
+    private fun crossFadeBodyToList(bodyView: View, listView: View) {
+        crossFade(bodyView, listView, duration = 220L, startDelay = 0L)
     }
 }

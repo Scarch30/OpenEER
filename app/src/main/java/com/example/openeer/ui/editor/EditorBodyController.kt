@@ -85,7 +85,7 @@ class EditorBodyController(
 
     fun isKeyboardVisible(): Boolean = keyboardVisible
 
-    fun activeBodyView(): View = editOverlay ?: binding.txtBodyDetail
+    fun activeBodyView(): View = editOverlay ?: binding.bodyEditor
 
     private fun finishEditing() {
         val overlay = editOverlay
@@ -97,7 +97,7 @@ class EditorBodyController(
         }
         editingNoteId = null
         exitEditUi()
-        onActiveBodyViewChanged(binding.txtBodyDetail)
+        onActiveBodyViewChanged(binding.bodyEditor)
     }
 
     private fun createOverlay(): EditText {
@@ -107,7 +107,7 @@ class EditorBodyController(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                val originalLp = binding.txtBodyDetail.layoutParams
+                val originalLp = binding.bodyEditor.layoutParams
                 if (originalLp is ViewGroup.MarginLayoutParams) {
                     setMargins(
                         originalLp.leftMargin,
@@ -118,12 +118,12 @@ class EditorBodyController(
                 }
             }
             setPadding(
-                binding.txtBodyDetail.paddingLeft,
-                binding.txtBodyDetail.paddingTop,
-                binding.txtBodyDetail.paddingRight,
-                binding.txtBodyDetail.paddingBottom
+                binding.bodyEditor.paddingLeft,
+                binding.bodyEditor.paddingTop,
+                binding.bodyEditor.paddingRight,
+                binding.bodyEditor.paddingBottom
             )
-            textSize = binding.txtBodyDetail.textSize / activity.resources.displayMetrics.scaledDensity
+            textSize = binding.bodyEditor.textSize / activity.resources.displayMetrics.scaledDensity
             setBackgroundColor(0x00000000)
             isSingleLine = false
             imeOptions = EditorInfo.IME_ACTION_DONE
@@ -138,7 +138,7 @@ class EditorBodyController(
         }
         val container = binding.noteBodyContainer as? ViewGroup
         if (container != null) {
-            val textIndex = container.indexOfChild(binding.txtBodyDetail)
+            val textIndex = container.indexOfChild(binding.bodyEditor)
             val insertIndex = if (textIndex >= 0) textIndex + 1 else container.childCount
             container.addView(overlay, insertIndex)
         }
@@ -149,7 +149,7 @@ class EditorBodyController(
     private fun showInlineEditor(noteId: Long, caretPosition: Int?) {
         editingNoteId = noteId
         val overlay = editOverlay ?: createOverlay()
-        val currentDisplayed = binding.txtBodyDetail.text?.toString().orEmpty()
+        val currentDisplayed = binding.bodyEditor.text?.toString().orEmpty()
         val initialText = if (currentDisplayed.trim() == PLACEHOLDER) "" else currentDisplayed
         if (overlay.text?.toString() != initialText) {
             overlay.setText(initialText)
@@ -185,7 +185,7 @@ class EditorBodyController(
     private fun updateEditUi(active: Boolean) {
         if (editUiActive == active) return
         editUiActive = active
-        binding.txtBodyDetail.visibility = if (active) View.GONE else View.VISIBLE
+        binding.bodyEditor.visibility = if (active) View.GONE else View.VISIBLE
         editOverlay?.visibility = if (active) View.VISIBLE else View.GONE
         onEditModeChanged(active)
     }
