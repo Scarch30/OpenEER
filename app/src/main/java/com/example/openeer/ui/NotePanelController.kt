@@ -106,6 +106,16 @@ class NotePanelController(
         listController.setup()
         reminderController.attach()
 
+        activity.lifecycleScope.launch {
+            viewModel.noteConvertedToPlainEvents.collect { event ->
+                Log.i(
+                    "NotePanelController",
+                    "OptimisticPlainBody: applying len=${event.body.length} for note=${event.noteId}",
+                )
+                applyListConvertedToPlain(event.noteId, event.body)
+            }
+        }
+
         binding.btnNoteMenu.setOnClickListener { view ->
             showNoteMenu(view)
         }
