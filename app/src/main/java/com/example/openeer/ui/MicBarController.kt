@@ -79,7 +79,9 @@ class MicBarController(
     private val voiceDependencies = VoiceComponents.obtain(activity.applicationContext)
     private val voiceCommandRouter = VoiceCommandRouter(voiceDependencies.placeParser)
     private val reminderExecutor = ReminderExecutor(activity.applicationContext, voiceDependencies)
-    private val listExecutor = ListVoiceExecutor(repo)
+    private val listExecutor = ListVoiceExecutor(repo) { noteId, body ->
+        withContext(Dispatchers.Main) { onCanonicalBodyReplaced(noteId, body) }
+    }
     private val voiceCommandHandler = VoiceCommandHandler(
         activity,
         blocksRepo,

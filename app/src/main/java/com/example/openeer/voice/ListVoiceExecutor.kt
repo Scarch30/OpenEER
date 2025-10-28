@@ -1,6 +1,7 @@
 package com.example.openeer.voice
 
 import android.util.Log
+import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.NoteType
 import com.example.openeer.data.list.ListItemEntity
@@ -11,8 +12,36 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class ListVoiceExecutor(
-    private val repo: NoteRepository,
+    private val repo: Repository,
+    private val onNoteConvertedToPlain: suspend (noteId: Long, body: String) -> Unit = { _, _ -> },
 ) {
+
+    constructor(
+        repo: NoteRepository,
+        onNoteConvertedToPlain: suspend (noteId: Long, body: String) -> Unit = { _, _ -> },
+    ) : this(
+        repo = object : Repository {
+            override suspend fun createTextNote(body: String): Long = repo.createTextNote(body)
+            override suspend fun convertNoteToList(noteId: Long): NoteRepository.NoteConversionResult =
+                repo.convertNoteToList(noteId)
+
+            override suspend fun finalizeAllProvisional(noteId: Long) = repo.finalizeAllProvisional(noteId)
+
+            override suspend fun convertNoteToPlain(noteId: Long): String = repo.convertNoteToPlain(noteId)
+
+            override suspend fun noteOnce(noteId: Long): Note? = repo.noteOnce(noteId)
+
+            override suspend fun listItemsOnce(noteId: Long): List<ListItemEntity> = repo.listItemsOnce(noteId)
+
+            override suspend fun addItem(noteId: Long, text: String): Long = repo.addItem(noteId, text)
+
+            override suspend fun removeItem(itemId: Long) = repo.removeItem(itemId)
+
+            override suspend fun toggleItem(itemId: Long) = repo.toggleItem(itemId)
+        },
+        onNoteConvertedToPlain = onNoteConvertedToPlain,
+    )
+
 
     sealed class Result {
         abstract val noteId: Long?
@@ -117,6 +146,7 @@ class ListVoiceExecutor(
             Log.e(TAG, "decision=CONVERT_TO_TEXT failed note=$targetId", error)
             return@withContext Result.Failure(targetId, error)
         }
+        onNoteConvertedToPlain(targetId, plainBody)
         val created = noteId == null
 
         val convertedCount = plainBody.takeIf { it.isNotEmpty() }?.let { text ->
@@ -232,5 +262,17 @@ class ListVoiceExecutor(
         private val DIACRITICS_REGEX = "\\p{Mn}+".toRegex()
         private val WHITESPACE_REGEX = "\\s+".toRegex()
         private val TRIM_CHARS = charArrayOf(' ', ',', ';', '.', '\'', '"')
+    }
+
+    interface Repository {
+        suspend fun createTextNote(body: String): Long
+        suspend fun convertNoteToList(noteId: Long): NoteRepository.NoteConversionResult
+        suspend fun finalizeAllProvisional(noteId: Long)
+        suspend fun convertNoteToPlain(noteId: Long): String
+        suspend fun noteOnce(noteId: Long): Note?
+        suspend fun listItemsOnce(noteId: Long): List<ListItemEntity>
+        suspend fun addItem(noteId: Long, text: String): Long
+        suspend fun removeItem(itemId: Long)
+        suspend fun toggleItem(itemId: Long)
     }
 }
