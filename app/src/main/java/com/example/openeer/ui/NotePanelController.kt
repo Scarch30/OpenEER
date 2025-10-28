@@ -276,6 +276,7 @@ class NotePanelController(
                         val noteId = noteSnapshot?.id
                         val isListNote = noteSnapshot?.isList() == true
                         if (noteId != null && isListNote) {
+                            listController.conversionSync.onConversionStart(noteId)
                             listController.onListConversionToPlainStarted(noteId)
                         }
                         val message = viewModel.convertCurrentNoteToPlain(noteSnapshot)
@@ -426,6 +427,17 @@ class NotePanelController(
             "NotePanelController  OptimisticPlainBody: applied len=${body.length} for note=$noteId.",
         )
 
+        applyConvertedBody(noteId, body, listController.conversionSync)
+        listController.onListConversionToPlainApplied(noteId)
+        Log.d("ListUI", "CONVERT_ATOMIC applied bodyLen=${body.length}")
+    }
+
+    fun applyConvertedBody(noteId: Long, body: String, listSync: ListConversionSync) {
+        val openId = openNoteId ?: return
+        if (noteId != openId) return
+
+        Log.i(TAG, "NotePanel applyConvertedBody note=$noteId bodyLen=${body.length}")
+
         currentNote = currentNote?.copy(body = body, type = NoteType.PLAIN)
             ?: Note(id = noteId, body = body, type = NoteType.PLAIN)
 
@@ -436,8 +448,7 @@ class NotePanelController(
             binding.txtBodyDetail.invalidate()
         }
 
-        listController.onListConversionToPlainApplied(noteId)
-        Log.d("ListUI", "CONVERT_ATOMIC applied bodyLen=${body.length}")
+        listSync.onBodyApplied(noteId)
     }
 
     private fun render(note: Note?) {

@@ -18,6 +18,7 @@ import com.example.openeer.R
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
+import com.example.openeer.data.NoteType
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.editor.NoteListItemsAdapter
@@ -26,6 +27,12 @@ import com.example.openeer.ui.util.toast
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+
+interface ListConversionSync {
+    fun onConversionStart(noteId: Long)
+    fun onBodyApplied(noteId: Long)
+    fun isConversionPending(noteId: Long): Boolean
+}
 
 class NoteListController(
     private val activity: AppCompatActivity,
@@ -44,6 +51,31 @@ class NoteListController(
     private var observedListNoteId: Long? = null
     private var pendingScrollToBottom = false
     private var suppressListUpdatesForConversion = false
+    private var currentNoteType: NoteType? = null
+
+    private val pendingConversions = mutableSetOf<Long>()
+
+    val conversionSync: ListConversionSync = object : ListConversionSync {
+        override fun onConversionStart(noteId: Long) {
+            val added = pendingConversions.add(noteId)
+            if (added) {
+                Log.d(TAG_UI, "CONVERT_SYNC start note=$noteId")
+            } else {
+                Log.d(TAG_UI, "CONVERT_SYNC start (already pending) note=$noteId")
+            }
+        }
+
+        override fun onBodyApplied(noteId: Long) {
+            if (pendingConversions.remove(noteId)) {
+                Log.d(TAG_UI, "CONVERT_SYNC bodyApplied note=$noteId")
+            } else {
+                Log.d(TAG_UI, "CONVERT_SYNC bodyApplied (no pending) note=$noteId")
+            }
+            submitEmptyIfNeeded(noteId)
+        }
+
+        override fun isConversionPending(noteId: Long): Boolean = noteId in pendingConversions
+    }
 
     fun setup() {
         binding.listItemsRecycler.apply {
@@ -80,6 +112,7 @@ class NoteListController(
     fun onNoteOpened(noteId: Long) {
         openNoteId = noteId
         pendingScrollToBottom = false
+        currentNoteType = null
         binding.listAddItemInput.text?.clear()
         binding.listAddItemInput.clearFocus()
     }
@@ -90,6 +123,8 @@ class NoteListController(
         openNoteId = null
         pendingScrollToBottom = false
         suppressListUpdatesForConversion = false
+        pendingConversions.clear()
+        currentNoteType = null
         adapter.submitList(emptyList())
         binding.listItemsContainer.isGone = true
         binding.listItemsRecycler.isGone = true
@@ -106,6 +141,7 @@ class NoteListController(
     }
 
     fun render(note: Note) {
+        currentNoteType = note.type
         val previousMode = listMode
         val shouldShowList = FeatureFlags.listsEnabled && note.isList()
         if (previousMode != shouldShowList) {
@@ -145,7 +181,7 @@ class NoteListController(
             binding.listAddItemInput.clearFocus()
             stopListObservation()
             if (!suppressListUpdatesForConversion && adapter.currentList.isNotEmpty()) {
-                adapter.submitList(emptyList())
+                submitEmptyIfNeeded(note.id)
             }
             binding.listSelectionBar.isGone = true
             binding.listSelectionCounter.text = ""
@@ -244,6 +280,11 @@ class NoteListController(
 
         updateListSelectionUi(items)
 
+        if (items.isEmpty() && currentNoteType == NoteType.PLAIN && currentNoteId != null) {
+            submitEmptyIfNeeded(currentNoteId)
+            return
+        }
+
         adapter.submitList(items) {
             Log.d(TAG_UI, "UI: submit done req=$reqToken adapterCount=${adapter.itemCount}")
 
@@ -267,6 +308,9 @@ class NoteListController(
     fun onListConversionToPlainCancelled(noteId: Long) {
         if (openNoteId != noteId) return
         suppressListUpdatesForConversion = false
+        if (pendingConversions.remove(noteId)) {
+            Log.d(TAG_UI, "CONVERT_SYNC cancel note=$noteId")
+        }
     }
 
     fun onListConversionToPlainApplied(noteId: Long) {
@@ -275,6 +319,8 @@ class NoteListController(
         suppressListUpdatesForConversion = false
         pendingScrollToBottom = false
         listMode = false
+
+        submitEmptyIfNeeded(noteId)
 
         binding.listItemsContainer.isGone = true
         binding.listItemsPlaceholder.isGone = true
@@ -285,10 +331,6 @@ class NoteListController(
         binding.noteBodySurface.isClickable = true
 
         stopListObservation()
-
-        if (adapter.currentList.isNotEmpty()) {
-            adapter.submitList(emptyList())
-        }
 
         binding.listSelectionBar.isGone = true
         binding.listSelectionCounter.text = ""
@@ -420,5 +462,25 @@ class NoteListController(
 
     companion object {
         private const val TAG_UI = "ListUI"
+    }
+
+    private fun submitEmptyIfNeeded(noteId: Long) {
+        if (conversionSync.isConversionPending(noteId)) {
+            Log.d(TAG_UI, "UI: defer empty (pending body) note=$noteId")
+            return
+        }
+
+        if (adapter.currentList.isEmpty()) {
+            Log.d(TAG_UI, "UI: skip empty (already empty) note=$noteId")
+            return
+        }
+
+        if (!binding.listItemsContainer.isVisible && !binding.listItemsRecycler.isVisible) {
+            Log.d(TAG_UI, "UI: skip empty (hidden) note=$noteId")
+            return
+        }
+
+        adapter.submitList(emptyList())
+        Log.d(TAG_UI, "UI: submit empty (post-body) note=$noteId")
     }
 }
