@@ -334,7 +334,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         null // pas de snapshot : on n’affiche pas (fallback recapture géré ailleurs)
                     }
                 }
-                items.sortedByDescending { it.blockId }
+                items.sortedForGrid()
             }
 
             else -> {
@@ -425,7 +425,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         else -> null
                     }
                 }
-                items.sortedByDescending { it.blockId }
+                items.sortedForGrid()
             }
         }
     }
@@ -914,3 +914,17 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         }
     }
 }
+
+private fun <T : MediaStripItem> List<T>.sortedForGrid(): List<T> =
+    this.sortedWith(
+        compareBy<T> { it.childOrdinal == null }
+            .thenBy { it.childOrdinal ?: Int.MAX_VALUE }
+            .thenBy {
+                when (it) {
+                    is MediaStripItem.Image -> it.blockId
+                    is MediaStripItem.Audio -> it.blockId
+                    is MediaStripItem.Text  -> it.blockId
+                    else -> Long.MAX_VALUE
+                }
+            }
+    )

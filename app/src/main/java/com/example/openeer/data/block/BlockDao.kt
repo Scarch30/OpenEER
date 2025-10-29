@@ -40,15 +40,12 @@ interface BlockDao {
     suspend fun getBlockIdsForNote(noteId: Long): List<Long>
 
     // ✅ AJOUT CRUCIAL : MAJ atomique pour éviter la contrainte unique (noteId, position)
-    @Query(
-        "UPDATE blocks SET noteId = :targetNoteId, position = :position, childOrdinal = :childOrdinal " +
-            "WHERE id = :id"
-    )
+    @Query("UPDATE blocks SET noteId=:targetNoteId, position=:newPos, childOrdinal=:newOrdinal WHERE id=:blockId")
     suspend fun updateNoteIdPositionAndOrdinal(
-        id: Long,
+        blockId: Long,
         targetNoteId: Long,
-        position: Int,
-        childOrdinal: Int,
+        newPos: Int,
+        newOrdinal: Int,
     )
 
     // ✅ Utilisée par BlocksRepository.updateAudioTranscription(...)
@@ -73,7 +70,7 @@ interface BlockDao {
     @Transaction
     suspend fun insertAtEnd(noteId: Long, template: BlockEntity): Long {
         val pos = (getMaxPosition(noteId) ?: -1) + 1
-        val ordinal = template.childOrdinal ?: ((getMaxChildOrdinal(noteId) ?: 0) + 1)
+        val ordinal = (getMaxChildOrdinal(noteId) ?: 0) + 1
         return insert(template.copy(noteId = noteId, position = pos, childOrdinal = ordinal))
     }
 
