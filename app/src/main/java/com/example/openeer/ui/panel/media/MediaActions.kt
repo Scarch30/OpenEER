@@ -16,6 +16,7 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.SimplePlayer
+import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.sheets.ChildPostitSheet
 import com.example.openeer.ui.sheets.LocationPreviewSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
@@ -32,6 +33,7 @@ class MediaActions(
 ) {
     private val uiScope = CoroutineScope(Dispatchers.Main)
     private val routeGson = Gson()
+    var onChildLabelChanged: (() -> Unit)? = null
 
     fun handlePileClick(noteId: Long, category: MediaCategory) {
         // La grille sait déjà filtrer par catégorie ; on l’utilise aussi pour LOCATION.
@@ -202,7 +204,8 @@ class MediaActions(
     fun showMenu(anchor: View, item: MediaStripItem) {
         val popup = PopupMenu(activity, anchor)
         popup.menu.add(0, MENU_SHARE, 0, activity.getString(R.string.media_action_share))
-        popup.menu.add(0, MENU_DELETE, 1, activity.getString(R.string.media_action_delete))
+        popup.menu.add(0, MENU_RENAME, 1, activity.getString(R.string.media_action_rename))
+        popup.menu.add(0, MENU_DELETE, 2, activity.getString(R.string.media_action_delete))
 
         // 🗺️ Option spéciale pour la pile Carte : “Ouvrir dans Google Maps”
         val mapsEnabledForPile = (item as? MediaStripItem.Pile)?.category == MediaCategory.LOCATION
@@ -213,6 +216,7 @@ class MediaActions(
         popup.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 MENU_SHARE -> { share(item); true }
+                MENU_RENAME -> { rename(item); true }
                 MENU_DELETE -> { confirmDelete(item); true }
                 MENU_OPEN_IN_MAPS -> {
                     val pile = item as? MediaStripItem.Pile
@@ -223,6 +227,23 @@ class MediaActions(
             }
         }
         popup.show()
+    }
+
+    private fun rename(item: MediaStripItem) {
+        val target = if (item is MediaStripItem.Pile) item.cover else item
+        ChildNameDialog.show(
+            context = activity,
+            initialValue = target.childName,
+            onSave = { newName -> updateChildName(target.blockId, newName) },
+            onReset = { updateChildName(target.blockId, null) },
+        )
+    }
+
+    private fun updateChildName(blockId: Long, name: String?) {
+        uiScope.launch {
+            withContext(Dispatchers.IO) { blocksRepo.setChildNameForBlock(blockId, name) }
+            onChildLabelChanged?.invoke()
+        }
     }
 
     // --- “Ouvrir dans Google Maps” pour la pile Carte ---
@@ -429,6 +450,7 @@ class MediaActions(
     private companion object {
         const val MENU_SHARE = 1
         const val MENU_DELETE = 2
-        const val MENU_OPEN_IN_MAPS = 3
+        const val MENU_RENAME = 3
+        const val MENU_OPEN_IN_MAPS = 4
     }
 }

@@ -27,6 +27,12 @@ interface BlockDao {
     @Query("SELECT * FROM blocks WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): BlockEntity?
 
+    @Query("UPDATE blocks SET childName = :name WHERE id = :id")
+    suspend fun updateChildName(id: Long, name: String?)
+
+    @Query("SELECT childName FROM blocks WHERE id = :id")
+    suspend fun getChildName(id: Long): String?
+
     @Query("SELECT MAX(position) FROM blocks WHERE noteId = :noteId")
     suspend fun getMaxPosition(noteId: Long): Int?
 

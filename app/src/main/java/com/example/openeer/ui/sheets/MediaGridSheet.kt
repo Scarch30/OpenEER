@@ -37,8 +37,8 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
-import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapPreviewStorage
+import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaCategory
 import com.example.openeer.ui.panel.media.MediaStripItem
@@ -56,6 +56,8 @@ import java.util.Locale
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
+private const val MENU_RENAME = 1
+private const val MENU_OPEN_IN_MAPS = 2
 private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
     override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
         oldItem.blockId == newItem.blockId
@@ -99,7 +101,9 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
     private val mediaActions: MediaActions by lazy {
         val host = requireActivity() as AppCompatActivity
-        MediaActions(host, blocksRepo)
+        MediaActions(host, blocksRepo).apply {
+            onChildLabelChanged = { reloadItems() }
+        }
     }
 
     private var titleView: TextView? = null
@@ -232,6 +236,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        mediaActions.onChildLabelChanged = null
         titleView = null
         mediaGridAdapter = null
     }
@@ -788,21 +793,50 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         }
     }
 
+    private fun promptRename(item: MediaStripItem) {
+        val target = if (item is MediaStripItem.Pile) item.cover else item
+        ChildNameDialog.show(
+            context = requireContext(),
+            initialValue = target.childName,
+            onSave = { newName ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    blocksRepo.setChildNameForBlock(target.blockId, newName)
+                    reloadItems()
+                }
+            },
+            onReset = {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    blocksRepo.setChildNameForBlock(target.blockId, null)
+                    reloadItems()
+                }
+            },
+        )
+    }
+
     // --- Long-press “Google Maps” pour la pile Carte ---
     private fun showMapsMenuForMapItem(anchor: View, item: MediaStripItem) {
         val popup = PopupMenu(requireContext(), anchor)
-        popup.menu.add(0, 1, 0, getString(R.string.block_open_in_google_maps))
-        popup.setOnMenuItemClickListener {
-            // On récupère le bloc complet pour ses lat/lon / routeJson
-            viewLifecycleOwner.lifecycleScope.launch {
-                val block = blocksRepo.getBlock(item.blockId)
-                if (block == null) {
-                    Toast.makeText(requireContext(), R.string.media_missing_file, Toast.LENGTH_SHORT).show()
-                    return@launch
+        popup.menu.add(0, MENU_RENAME, 0, getString(R.string.media_action_rename))
+        popup.menu.add(0, MENU_OPEN_IN_MAPS, 1, getString(R.string.block_open_in_google_maps))
+        popup.setOnMenuItemClickListener { menuItem ->
+            when (menuItem.itemId) {
+                MENU_RENAME -> {
+                    promptRename(item)
+                    true
                 }
-                openBlockInGoogleMaps(block)
+                MENU_OPEN_IN_MAPS -> {
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        val block = blocksRepo.getBlock(item.blockId)
+                        if (block == null) {
+                            Toast.makeText(requireContext(), R.string.media_missing_file, Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+                        openBlockInGoogleMaps(block)
+                    }
+                    true
+                }
+                else -> false
             }
-            true
         }
         popup.show()
     }

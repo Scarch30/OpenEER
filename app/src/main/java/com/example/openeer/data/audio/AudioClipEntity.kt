@@ -60,4 +60,10 @@ interface AudioDao {
 
     @Query("SELECT * FROM audio_transcripts WHERE clipId IN (:clipIds)")
     suspend fun transcriptsForClips(clipIds: List<Long>): List<AudioTranscriptEntity>
+
+    @Query("UPDATE audio_clips SET childName = :name WHERE id = :id")
+    suspend fun updateChildName(id: Long, name: String?)
+
+    @Query("SELECT childName FROM audio_clips WHERE id = :id")
+    suspend fun getChildName(id: Long): String?
 }
