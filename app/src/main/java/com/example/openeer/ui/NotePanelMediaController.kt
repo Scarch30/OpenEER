@@ -90,17 +90,38 @@ class NotePanelMediaController(
             when (block.type) {
                 BlockType.PHOTO, BlockType.VIDEO -> {
                     block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                        photoItems += MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                        photoItems += MediaStripItem.Image(
+                            blockId = block.id,
+                            mediaUri = uri,
+                            mimeType = block.mimeType,
+                            type = block.type,
+                            childOrdinal = block.childOrdinal,
+                            childName = block.childName,
+                        )
                     }
                 }
                 BlockType.SKETCH -> {
                     block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                        sketchItems += MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                        sketchItems += MediaStripItem.Image(
+                            blockId = block.id,
+                            mediaUri = uri,
+                            mimeType = block.mimeType,
+                            type = block.type,
+                            childOrdinal = block.childOrdinal,
+                            childName = block.childName,
+                        )
                     }
                 }
                 BlockType.AUDIO -> {
                     block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                        audioItems += MediaStripItem.Audio(block.id, uri, block.mimeType, block.durationMs)
+                        audioItems += MediaStripItem.Audio(
+                            blockId = block.id,
+                            mediaUri = uri,
+                            mimeType = block.mimeType,
+                            durationMs = block.durationMs,
+                            childOrdinal = block.childOrdinal,
+                            childName = block.childName,
+                        )
                     }
                 }
                 BlockType.TEXT -> {
@@ -120,6 +141,8 @@ class NotePanelMediaController(
                                 noteId = block.noteId,
                                 content = block.text.orEmpty(),
                                 isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                                childOrdinal = block.childOrdinal,
+                                childName = block.childName,
                             )
                         }
                     }
@@ -157,16 +180,21 @@ class NotePanelMediaController(
                             mediaUri = file.absolutePath,
                             mimeType = "image/png",
                             type = block.type,
+                            childOrdinal = block.childOrdinal,
+                            childName = block.childName,
                         )
                     } else {
                         null
                     }
                 }
+                val coverBlock = sorted.first()
                 val cover: MediaStripItem = coverImage ?: MediaStripItem.Text(
-                    blockId = sorted.first().id,
+                    blockId = coverBlock.id,
                     noteId = openNoteIdProvider() ?: 0L,
                     content = "Carte",
                     isList = false,
+                    childOrdinal = coverBlock.childOrdinal,
+                    childName = coverBlock.childName,
                 )
                 add(MediaStripItem.Pile(MediaCategory.LOCATION, mapBlocks.size, cover))
             }

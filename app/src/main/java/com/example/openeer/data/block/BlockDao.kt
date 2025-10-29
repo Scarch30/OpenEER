@@ -30,21 +30,26 @@ interface BlockDao {
     @Query("SELECT MAX(position) FROM blocks WHERE noteId = :noteId")
     suspend fun getMaxPosition(noteId: Long): Int?
 
+    @Query("SELECT MAX(childOrdinal) FROM blocks WHERE noteId = :noteId")
+    suspend fun getMaxChildOrdinal(noteId: Long): Int?
+
     @Query("UPDATE blocks SET position = :position WHERE id = :id AND noteId = :noteId")
     suspend fun updatePosition(id: Long, noteId: Long, position: Int)
-
-    @Query("UPDATE blocks SET noteId = :targetNoteId WHERE noteId = :sourceNoteId")
-    suspend fun updateNoteIdForBlocks(sourceNoteId: Long, targetNoteId: Long)
 
     @Query("SELECT id FROM blocks WHERE noteId = :noteId ORDER BY position ASC")
     suspend fun getBlockIdsForNote(noteId: Long): List<Long>
 
-    @Query("UPDATE blocks SET noteId = :targetNoteId WHERE id IN (:blockIds)")
-    suspend fun updateNoteIdForBlockIds(blockIds: List<Long>, targetNoteId: Long)
-
     // ✅ AJOUT CRUCIAL : MAJ atomique pour éviter la contrainte unique (noteId, position)
-    @Query("UPDATE blocks SET noteId = :targetNoteId, position = :position WHERE id = :id")
-    suspend fun updateNoteIdAndPosition(id: Long, targetNoteId: Long, position: Int)
+    @Query(
+        "UPDATE blocks SET noteId = :targetNoteId, position = :position, childOrdinal = :childOrdinal " +
+            "WHERE id = :id"
+    )
+    suspend fun updateNoteIdPositionAndOrdinal(
+        id: Long,
+        targetNoteId: Long,
+        position: Int,
+        childOrdinal: Int,
+    )
 
     // ✅ Utilisée par BlocksRepository.updateAudioTranscription(...)
     @Query("UPDATE blocks SET text = :newText, updatedAt = :updatedAt WHERE id = :blockId")
@@ -68,7 +73,8 @@ interface BlockDao {
     @Transaction
     suspend fun insertAtEnd(noteId: Long, template: BlockEntity): Long {
         val pos = (getMaxPosition(noteId) ?: -1) + 1
-        return insert(template.copy(noteId = noteId, position = pos))
+        val ordinal = template.childOrdinal ?: ((getMaxChildOrdinal(noteId) ?: 0) + 1)
+        return insert(template.copy(noteId = noteId, position = pos, childOrdinal = ordinal))
     }
 
     @Transaction

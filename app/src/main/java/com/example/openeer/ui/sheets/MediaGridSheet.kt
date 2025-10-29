@@ -3,6 +3,7 @@ package com.example.openeer.ui.sheets
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.net.Uri
@@ -324,7 +325,9 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             blockId = block.id,
                             mediaUri = file.absolutePath,
                             mimeType = "image/png",
-                            type = block.type
+                            type = block.type,
+                            childOrdinal = block.childOrdinal,
+                            childName = block.childName,
                         )
                     } else {
                         null // pas de snapshot : on n’affiche pas (fallback recapture géré ailleurs)
@@ -339,7 +342,14 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         MediaCategory.PHOTO -> when (block.type) {
                             BlockType.PHOTO, BlockType.VIDEO ->
                                 block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                                    MediaStripItem.Image(block.id, uri, block.mimeType, block.type)
+                                    MediaStripItem.Image(
+                                        blockId = block.id,
+                                        mediaUri = uri,
+                                        mimeType = block.mimeType,
+                                        type = block.type,
+                                        childOrdinal = block.childOrdinal,
+                                        childName = block.childName,
+                                    )
                                 }
                             BlockType.TEXT -> {
                                 val linkedToVideo = block.groupId != null && block.groupId in videoGroupIds
@@ -348,6 +358,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                                     noteId = block.noteId,
                                     content = block.text.orEmpty(),
                                     isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                                    childOrdinal = block.childOrdinal,
+                                    childName = block.childName,
                                 ) else null
                             }
                             else -> null
@@ -355,12 +367,28 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
                         MediaCategory.SKETCH -> block.takeIf { it.type == BlockType.SKETCH }
                             ?.mediaUri?.takeIf { it.isNotBlank() }
-                            ?.let { uri -> MediaStripItem.Image(block.id, uri, block.mimeType, block.type) }
+                            ?.let { uri ->
+                                MediaStripItem.Image(
+                                    blockId = block.id,
+                                    mediaUri = uri,
+                                    mimeType = block.mimeType,
+                                    type = block.type,
+                                    childOrdinal = block.childOrdinal,
+                                    childName = block.childName,
+                                )
+                            }
 
                         MediaCategory.AUDIO -> when (block.type) {
                             BlockType.AUDIO ->
                                 block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                                    MediaStripItem.Audio(block.id, uri, block.mimeType, block.durationMs)
+                                    MediaStripItem.Audio(
+                                        blockId = block.id,
+                                        mediaUri = uri,
+                                        mimeType = block.mimeType,
+                                        durationMs = block.durationMs,
+                                        childOrdinal = block.childOrdinal,
+                                        childName = block.childName,
+                                    )
                                 }
                             BlockType.TEXT -> {
                                 val linkedToAudio = block.groupId != null && block.groupId in audioGroupIds
@@ -369,6 +397,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                                     noteId = block.noteId,
                                     content = block.text.orEmpty(),
                                     isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                                    childOrdinal = block.childOrdinal,
+                                    childName = block.childName,
                                 ) else null
                             }
                             else -> null
@@ -384,6 +414,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                                         noteId = block.noteId,
                                         content = block.text.orEmpty(),
                                         isList = block.mimeType == BlocksRepository.MIME_TYPE_TEXT_BLOCK_LIST,
+                                        childOrdinal = block.childOrdinal,
+                                        childName = block.childName,
                                     )
                                 } else null
                             } else null
@@ -460,14 +492,16 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         layoutParams = FrameLayout.LayoutParams(dp(ctx, 4), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START)
                         isVisible = false
                     }
+                    val label = createChildLabel(ctx)
 
                     root.addView(image)
                     root.addView(play)
                     root.addView(badge)
                     root.addView(counter)
                     root.addView(leftStrip)
+                    root.addView(label)
                     card.addView(root)
-                    ImageHolder(card, image, play, badge, counter, leftStrip)
+                    ImageHolder(card, image, play, badge, counter, leftStrip, label)
                 }
 
                 GRID_TYPE_AUDIO -> {
@@ -523,13 +557,15 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         layoutParams = FrameLayout.LayoutParams(dp(ctx, 4), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START)
                         isVisible = false
                     }
+                    val label = createChildLabel(ctx)
 
                     root.addView(container)
                     root.addView(badge)
                     root.addView(counter)
                     root.addView(leftStrip)
+                    root.addView(label)
                     card.addView(root)
-                    AudioHolder(card, text, badge, counter, leftStrip)
+                    AudioHolder(card, text, badge, counter, leftStrip, label)
                 }
 
                 GRID_TYPE_TEXT -> {
@@ -587,14 +623,16 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         }
                         isVisible = false
                     }
+                    val label = createChildLabel(ctx)
 
                     root.addView(text)
                     root.addView(badge)
                     root.addView(counter)
                     root.addView(rightStrip)
                     root.addView(listBadge)
+                    root.addView(label)
                     card.addView(root)
-                    TextHolder(card, text, badge, counter, rightStrip, listBadge)
+                    TextHolder(card, text, badge, counter, rightStrip, listBadge, label)
                 }
 
                 else -> throw IllegalStateException("Unknown view type $viewType")
@@ -610,6 +648,41 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             }
         }
 
+        private fun createChildLabel(ctx: Context): TextView = TextView(ctx).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.END or Gravity.BOTTOM,
+            ).apply {
+                bottomMargin = dp(ctx, 6)
+                rightMargin = dp(ctx, 6)
+            }
+            setPadding(dp(ctx, 6), dp(ctx, 2), dp(ctx, 6), dp(ctx, 2))
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(0x99000000.toInt())
+            typeface = Typeface.DEFAULT_BOLD
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            isVisible = false
+        }
+
+        private fun bindChildLabel(label: TextView, item: MediaStripItem) {
+            val resolved = resolveChildLabel(item)
+            if (resolved.isNullOrEmpty()) {
+                label.isVisible = false
+            } else {
+                label.text = resolved
+                label.isVisible = true
+            }
+        }
+
+        private fun resolveChildLabel(item: MediaStripItem): String? {
+            val name = item.childName?.trim()?.takeIf { it.isNotEmpty() }
+            if (!name.isNullOrEmpty()) return name
+            return item.childOrdinal?.takeIf { it > 0 }?.let { "#$it" }
+        }
+
         inner class ImageHolder(
             private val card: MaterialCardView,
             private val image: ImageView,
@@ -617,6 +690,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             private val badge: ImageView,
             private val counter: TextView,
             private val leftStrip: View,
+            private val label: TextView,
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Image) {
                 Glide.with(image)
@@ -630,6 +704,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 badge.isVisible = false
                 counter.isVisible = false
                 leftStrip.isVisible = false
+                bindChildLabel(label, item)
 
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {
@@ -645,6 +720,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             private val badge: ImageView,
             private val counter: TextView,
             private val leftStrip: View,
+            private val label: TextView,
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Audio) {
                 duration.text = formatDuration(item.durationMs)
@@ -663,6 +739,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     leftStrip.isVisible = false
                 }
 
+                bindChildLabel(label, item)
+
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {
                     onLongClick(it, item)
@@ -678,6 +756,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             private val counter: TextView,
             private val rightStrip: View,
             private val listBadge: ImageView,
+            private val label: TextView,
         ) : RecyclerView.ViewHolder(card) {
             fun bind(item: MediaStripItem.Text) {
                 preview.text = item.preview.ifBlank { "…" }
@@ -697,6 +776,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 }
 
                 listBadge.isVisible = item.isList
+                bindChildLabel(label, item)
 
                 card.setOnClickListener { onClick(item) }
                 card.setOnLongClickListener {

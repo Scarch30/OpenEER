@@ -62,6 +62,10 @@ fun computeBlockHash(block: BlockEntity): String {
         append(block.routeJson.orEmpty())
         append('|')
         append(block.extra.orEmpty())
+        append('|')
+        append(block.childOrdinal?.toString().orEmpty())
+        append('|')
+        append(block.childName.orEmpty())
     }
     return digest.digest(payload.toByteArray(Charsets.UTF_8)).toHexString()
 }

@@ -24,6 +24,8 @@ data class BlockEntity(
     val noteId: Long,
     val type: BlockType,
     val position: Int,
+    val childOrdinal: Int? = null,
+    val childName: String? = null,
     val groupId: String? = null,
     val text: String? = null,
     val mediaUri: String? = null,
