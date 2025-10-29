@@ -201,6 +201,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                                 com.example.openeer.ui.viewer.VideoPlayerActivity::class.java
                             ).apply {
                                 putExtra(com.example.openeer.ui.viewer.VideoPlayerActivity.EXTRA_URI, item.mediaUri)
+                                putExtra("blockId", item.blockId)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             startActivity(intent)

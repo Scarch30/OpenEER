@@ -7,13 +7,16 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.os.bundleOf
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
+import com.example.openeer.Injection
 import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlockType
+import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapPreviewStorage
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -24,6 +27,7 @@ import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.textview.MaterialTextView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
@@ -105,8 +109,43 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
 
         val image: ShapeableImageView = root.findViewById(R.id.imagePreview)
         val addressText: MaterialTextView = root.findViewById(R.id.addressText)
+        val overflowButton: View = root.findViewById(R.id.overflowButton)
         val openMaps: MaterialButton = root.findViewById(R.id.btnOpenInMaps)
         val openMapLibre: MaterialButton = root.findViewById(R.id.btnOpenMapLibre)
+
+        overflowButton.visibility = if (blockId > 0) View.VISIBLE else View.GONE
+        overflowButton.setOnClickListener { anchor ->
+            if (blockId <= 0) return@setOnClickListener
+            val popup = PopupMenu(requireContext(), anchor)
+            popup.menuInflater.inflate(R.menu.menu_viewer_item, popup.menu)
+            popup.setOnMenuItemClickListener { mi ->
+                when (mi.itemId) {
+                    R.id.action_rename -> {
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            val repo = Injection.provideBlocksRepository(requireContext())
+                            val current = withContext(Dispatchers.IO) { repo.getChildNameForBlock(blockId) }
+                            ChildNameDialog.show(
+                                context = requireContext(),
+                                initialValue = current,
+                                onSave = { newName ->
+                                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                                        repo.setChildNameForBlock(blockId, newName)
+                                    }
+                                },
+                                onReset = {
+                                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                                        repo.setChildNameForBlock(blockId, null)
+                                    }
+                                }
+                            )
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+            popup.show()
+        }
 
         // 1) Charger la capture si elle existe
         val file = MapPreviewStorage.fileFor(requireContext(), blockId, type)
