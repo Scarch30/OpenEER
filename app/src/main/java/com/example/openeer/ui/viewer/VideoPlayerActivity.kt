@@ -2,12 +2,11 @@ package com.example.openeer.ui.viewer
 
 import android.net.Uri
 import android.os.Bundle
-import android.view.Menu
-import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
@@ -48,7 +47,11 @@ class VideoPlayerActivity : AppCompatActivity() {
             WindowInsetsCompat.CONSUMED
         }
 
-        binding.btnClose.setOnClickListener { finish() }
+        setSupportActionBar(binding.viewerToolbar)
+        binding.viewerToolbar.navigationIcon = AppCompatResources.getDrawable(this, R.drawable.ic_close)
+        binding.viewerToolbar.setNavigationOnClickListener { finishAfterTransition() }
+        updateToolbarTitle(null)
+        refreshToolbarTitle()
 
         val uriString = intent.getStringExtra(EXTRA_URI)
         if (uriString.isNullOrBlank()) {
@@ -109,37 +112,64 @@ class VideoPlayerActivity : AppCompatActivity() {
         player = null
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+    override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
         menuInflater.inflate(R.menu.menu_viewer_item, menu)
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
         return true
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+    override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
         return when (item.itemId) {
+            android.R.id.home -> {
+                finishAfterTransition()
+                true
+            }
             R.id.action_rename -> {
-                if (blockId <= 0) return true
-                lifecycleScope.launch {
-                    val repo = Injection.provideBlocksRepository(this@VideoPlayerActivity)
-                    val current = withContext(Dispatchers.IO) { repo.getChildNameForBlock(blockId) }
-                    ChildNameDialog.show(
-                        context = this@VideoPlayerActivity,
-                        initialValue = current,
-                        onSave = { newName ->
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                repo.setChildNameForBlock(blockId, newName)
-                            }
-                        },
-                        onReset = {
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                repo.setChildNameForBlock(blockId, null)
-                            }
-                        }
-                    )
-                }
+                showRenameDialog()
                 true
             }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
+
+    private fun showRenameDialog() {
+        if (blockId <= 0) return
+        lifecycleScope.launch {
+            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(blockId) }
+            ChildNameDialog.show(
+                context = this@VideoPlayerActivity,
+                initialValue = current,
+                onSave = { newName ->
+                    lifecycleScope.launch {
+                        withContext(Dispatchers.IO) { blocksRepository.setChildNameForBlock(blockId, newName) }
+                        updateToolbarTitle(newName)
+                    }
+                },
+                onReset = {
+                    lifecycleScope.launch {
+                        withContext(Dispatchers.IO) { blocksRepository.setChildNameForBlock(blockId, null) }
+                        updateToolbarTitle(null)
+                    }
+                }
+            )
+        }
+    }
+
+    private fun refreshToolbarTitle() {
+        if (blockId <= 0) {
+            updateToolbarTitle(null)
+            return
+        }
+        lifecycleScope.launch {
+            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(blockId) }
+            updateToolbarTitle(current)
+        }
+    }
+
+    private fun updateToolbarTitle(name: String?) {
+        val title = name?.takeIf { it.isNotBlank() } ?: ""
+        supportActionBar?.title = title
     }
 }
