@@ -14,6 +14,7 @@ import com.example.openeer.data.merge.MergeSnapshot
 import com.example.openeer.data.merge.computeBlockHash
 import com.example.openeer.data.merge.toSnapshot
 import com.example.openeer.domain.ReminderUseCases
+import com.example.openeer.voice.VoiceListCommandParser
 import com.google.gson.Gson
 import kotlin.collections.ArrayDeque
 import kotlin.collections.LinkedHashSet
@@ -487,13 +488,16 @@ class NoteRepository(
             }
 
             val items = listItemDao.listForNote(noteId)
-            val plainBody = items.joinToString(separator = "\n") { it.text }
+            val filteredTexts = items
+                .map { it.text.trim() }
+                .filterNot { VoiceListCommandParser.looksLikeConvertToText(it) }
+            val plainBody = filteredTexts.joinToString(separator = "\n")
             val now = System.currentTimeMillis()
             noteDao.updateBodyAndType(noteId, plainBody, NoteType.PLAIN, now)
             listItemDao.deleteForNote(noteId)
             Log.i(
                 TAG,
-                "convertNoteToPlain: noteId=$noteId bodyLength=${plainBody.length} items=${items.size}",
+                "convertNoteToPlain: noteId=$noteId bodyLength=${plainBody.length} items=${filteredTexts.size}",
             )
             plainBody
         }
