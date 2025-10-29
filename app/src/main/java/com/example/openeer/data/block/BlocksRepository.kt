@@ -216,8 +216,9 @@ class BlocksRepository(
             if (idsInOrder.isEmpty()) return@withContext
 
             var nextPos = (blockDao.getMaxPosition(targetNoteId) ?: -1) + 1
+            var nextOrdinal = (blockDao.getMaxChildOrdinal(targetNoteId) ?: 0) + 1
             idsInOrder.forEach { bid ->
-                blockDao.updateNoteIdAndPosition(bid, targetNoteId, nextPos++)
+                blockDao.updateNoteIdPositionAndOrdinal(bid, targetNoteId, nextPos++, nextOrdinal++)
             }
         }
     }
@@ -234,8 +235,9 @@ class BlocksRepository(
         if (blockIds.isEmpty()) return
         withContext(io) {
             var nextPos = (blockDao.getMaxPosition(targetNoteId) ?: -1) + 1
+            var nextOrdinal = (blockDao.getMaxChildOrdinal(targetNoteId) ?: 0) + 1
             blockIds.forEach { bid ->
-                blockDao.updateNoteIdAndPosition(bid, targetNoteId, nextPos++)
+                blockDao.updateNoteIdPositionAndOrdinal(bid, targetNoteId, nextPos++, nextOrdinal++)
             }
         }
     }

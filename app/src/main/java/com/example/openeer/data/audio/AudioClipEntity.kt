@@ -11,7 +11,9 @@ data class AudioClipEntity(
     val noteId: Long,
     val uri: String,            // content://... ou file://...
     val durationMs: Int? = null,
-    val createdAt: Long
+    val createdAt: Long,
+    val childOrdinal: Int? = null,
+    val childName: String? = null,
 )
 
 @Entity(
@@ -36,12 +38,24 @@ data class AudioTranscriptEntity(
 @Dao
 interface AudioDao {
     @Insert
-    suspend fun insertClip(e: AudioClipEntity): Long
+    suspend fun insertClipInternal(e: AudioClipEntity): Long
+
+    @Query("SELECT MAX(childOrdinal) FROM audio_clips WHERE noteId = :noteId")
+    suspend fun getMaxChildOrdinal(noteId: Long): Int?
+
+    @Transaction
+    suspend fun insertClip(e: AudioClipEntity): Long {
+        val nextOrdinal = e.childOrdinal ?: ((getMaxChildOrdinal(e.noteId) ?: 0) + 1)
+        return insertClipInternal(e.copy(childOrdinal = nextOrdinal))
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertTranscript(t: AudioTranscriptEntity)
 
-    @Query("SELECT * FROM audio_clips WHERE noteId = :noteId ORDER BY createdAt ASC")
+    @Query(
+        "SELECT * FROM audio_clips WHERE noteId = :noteId " +
+            "ORDER BY childOrdinal IS NULL, childOrdinal ASC, createdAt ASC"
+    )
     suspend fun clipsForNote(noteId: Long): List<AudioClipEntity>
 
     @Query("SELECT * FROM audio_transcripts WHERE clipId IN (:clipIds)")

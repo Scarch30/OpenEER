@@ -13,5 +13,7 @@ data class Attachment(
     val noteId: Long,
     val type: String,
     val path: String,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val childOrdinal: Int? = null,
+    val childName: String? = null,
 )

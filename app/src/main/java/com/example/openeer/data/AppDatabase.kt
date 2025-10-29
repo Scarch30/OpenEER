@@ -49,7 +49,7 @@ import com.example.openeer.data.tag.TagEntity
         FavoriteEntity::class,
         ListItemEntity::class
     ],
-    version = 25, // 🔼 bump : rappels vocaux en attente
+    version = 26, // 🔼 bump : numérotation enfants + labels
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -630,6 +630,42 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE blocks ADD COLUMN childOrdinal INTEGER")
+                db.execSQL("ALTER TABLE blocks ADD COLUMN childName TEXT")
+                db.execSQL("ALTER TABLE attachments ADD COLUMN childOrdinal INTEGER")
+                db.execSQL("ALTER TABLE attachments ADD COLUMN childName TEXT")
+                db.execSQL("ALTER TABLE audio_clips ADD COLUMN childOrdinal INTEGER")
+                db.execSQL("ALTER TABLE audio_clips ADD COLUMN childName TEXT")
+
+                db.execSQL(
+                    """
+                        UPDATE blocks SET childOrdinal = (
+                            SELECT COUNT(*) FROM blocks b2
+                            WHERE b2.noteId = blocks.noteId AND b2.position <= blocks.position
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                        UPDATE attachments SET childOrdinal = (
+                            SELECT COUNT(*) FROM attachments a2
+                            WHERE a2.noteId = attachments.noteId AND a2.createdAt <= attachments.createdAt
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                        UPDATE audio_clips SET childOrdinal = (
+                            SELECT COUNT(*) FROM audio_clips ac2
+                            WHERE ac2.noteId = audio_clips.noteId AND ac2.createdAt <= audio_clips.createdAt
+                        )
+                    """.trimIndent()
+                )
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -661,7 +697,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_21_22,
                         MIGRATION_22_23,
                         MIGRATION_23_24,
-                        MIGRATION_24_25
+                        MIGRATION_24_25,
+                        MIGRATION_25_26
                     )
                     .build()
                     .also { INSTANCE = it }
