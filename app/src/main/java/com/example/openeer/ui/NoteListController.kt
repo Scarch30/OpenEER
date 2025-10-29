@@ -24,6 +24,7 @@ import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.editor.NoteListItemsAdapter
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.util.toast
+import com.example.openeer.voice.VoiceListCommandParser
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -314,9 +315,14 @@ class NoteListController(
         }
     }
 
-    fun onListConversionToPlainStarted(noteId: Long) {
+    suspend fun onListConversionToPlainStarted(noteId: Long) {
         if (openNoteId != noteId) return
         if (!listMode) return
+        val items = repo.listItemsOnce(noteId)
+        val last = items.lastOrNull()
+        if (last != null && VoiceListCommandParser.looksLikeConvertToText(last.text)) {
+            repo.removeItem(last.id)
+        }
         suppressListUpdatesForConversion = true
         Log.d(TAG_UI, "CONVERT_ATOMIC start note=$noteId")
     }

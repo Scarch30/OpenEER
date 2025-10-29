@@ -119,6 +119,14 @@ class VoiceListCommandParser {
         private const val IR_END = "(?:is|it|issons|issez|issent|ir|irai|iras|ira|irons|irez|iront|issais|issait|issions|issiez|issaient|issant|i)"
         private const val MET_END = "(?:s?|tons|tez|tent|tre|trais|trait|trons|trez|tront|ttrais|ttrait|ttrons|ttrez|ttront|tais|tait|tions|tiez|taient)"
 
+        fun looksLikeConvertToText(input: String): Boolean {
+            val t = input.lowercase().trim()
+            return t == "converti en texte" ||
+                t == "convertir en texte" ||
+                t.startsWith("converti en text") ||
+                t.startsWith("convertir en text")
+        }
+
         private val TEXT_KEYWORD_REGEX = Regex("\\btext(?:e|es)?\\b", RegexOption.IGNORE_CASE)
         private val LIST_KEYWORD_REGEX = Regex("\\blist(?:e|es)?\\b", RegexOption.IGNORE_CASE)
 
