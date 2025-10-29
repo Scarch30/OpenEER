@@ -15,4 +15,10 @@
         <item name="android:navigationBarColor">@android:color/black</item>
     </style>
 
+    <style name="Widget.OpenEER.Button.FilledTonal" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">?attr/colorSecondaryContainer</item>
+        <item name="android:textColor">?attr/colorOnSecondaryContainer</item>
+        <item name="rippleColor">?attr/colorSecondaryContainer</item>
+    </style>
+
 </resources>
