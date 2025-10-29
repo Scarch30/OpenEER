@@ -204,6 +204,10 @@ class BlocksRepository(
         blockDao.getById(blockId)
     }
 
+    suspend fun getChildNameForBlock(blockId: Long): String? = withContext(io) {
+        blockDao.getChildName(blockId)
+    }
+
     suspend fun setChildNameForBlock(blockId: Long, name: String?) = withContext(io) {
         blockDao.updateChildName(blockId, name?.ifBlank { null })
     }

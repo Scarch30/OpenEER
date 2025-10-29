@@ -2,6 +2,8 @@ package com.example.openeer.ui.viewer
 
 import android.net.Uri
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -9,11 +11,17 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.example.openeer.Injection
 import com.example.openeer.R
 import com.example.openeer.databinding.ActivityVideoPlayerBinding
+import com.example.openeer.ui.dialogs.ChildNameDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class VideoPlayerActivity : AppCompatActivity() {
 
@@ -25,6 +33,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private var playWhenReady = true
     private var lastPosition = 0L
+    private val blockId: Long by lazy { intent.getLongExtra("blockId", -1L) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,5 +107,39 @@ class VideoPlayerActivity : AppCompatActivity() {
         binding.playerView.player = null
         player?.release()
         player = null
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_viewer_item, menu)
+        menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_rename -> {
+                if (blockId <= 0) return true
+                lifecycleScope.launch {
+                    val repo = Injection.provideBlocksRepository(this@VideoPlayerActivity)
+                    val current = withContext(Dispatchers.IO) { repo.getChildNameForBlock(blockId) }
+                    ChildNameDialog.show(
+                        context = this@VideoPlayerActivity,
+                        initialValue = current,
+                        onSave = { newName ->
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                repo.setChildNameForBlock(blockId, newName)
+                            }
+                        },
+                        onReset = {
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                repo.setChildNameForBlock(blockId, null)
+                            }
+                        }
+                    )
+                }
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
     }
 }

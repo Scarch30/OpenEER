@@ -74,6 +74,7 @@ class MediaActions(
                             // Fallback : lecteur vidéo
                             val intent = Intent(activity, VideoPlayerActivity::class.java).apply {
                                 putExtra(VideoPlayerActivity.EXTRA_URI, item.mediaUri)
+                                putExtra("blockId", item.blockId)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             activity.startActivity(intent)
@@ -149,6 +150,7 @@ class MediaActions(
                     else -> {
                         val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
                             putExtra("path", item.mediaUri)
+                            putExtra("blockId", item.blockId)
                         }
                         activity.startActivity(intent)
                     }
