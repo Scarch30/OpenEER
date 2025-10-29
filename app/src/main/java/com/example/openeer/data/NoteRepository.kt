@@ -45,6 +45,12 @@ class NoteRepository(
         attachmentDao.delete(id)
     }
 
+    suspend fun setAttachmentChildName(id: Long, name: String?) {
+        withContext(Dispatchers.IO) {
+            attachmentDao.updateChildName(id, name?.ifBlank { null })
+        }
+    }
+
     suspend fun deleteNoteWithReminders(id: Long) {
         withContext(Dispatchers.IO) {
             val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager

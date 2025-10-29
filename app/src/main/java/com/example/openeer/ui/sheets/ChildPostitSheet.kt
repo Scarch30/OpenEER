@@ -29,6 +29,7 @@ import com.example.openeer.data.block.BlocksRepository.ChecklistItemDraft
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.voice.SmartListSplitter
+import com.example.openeer.ui.dialogs.ChildNameDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,6 +41,7 @@ private const val MENU_SHARE = 1000
 private const val MENU_DELETE = 1001
 private const val MENU_CONVERT_TO_LIST = 1002
 private const val MENU_CONVERT_TO_TEXT = 1003
+private const val MENU_RENAME = 1004
 
 private const val STATE_IS_LIST_MODE = "state_is_list_mode"
 private const val STATE_CURRENT_TITLE = "state_current_title"
@@ -107,6 +109,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
                 return@launch
             }
 
+            currentChildName = block.childName
             val content = blocksRepo.extractTextContent(block)
 
             if (!contentRestoredFromState) {
@@ -541,6 +544,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private var checklistAddButton: TextView? = null
 
     private var existingBlockId: Long? = null
+    private var currentChildName: String? = null
     private val localListItems = mutableListOf<ListItemEntity>()
     private var localListId = -1L
     private var blockItemsObservation: Job? = null
@@ -689,22 +693,26 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         val shareItem = popup.menu.add(0, MENU_SHARE, 0, getString(R.string.media_action_share))
         shareItem.isEnabled = combinedContent.isNotBlank()
 
+        if (blockId != null) {
+            popup.menu.add(0, MENU_RENAME, 1, getString(R.string.media_action_rename))
+        }
+
         if (FeatureFlags.listsEnabled) {
             if (!isListMode) {
                 val convertToList = popup.menu.add(
-                    0, MENU_CONVERT_TO_LIST, 1, getString(R.string.note_menu_convert_to_list)
+                    0, MENU_CONVERT_TO_LIST, 2, getString(R.string.note_menu_convert_to_list)
                 )
                 convertToList.isEnabled = blockId != null || hasBody
             } else {
                 val convertToText = popup.menu.add(
-                    0, MENU_CONVERT_TO_TEXT, 1, getString(R.string.note_menu_convert_to_text)
+                    0, MENU_CONVERT_TO_TEXT, 2, getString(R.string.note_menu_convert_to_text)
                 )
                 convertToText.isEnabled = blockId != null || hasBody
             }
         }
 
         if (blockId != null) {
-            popup.menu.add(0, MENU_DELETE, 2, getString(R.string.media_action_delete))
+            popup.menu.add(0, MENU_DELETE, 3, getString(R.string.media_action_delete))
         }
 
         if (popup.menu.size() == 0) return
@@ -712,6 +720,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_SHARE -> { shareContent(combinedContent); true }
+                MENU_RENAME -> { blockId?.let { promptRenameChild(it) }; true }
                 MENU_DELETE -> { blockId?.let { confirmDelete(noteId, it) }; true }
                 MENU_CONVERT_TO_LIST -> { handleConvertToList(noteId, blockId, content); true }
                 MENU_CONVERT_TO_TEXT -> { handleConvertToText(noteId, blockId, content); true }
@@ -719,6 +728,25 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             }
         }
         popup.show()
+    }
+
+    private fun promptRenameChild(blockId: Long) {
+        ChildNameDialog.show(
+            context = requireContext(),
+            initialValue = currentChildName,
+            onSave = { newName ->
+                uiScope.launch {
+                    withContext(Dispatchers.IO) { blocksRepo.setChildNameForBlock(blockId, newName) }
+                    currentChildName = newName?.ifBlank { null }
+                }
+            },
+            onReset = {
+                uiScope.launch {
+                    withContext(Dispatchers.IO) { blocksRepo.setChildNameForBlock(blockId, null) }
+                    currentChildName = null
+                }
+            },
+        )
     }
 
     private fun handleConvertToList(

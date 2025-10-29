@@ -204,6 +204,10 @@ class BlocksRepository(
         blockDao.getById(blockId)
     }
 
+    suspend fun setChildNameForBlock(blockId: Long, name: String?) = withContext(io) {
+        blockDao.updateChildName(blockId, name?.ifBlank { null })
+    }
+
     /**
      * Réassigne TOUS les blocs d'une note source vers une note cible en les
      * append-ant à la fin de la cible (mise à jour atomique noteId+position).
