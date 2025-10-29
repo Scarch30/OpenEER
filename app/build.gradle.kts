@@ -42,7 +42,10 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 
-    buildFeatures { viewBinding = true }
+    buildFeatures {
+        viewBinding = true
+        dataBinding = true
+    }
 
     // ⚙️ Tests JVM (Robolectric a besoin des ressources)
     testOptions {
