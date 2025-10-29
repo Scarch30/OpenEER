@@ -43,6 +43,16 @@ sealed class MediaStripItem {
         override val childName: String? = null,
     ) : MediaStripItem()
 
+    data class File(
+        override val blockId: Long,
+        override val mediaUri: String?,
+        override val mimeType: String?,
+        val displayName: String,
+        val sizeBytes: Long?,
+        override val childOrdinal: Int? = null,
+        override val childName: String? = null,
+    ) : MediaStripItem()
+
     /**
      * Post-it texte (bloc enfant TEXT). Pas de mediaUri.
      * "preview" = 1re ligne/aperçu (trim + ellipsize côté UI).

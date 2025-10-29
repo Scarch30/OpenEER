@@ -47,7 +47,7 @@ class PileUiController(
             MediaCategory.PHOTO to "Photos/Vidéos",
             MediaCategory.AUDIO to "Audios",
             MediaCategory.TEXT to "Textes",
-            MediaCategory.SKETCH to "Fichiers",
+            MediaCategory.SKETCH to activity.getString(R.string.media_category_sketch),
             MediaCategory.LOCATION to activity.getString(R.string.pile_label_locations),
         )
         val fallbackOrder = listOf(

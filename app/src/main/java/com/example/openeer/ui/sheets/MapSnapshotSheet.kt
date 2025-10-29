@@ -22,11 +22,19 @@ import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.map.RouteSimplifier
 import com.example.openeer.map.buildMapsUrl
 import com.example.openeer.ui.library.MapPreviewStorage
+import com.example.openeer.ui.dialogs.ChildNameDialog
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import org.maplibre.android.geometry.LatLng
 
@@ -54,6 +62,7 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
     }
 
     private val routeGson by lazy { Gson() }
+    private var toolbar: MaterialToolbar? = null
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = BottomSheetDialog(requireContext(), theme)
@@ -78,6 +87,29 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
         val title = view.findViewById<TextView>(R.id.mapSnapshotTitle)
         val btn = view.findViewById<Button>(R.id.mapSnapshotOpenBtn)
         val routeBtn = view.findViewById<Button>(R.id.btnOpenRouteInMaps)
+
+        toolbar = view.findViewById<MaterialToolbar>(R.id.viewerToolbar).apply {
+            navigationIcon = AppCompatResources.getDrawable(requireContext(), R.drawable.ic_close)
+            setNavigationOnClickListener { dismiss() }
+            inflateMenu(R.menu.menu_viewer_item)
+            menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
+            setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    R.id.action_rename -> {
+                        showRenameDialog()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
+                val sys = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+                v.updatePadding(top = sys.top)
+                insets
+            }
+        }
+        updateToolbarTitle(null)
+        refreshToolbarTitle()
 
         viewLifecycleOwner.lifecycleScope.launch {
             val block = blocksRepo.getBlock(blockId)
@@ -109,6 +141,7 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
 
             val label = buildLabel(block, routePayload)
             title.text = label
+            updateToolbarTitle(block.childName)
 
             btn.setOnClickListener {
                 openInGoogleMaps(block)
@@ -118,6 +151,43 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
         }
 
         return view
+    }
+
+    private fun showRenameDialog() {
+        if (blockId <= 0) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val current = withContext(Dispatchers.IO) { blocksRepo.getChildNameForBlock(blockId) }
+            ChildNameDialog.show(
+                context = requireContext(),
+                initialValue = current,
+                onSave = { newName ->
+                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                        blocksRepo.setChildNameForBlock(blockId, newName)
+                    }.invokeOnCompletion { refreshToolbarTitle() }
+                },
+                onReset = {
+                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                        blocksRepo.setChildNameForBlock(blockId, null)
+                    }.invokeOnCompletion { refreshToolbarTitle() }
+                }
+            )
+        }
+    }
+
+    private fun refreshToolbarTitle() {
+        if (blockId <= 0) {
+            updateToolbarTitle(null)
+            return
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val current = withContext(Dispatchers.IO) { blocksRepo.getChildNameForBlock(blockId) }
+            updateToolbarTitle(current)
+        }
+    }
+
+    private fun updateToolbarTitle(name: String?) {
+        val fallback = getString(R.string.map_snapshot_preview)
+        toolbar?.title = name?.takeIf { it.isNotBlank() } ?: fallback
     }
 
     private fun buildLabel(block: BlockEntity, routePayload: RoutePayload?): String {
@@ -133,6 +203,11 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
             )
             else -> getString(R.string.map_pick_google_maps_unavailable)
         }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        toolbar = null
     }
 
     private fun openInGoogleMaps(block: BlockEntity) {

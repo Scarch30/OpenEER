@@ -1,17 +1,29 @@
 package com.example.openeer.ui.sheets
 
 import android.os.Bundle
-import android.text.TextUtils
-import android.view.*
+import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.os.bundleOf
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.fragment.app.FragmentManager
+import androidx.lifecycle.lifecycleScope
+import com.example.openeer.Injection
+import com.example.openeer.R
 import com.example.openeer.ui.SimplePlayer
+import com.example.openeer.ui.dialogs.ChildNameDialog
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import com.google.android.material.card.MaterialCardView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class AudioQuickPlayerDialog : BottomSheetDialogFragment() {
 
@@ -28,6 +40,7 @@ class AudioQuickPlayerDialog : BottomSheetDialogFragment() {
 
     private val audioId: Long by lazy { requireArguments().getLong(ARG_ID) }
     private val source: String by lazy { requireArguments().getString(ARG_SRC).orEmpty() }
+    private val blocksRepository by lazy { Injection.provideBlocksRepository(requireContext()) }
 
     private var playPause: ImageView? = null
     private var seek: SeekBar? = null
@@ -35,61 +48,45 @@ class AudioQuickPlayerDialog : BottomSheetDialogFragment() {
     private var duration: TextView? = null
     private var title: TextView? = null
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        // UI dynamique minimaliste
-        val ctx = requireContext()
-        val card = MaterialCardView(ctx).apply {
-            val p = dp(12)
-            setContentPadding(p, p, p, p)
-            isClickable = true
-            isFocusable = true
-        }
-        val parent = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+    private var toolbar: MaterialToolbar? = null
+    private var currentDisplayName: String = ""
 
-        val row = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        playPause = ImageView(ctx).apply {
-            setImageResource(android.R.drawable.ic_media_play)
-            contentDescription = "Lecture / pause"
-            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
-        }
-        title = TextView(ctx).apply {
-            text = "Audio"
-            textSize = 16f
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(12)
-            }
-        }
-        elapsed = TextView(ctx).apply { text = "0:00" }
-        duration = TextView(ctx).apply {
-            text = "/ 0:00"
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginStart = dp(4)
-            }
-        }
-        seek = SeekBar(ctx).apply {
-            max = 1000
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-
-        row.addView(playPause)
-        row.addView(title)
-        row.addView(elapsed)
-        row.addView(duration)
-        parent.addView(row)
-        parent.addView(seek)
-        card.addView(parent)
-
-        return card
-    }
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
+        inflater.inflate(R.layout.bottomsheet_audio_quick_player, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         dialog?.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         dialog?.window?.setGravity(Gravity.BOTTOM)
+
+        toolbar = view.findViewById<MaterialToolbar>(R.id.viewerToolbar).apply {
+            navigationIcon = AppCompatResources.getDrawable(requireContext(), R.drawable.ic_close)
+            setNavigationOnClickListener { dismiss() }
+            inflateMenu(R.menu.menu_viewer_item)
+            menu.findItem(R.id.action_rename)?.isVisible = audioId > 0
+            setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    R.id.action_rename -> {
+                        showRenameDialog()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
+                val sys = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+                v.updatePadding(top = sys.top)
+                insets
+            }
+        }
+
+        playPause = view.findViewById(R.id.playPause)
+        seek = view.findViewById(R.id.seekBar)
+        elapsed = view.findViewById(R.id.textElapsed)
+        duration = view.findViewById(R.id.textDuration)
+        title = view.findViewById(R.id.textTitle)
+
+        updateToolbarTitle(null)
+        refreshDisplayName()
 
         // callbacks lecteur
         SimplePlayer.setCallbacks(
@@ -157,10 +154,51 @@ class AudioQuickPlayerDialog : BottomSheetDialogFragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         SimplePlayer.setCallbacks(null, null, null, null, null, null)
-        playPause = null; seek = null; elapsed = null; duration = null; title = null
+        playPause = null; seek = null; elapsed = null; duration = null; title = null; toolbar = null
     }
 
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    private fun refreshDisplayName() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val fallback = getString(R.string.media_category_audio)
+            if (audioId <= 0) {
+                currentDisplayName = fallback
+                title?.text = fallback
+                updateToolbarTitle(null)
+                return@launch
+            }
+            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(audioId) }
+            val display = current?.takeIf { it.isNotBlank() } ?: fallback
+            currentDisplayName = display
+            title?.text = display
+            updateToolbarTitle(current)
+        }
+    }
+
+    private fun showRenameDialog() {
+        if (audioId <= 0) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(audioId) }
+            ChildNameDialog.show(
+                context = requireContext(),
+                initialValue = current,
+                onSave = { newName ->
+                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                        blocksRepository.setChildNameForBlock(audioId, newName)
+                    }.invokeOnCompletion { refreshDisplayName() }
+                },
+                onReset = {
+                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                        blocksRepository.setChildNameForBlock(audioId, null)
+                    }.invokeOnCompletion { refreshDisplayName() }
+                }
+            )
+        }
+    }
+
+    private fun updateToolbarTitle(name: String?) {
+        val fallback = currentDisplayName.ifBlank { getString(R.string.media_category_audio) }
+        toolbar?.title = name?.takeIf { it.isNotBlank() } ?: fallback
+    }
 
     private fun msToMinSec(ms: Int): String {
         val total = if (ms < 0) 0 else (ms / 1000)
