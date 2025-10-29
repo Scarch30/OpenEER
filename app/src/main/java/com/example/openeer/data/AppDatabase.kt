@@ -641,28 +641,41 @@ abstract class AppDatabase : RoomDatabase() {
 
                 db.execSQL(
                     """
-                        UPDATE blocks SET childOrdinal = (
-                            SELECT COUNT(*) FROM blocks b2
-                            WHERE b2.noteId = blocks.noteId AND b2.position <= blocks.position
+                        UPDATE blocks AS b SET childOrdinal = (
+                          SELECT COUNT(*) FROM blocks b2
+                          WHERE b2.noteId = b.noteId
+                            AND (b2.position < b.position OR (b2.position = b.position AND b2.id <= b.id))
                         )
                     """.trimIndent()
                 )
                 db.execSQL(
                     """
-                        UPDATE attachments SET childOrdinal = (
-                            SELECT COUNT(*) FROM attachments a2
-                            WHERE a2.noteId = attachments.noteId AND a2.createdAt <= attachments.createdAt
+                        UPDATE attachments AS a SET childOrdinal = (
+                          SELECT COUNT(*) FROM attachments a2
+                          WHERE a2.noteId = a.noteId
+                            AND (
+                              a2.createdAt < a.createdAt
+                              OR (a2.createdAt = a.createdAt AND a2.id <= a.id)
+                            )
                         )
                     """.trimIndent()
                 )
                 db.execSQL(
                     """
-                        UPDATE audio_clips SET childOrdinal = (
-                            SELECT COUNT(*) FROM audio_clips ac2
-                            WHERE ac2.noteId = audio_clips.noteId AND ac2.createdAt <= audio_clips.createdAt
+                        UPDATE audio_clips AS ac SET childOrdinal = (
+                          SELECT COUNT(*) FROM audio_clips ac2
+                          WHERE ac2.noteId = ac.noteId
+                            AND (
+                              ac2.createdAt < ac.createdAt
+                              OR (ac2.createdAt = ac.createdAt AND ac2.id <= ac.id)
+                            )
                         )
                     """.trimIndent()
                 )
+
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_blocks_note_childOrdinal ON blocks(noteId, childOrdinal)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_attachments_note_childOrdinal ON attachments(noteId, childOrdinal)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_audio_note_childOrdinal ON audio_clips(noteId, childOrdinal)")
             }
         }
 

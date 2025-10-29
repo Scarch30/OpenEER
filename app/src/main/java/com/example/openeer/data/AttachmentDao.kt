@@ -8,21 +8,24 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AttachmentDao {
-    @Insert
-    suspend fun insertRaw(attachment: Attachment): Long
-
     @Query("SELECT MAX(childOrdinal) FROM attachments WHERE noteId = :noteId")
     suspend fun getMaxChildOrdinal(noteId: Long): Int?
 
+    @Insert
+    suspend fun insertInternal(e: Attachment): Long
+
     @Transaction
-    suspend fun insert(attachment: Attachment): Long {
-        val ordinal = attachment.childOrdinal ?: ((getMaxChildOrdinal(attachment.noteId) ?: 0) + 1)
-        return insertRaw(attachment.copy(childOrdinal = ordinal))
+    suspend fun insert(e: Attachment): Long {
+        val next = e.childOrdinal ?: ((getMaxChildOrdinal(e.noteId) ?: 0) + 1)
+        return insertInternal(e.copy(childOrdinal = next))
     }
 
     @Query(
-        "SELECT * FROM attachments WHERE noteId = :noteId " +
-            "ORDER BY childOrdinal IS NULL, childOrdinal ASC, createdAt ASC"
+        """
+        SELECT * FROM attachments
+        WHERE noteId = :noteId
+        ORDER BY childOrdinal IS NULL, childOrdinal ASC, createdAt ASC
+        """
     )
     fun byNoteId(noteId: Long): Flow<List<Attachment>>
 
