@@ -21,6 +21,7 @@ import com.example.openeer.ui.sheets.ChildPostitSheet
 import com.example.openeer.ui.sheets.LocationPreviewSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import com.example.openeer.ui.viewer.VideoPlayerActivity
+import com.example.openeer.ui.viewer.FileViewerActivity
 import com.google.gson.Gson
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -200,6 +201,14 @@ class MediaActions(
                 ChildPostitSheet.open(item.noteId, item.blockId)
                     .show(activity.supportFragmentManager, "child_text_edit_${item.blockId}")
             }
+
+            is MediaStripItem.File -> {
+                val intent = Intent(activity, FileViewerActivity::class.java).apply {
+                    putExtra("blockId", item.blockId)
+                    putExtra("path", item.mediaUri)
+                }
+                activity.startActivity(intent)
+            }
         }
     }
 
@@ -334,6 +343,7 @@ class MediaActions(
             is MediaStripItem.Image -> shareFile(item.mediaUri, item.mimeType ?: inferImageOrVideoMime(item))
             is MediaStripItem.Audio -> shareFile(item.mediaUri, item.mimeType ?: "audio/*")
             is MediaStripItem.Text  -> shareText(item.content)
+            is MediaStripItem.File  -> shareFile(item.mediaUri, item.mimeType ?: "application/octet-stream")
         }
     }
 
@@ -341,7 +351,7 @@ class MediaActions(
         return if (item.type == BlockType.VIDEO) "video/*" else "image/*"
     }
 
-    private fun shareFile(rawPathOrUri: String, mime: String) {
+    private fun shareFile(rawPathOrUri: String?, mime: String) {
         val shareUri = resolveShareUri(rawPathOrUri) ?: run {
             Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
             return
@@ -419,7 +429,8 @@ class MediaActions(
 
     // --- Fichiers util ---
 
-    private fun deleteMediaFile(rawUri: String) {
+    private fun deleteMediaFile(rawUri: String?) {
+        if (rawUri.isNullOrBlank()) return
         runCatching {
             val uri = Uri.parse(rawUri)
             when {
@@ -431,7 +442,8 @@ class MediaActions(
         }
     }
 
-    private fun resolveShareUri(raw: String): Uri? {
+    private fun resolveShareUri(raw: String?): Uri? {
+        if (raw.isNullOrBlank()) return null
         val parsed = Uri.parse(raw)
         return when {
             parsed.scheme.isNullOrEmpty() -> {

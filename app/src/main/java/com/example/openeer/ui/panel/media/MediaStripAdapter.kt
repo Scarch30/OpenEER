@@ -20,6 +20,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.example.openeer.R
 import com.example.openeer.data.block.BlockType
 import com.google.android.material.card.MaterialCardView
+import android.text.format.Formatter
 import java.util.concurrent.TimeUnit
 
 /**
@@ -43,6 +44,7 @@ class MediaStripAdapter(
         private const val TYPE_AUDIO = 1
         private const val TYPE_TEXT  = 2
         private const val TYPE_PILE  = 3
+        private const val TYPE_FILE  = 4
 
         private val DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
             override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
@@ -63,6 +65,7 @@ class MediaStripAdapter(
         is MediaStripItem.Image -> TYPE_IMAGE
         is MediaStripItem.Audio -> TYPE_AUDIO
         is MediaStripItem.Text -> TYPE_TEXT
+        is MediaStripItem.File -> TYPE_FILE
         is MediaStripItem.Pile -> TYPE_PILE
     }
 
@@ -70,6 +73,7 @@ class MediaStripAdapter(
         when (viewType) {
             TYPE_AUDIO -> createAudioHolder(parent)
             TYPE_TEXT  -> createTextHolder(parent)
+            TYPE_FILE  -> createFileHolder(parent)
             TYPE_PILE  -> createPileHolder(parent)
             else       -> createImageHolder(parent)
         }
@@ -80,6 +84,7 @@ class MediaStripAdapter(
             is ImageHolder -> holder.bind(item)
             is AudioHolder -> holder.bind(item)
             is TextHolder  -> holder.bind(item)
+            is FileHolder  -> holder.bind(item)
             is PileHolder  -> holder.bind(item as MediaStripItem.Pile)
         }
     }
@@ -171,6 +176,70 @@ class MediaStripAdapter(
         card.addView(container)
 
         return AudioHolder(card, duration, badge, label)
+    }
+
+    private fun createFileHolder(parent: ViewGroup): FileHolder {
+        val ctx = parent.context
+        val card = squareCard(ctx)
+        val container = FrameLayout(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val column = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            val padding = dp(ctx, 12)
+            setPadding(padding, padding, padding, padding)
+        }
+
+        val icon = ImageView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(ctx, 28), dp(ctx, 32))
+            setImageResource(R.drawable.ic_file_generic)
+            contentDescription = ctx.getString(R.string.media_missing_file)
+        }
+
+        val name = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(ctx, 6) }
+            textSize = 12f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+        }
+
+        val details = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            textSize = 10f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#AAFFFFFF"))
+        }
+
+        val badge = createBadge(ctx)
+        val label = createChildLabel(ctx)
+
+        column.addView(icon)
+        column.addView(name)
+        column.addView(details)
+        container.addView(column)
+        container.addView(badge)
+        container.addView(label)
+        card.addView(container)
+
+        return FileHolder(card, name, details, badge, label)
     }
 
     private fun createTextHolder(parent: ViewGroup): TextHolder {
@@ -406,6 +475,34 @@ class MediaStripAdapter(
         }
     }
 
+    inner class FileHolder(
+        val card: MaterialCardView,
+        private val name: TextView,
+        private val details: TextView,
+        private val badge: TextView,
+        private val label: TextView,
+    ) : RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem) {
+            val display = when (item) {
+                is MediaStripItem.File -> item
+                is MediaStripItem.Pile -> item.cover as? MediaStripItem.File
+                else -> null
+            } ?: return
+
+            val fallback = card.context.getString(R.string.file_viewer_title_fallback)
+            name.text = display.displayName.ifBlank { fallback }
+            details.text = buildFileDetails(card.context, display)
+            bindBadge(badge, item)
+            bindChildLabel(label, item)
+
+            card.setOnClickListener { onClick(item) }
+            card.setOnLongClickListener {
+                onLongPress(it, item)
+                true
+            }
+        }
+    }
+
     inner class TextHolder(
         val card: MaterialCardView,
         private val preview: TextView,
@@ -598,6 +695,24 @@ class MediaStripAdapter(
 
     private fun dp(ctx: Context, v: Int): Int =
         (v * ctx.resources.displayMetrics.density).toInt()
+
+    private fun buildFileDetails(ctx: Context, item: MediaStripItem.File): String {
+        val type = item.mimeType?.takeIf { it.isNotBlank() }
+        val size = item.sizeBytes?.let { formatFileSize(ctx, it) }
+        return when {
+            type != null && size != null -> ctx.getString(R.string.file_viewer_details_format, type, size)
+            type != null -> type
+            size != null -> size
+            else -> ctx.getString(R.string.file_viewer_unknown_type)
+        }
+    }
+
+    private fun formatFileSize(ctx: Context, bytes: Long): String =
+        try {
+            Formatter.formatShortFileSize(ctx, bytes)
+        } catch (_: Exception) {
+            ctx.getString(R.string.file_viewer_unknown_size)
+        }
 
     private fun formatDuration(durationMs: Long?): String {
         val d = durationMs ?: return "--:--"

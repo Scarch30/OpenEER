@@ -16,6 +16,7 @@ import com.example.openeer.ui.panel.media.MediaStripItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 
 class NotePanelMediaController(
     private val activity: AppCompatActivity,
@@ -60,7 +61,7 @@ class NotePanelMediaController(
             photos = blocks.count { it.type == BlockType.PHOTO || it.type == BlockType.VIDEO },
             audios = blocks.count { it.type == BlockType.AUDIO },
             textes = blocks.count { it.type == BlockType.TEXT },
-            files = blocks.count { it.type == BlockType.FILE },
+            files = blocks.count { it.type == BlockType.FILE || it.type == BlockType.SKETCH },
             locations = blocks.count { it.type == BlockType.LOCATION },
         )
         onPileCountsChanged?.invoke(counts)
@@ -79,6 +80,7 @@ class NotePanelMediaController(
 
         val photoItems = mutableListOf<MediaStripItem.Image>()
         val sketchItems = mutableListOf<MediaStripItem.Image>()
+        val fileItems = mutableListOf<MediaStripItem.File>()
         val audioItems = mutableListOf<MediaStripItem.Audio>()
         val textItems = mutableListOf<MediaStripItem.Text>()
         val mapBlocks = blocks.filter { it.type == BlockType.LOCATION || it.type == BlockType.ROUTE }
@@ -111,6 +113,20 @@ class NotePanelMediaController(
                             childName = block.childName,
                         )
                     }
+                }
+                BlockType.FILE -> {
+                    val displayName = block.childName?.takeIf { it.isNotBlank() }
+                        ?: inferFileName(block.mediaUri)
+                    val size = inferFileSize(block.mediaUri)
+                    fileItems += MediaStripItem.File(
+                        blockId = block.id,
+                        mediaUri = block.mediaUri,
+                        mimeType = block.mimeType,
+                        displayName = displayName,
+                        sizeBytes = size,
+                        childOrdinal = block.childOrdinal,
+                        childName = block.childName,
+                    )
                 }
                 BlockType.AUDIO -> {
                     block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
@@ -157,9 +173,9 @@ class NotePanelMediaController(
                 val countWithVideoTranscripts = sorted.size + transcriptsLinkedToVideo
                 add(MediaStripItem.Pile(MediaCategory.PHOTO, countWithVideoTranscripts, sorted.first()))
             }
-            if (sketchItems.isNotEmpty()) {
-                val sorted = sketchItems.sortedByDescending { it.blockId }
-                add(MediaStripItem.Pile(MediaCategory.SKETCH, sorted.size, sorted.first()))
+            val combinedSketch = (sketchItems + fileItems).sortedByDescending { it.blockId }
+            if (combinedSketch.isNotEmpty()) {
+                add(MediaStripItem.Pile(MediaCategory.SKETCH, combinedSketch.size, combinedSketch.first()))
             }
             if (audioItems.isNotEmpty()) {
                 val sorted = audioItems.sortedByDescending { it.blockId }
@@ -207,5 +223,16 @@ class NotePanelMediaController(
         pileUiState.value = pileUi
         mediaAdapter.submitList(piles)
         binding.mediaStrip.isGone = piles.isEmpty()
+    }
+
+    private fun inferFileName(uri: String?): String {
+        if (uri.isNullOrBlank()) return ""
+        val name = uri.substringAfterLast('/')
+        return name.ifBlank { "Fichier" }
+    }
+
+    private fun inferFileSize(uri: String?): Long? {
+        if (uri.isNullOrBlank()) return null
+        return runCatching { File(uri).takeIf { it.exists() }?.length() }.getOrNull()
     }
 }
