@@ -6,7 +6,11 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "attachments",
-    indices = [Index(value = ["noteId"])]
+    indices = [
+        Index(value = ["noteId"]),
+        // Aligner l'entité avec l'index créé en migration:
+        Index(value = ["noteId", "childOrdinal"], name = "idx_attachments_note_childOrdinal")
+    ]
 )
 data class Attachment(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,

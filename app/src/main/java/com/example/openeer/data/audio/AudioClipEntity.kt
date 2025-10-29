@@ -4,7 +4,11 @@ import androidx.room.*
 
 @Entity(
     tableName = "audio_clips",
-    indices = [Index("noteId")]
+    indices = [
+        Index("noteId"),
+        // Aligner avec l'index créé en migration:
+        Index(value = ["noteId", "childOrdinal"], name = "idx_audio_note_childOrdinal")
+    ]
 )
 data class AudioClipEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,

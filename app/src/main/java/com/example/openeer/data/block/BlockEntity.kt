@@ -16,7 +16,9 @@ import com.example.openeer.data.Note
     indices = [
         Index(value = ["noteId"]),
         Index(value = ["noteId", "position"], unique = true),
-        Index(value = ["groupId"])
+        Index(value = ["groupId"]),
+        // Aligner avec l'index créé en migration:
+        Index(value = ["noteId", "childOrdinal"], name = "idx_blocks_note_childOrdinal")
     ]
 )
 data class BlockEntity(
