@@ -208,8 +208,28 @@ class BlocksRepository(
         blockDao.getChildName(blockId)
     }
 
+    private fun defaultChildName(ordinal: Int?): String? {
+        val value = ordinal ?: return null
+        return if (value > 0) "#${value}" else null
+    }
+
     suspend fun setChildNameForBlock(blockId: Long, name: String?) = withContext(io) {
-        blockDao.updateChildName(blockId, name?.ifBlank { null })
+        val block = blockDao.getById(blockId) ?: return@withContext
+        val normalized = name?.trim()?.ifBlank { null }
+        if (block.type == BlockType.TEXT) {
+            val resolvedTitle = normalized ?: defaultChildName(block.childOrdinal)
+            val extra = resolvedTitle?.let { encodeTitle(it) }
+            val now = System.currentTimeMillis()
+            blockDao.update(
+                block.copy(
+                    childName = resolvedTitle,
+                    extra = extra,
+                    updatedAt = now,
+                )
+            )
+        } else {
+            blockDao.updateChildName(blockId, normalized)
+        }
     }
 
     /**
@@ -266,7 +286,9 @@ class BlocksRepository(
         title: String = "",
     ): Long {
         val now = System.currentTimeMillis()
-        val extra = encodeTitle(title)
+        val sanitizedTitle = title.trim()
+        val explicitTitle = sanitizedTitle.ifEmpty { null }
+        val extra = explicitTitle?.let { encodeTitle(it) }
         val block = BlockEntity(
             noteId = noteId,
             type = BlockType.TEXT,
@@ -274,10 +296,27 @@ class BlocksRepository(
             groupId = groupId,
             text = text,
             extra = extra,
+            childName = explicitTitle,
             createdAt = now,
             updatedAt = now
         )
-        return insert(noteId, block)
+        val blockId = insert(noteId, block)
+        if (explicitTitle == null) {
+            val inserted = blockDao.getById(blockId)
+            if (inserted != null) {
+                val autoTitle = defaultChildName(inserted.childOrdinal)
+                if (!autoTitle.isNullOrBlank()) {
+                    blockDao.update(
+                        inserted.copy(
+                            childName = autoTitle,
+                            extra = encodeTitle(autoTitle),
+                            updatedAt = System.currentTimeMillis(),
+                        )
+                    )
+                }
+            }
+        }
+        return blockId
     }
 
     data class ChecklistItemDraft(
@@ -1053,12 +1092,26 @@ class BlocksRepository(
         withContext(io) {
             val current = blockDao.getById(blockId) ?: return@withContext
             val now = System.currentTimeMillis()
-            val extra = if (title == null) {
-                current.extra
-            } else {
-                encodeTitle(title)
+            if (title == null) {
+                blockDao.update(current.copy(text = text, updatedAt = now))
+                return@withContext
             }
-            blockDao.update(current.copy(text = text, extra = extra, updatedAt = now))
+
+            val sanitizedTitle = title.trim()
+            val resolvedTitle = if (sanitizedTitle.isEmpty()) {
+                defaultChildName(current.childOrdinal)
+            } else {
+                sanitizedTitle
+            }
+            val extra = resolvedTitle?.let { encodeTitle(it) }
+            blockDao.update(
+                current.copy(
+                    text = text,
+                    extra = extra,
+                    childName = resolvedTitle,
+                    updatedAt = now,
+                )
+            )
         }
     }
 
