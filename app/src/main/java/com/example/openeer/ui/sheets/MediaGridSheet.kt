@@ -235,6 +235,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, label)
                             .putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
                             .putExtra(MapSnapshotViewerActivity.EXTRA_LON, lon)
+                            .putExtra(MapSnapshotViewerActivity.EXTRA_BLOCK_ID, img.blockId)
                             .apply {
                                 snapshotUriStr?.let {
                                     putExtra(MapSnapshotViewerActivity.EXTRA_SNAPSHOT_URI, it)

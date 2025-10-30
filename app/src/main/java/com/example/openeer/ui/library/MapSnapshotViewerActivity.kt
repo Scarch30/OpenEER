@@ -7,11 +7,19 @@ import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
+import com.example.openeer.Injection
+import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MapSnapshotViewerActivity : AppCompatActivity() {
+
+    private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK_ID, -1L) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,16 +41,48 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     // ⬇️ C'EST ICI qu’on “gonfle” (inflate) le menu
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_viewer_location, menu)
+        val renameItem = menu.findItem(R.id.action_rename)
+        val hasValidBlock = blockId > 0
+        renameItem?.isVisible = hasValidBlock
+        renameItem?.isEnabled = hasValidBlock
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
         android.R.id.home -> { finish(); true }
-        R.id.action_rename -> { /* TODO: dialog renommage */ true }
+        R.id.action_rename -> {
+            if (blockId > 0) {
+                showRenameDialog()
+            }
+            true
+        }
         R.id.action_open_in_maps -> { openInMaps(); true }
         R.id.action_share -> { sharePlace(); true }
         R.id.action_delete -> { /* TODO: suppression */ true }
         else -> super.onOptionsItemSelected(item)
+    }
+
+    private fun showRenameDialog() {
+        lifecycleScope.launch {
+            val repo = Injection.provideBlocksRepository(applicationContext)
+            val currentName = withContext(Dispatchers.IO) {
+                repo.getChildNameForBlock(blockId)
+            }
+            ChildNameDialog.show(
+                context = this@MapSnapshotViewerActivity,
+                initialValue = currentName,
+                onSave = { newName ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        repo.setChildNameForBlock(blockId, newName)
+                    }
+                },
+                onReset = {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        repo.setChildNameForBlock(blockId, null)
+                    }
+                }
+            )
+        }
     }
 
     private fun openInMaps() {
@@ -73,6 +113,7 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     }
 
     companion object {
+        const val EXTRA_BLOCK_ID = "block_id"
         const val EXTRA_SNAPSHOT_URI = "snapshot_uri"
         const val EXTRA_TITLE = "title"
         const val EXTRA_LAT = "lat"
