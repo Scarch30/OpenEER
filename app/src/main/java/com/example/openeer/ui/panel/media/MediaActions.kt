@@ -18,7 +18,6 @@ import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.sheets.ChildPostitSheet
-import com.example.openeer.ui.sheets.LocationPreviewSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import com.example.openeer.ui.viewer.VideoPlayerActivity
 import com.google.gson.Gson
@@ -26,6 +25,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.Locale
+import com.example.openeer.ui.library.MapSnapshotViewerActivity
+
 
 class MediaActions(
     private val activity: AppCompatActivity,
@@ -93,13 +94,12 @@ class MediaActions(
                                 return@launch
                             }
 
+                            // 1) Lat/Lon + label
                             val (lat, lon, label) = when (block.type) {
                                 BlockType.LOCATION -> {
                                     val lat = block.lat
                                     val lon = block.lon
-                                    if (lat == null || lon == null) {
-                                        null
-                                    } else {
+                                    if (lat == null || lon == null) null else {
                                         val lbl = block.placeName?.takeIf { it.isNotBlank() }
                                             ?: activity.getString(R.string.block_location_coordinates, lat, lon)
                                         Triple(lat, lon, lbl)
@@ -110,12 +110,10 @@ class MediaActions(
                                     val payload = block.routeJson?.let { json ->
                                         runCatching { routeGson.fromJson(json, RoutePayload::class.java) }.getOrNull()
                                     }
-                                    val firstPoint = payload?.firstPoint()
-                                    val lat = firstPoint?.lat ?: block.lat
-                                    val lon = firstPoint?.lon ?: block.lon
-                                    if (lat == null || lon == null) {
-                                        null
-                                    } else {
+                                    val first = payload?.firstPoint()
+                                    val lat = first?.lat ?: block.lat
+                                    val lon = first?.lon ?: block.lon
+                                    if (lat == null || lon == null) null else {
                                         val lbl = if (payload != null && payload.pointCount > 0) {
                                             activity.getString(R.string.block_route_points, payload.pointCount)
                                         } else {
@@ -135,17 +133,25 @@ class MediaActions(
                                 return@launch
                             }
 
-                            LocationPreviewSheet.show(
-                                fm = activity.supportFragmentManager,
-                                noteId = block.noteId,
-                                blockId = block.id,
-                                lat = lat,
-                                lon = lon,
-                                label = label,
-                                type = block.type
-                            )
+                            // 2) Snapshot (si dispo). La cover d’une tuile passe souvent par item.mediaUri.
+                            val snapshotUriStr: String? = item.mediaUri.takeIf { it.isNotBlank() }
+                            // NB: si tu préfères prendre le fichier depuis ton storage interne, fais-le ici.
+
+                            // 3) Lance le viewer plein écran avec toolbar
+                            val intent = Intent(activity, MapSnapshotViewerActivity::class.java)
+                                .putExtra(MapSnapshotViewerActivity.EXTRA_TITLE, label)
+                                .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, label)
+                                .putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
+                                .putExtra(MapSnapshotViewerActivity.EXTRA_LON, lon)
+                                .apply {
+                                    snapshotUriStr?.let { putExtra(MapSnapshotViewerActivity.EXTRA_SNAPSHOT_URI, it) }
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+
+                            activity.startActivity(intent)
                         }
                     }
+
 
                     else -> {
                         val intent = Intent(activity, PhotoViewerActivity::class.java).apply {

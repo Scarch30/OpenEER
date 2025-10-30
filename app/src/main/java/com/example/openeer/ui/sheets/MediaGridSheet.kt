@@ -52,6 +52,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import com.example.openeer.ui.library.MapSnapshotViewerActivity
+
+
 
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
@@ -178,9 +181,75 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             onClick = { item ->
                 // 🔎 Comportement spécial pour la pile Carte
                 if (category == MediaCategory.LOCATION) {
-                    MapSnapshotSheet.show(childFragmentManager, item.blockId)
+                    val img = item as? MediaStripItem.Image ?: return@MediaGridAdapter
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(img.blockId) }
+                        if (block == null) {
+                            Toast.makeText(requireContext(), getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+
+                        // Résoudre lat/lon/label pour LOCATION et ROUTE
+                        val triple = when (block.type) {
+                            BlockType.LOCATION -> {
+                                val la = block.lat; val lo = block.lon
+                                if (la == null || lo == null) null else {
+                                    val lbl = block.placeName?.takeIf { it.isNotBlank() }
+                                        ?: getString(R.string.block_location_coordinates, la, lo)
+                                    Triple(la, lo, lbl)
+                                }
+                            }
+                            BlockType.ROUTE -> {
+                                val payload = block.routeJson?.let {
+                                    runCatching { routeGson.fromJson(it, RoutePayload::class.java) }.getOrNull()
+                                }
+                                val first = payload?.firstPoint()
+                                val la = first?.lat ?: block.lat
+                                val lo = first?.lon ?: block.lon
+                                if (la == null || lo == null) null else {
+                                    val lbl = if (payload != null && payload.pointCount > 0) {
+                                        getString(R.string.block_route_points, payload.pointCount)
+                                    } else {
+                                        getString(R.string.block_location_coordinates, la, lo)
+                                    }
+                                    Triple(la, lo, lbl)
+                                }
+                            }
+                            else -> null
+                        } ?: run {
+                            Toast.makeText(requireContext(), getString(R.string.map_location_unavailable), Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+
+                        val (lat, lon, label) = triple
+
+                        // Snapshot de la tuile (file://…) si présent
+                        val snapshotUriStr = img.mediaUri
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { p -> java.io.File(p) }
+                            ?.takeIf { it.exists() }
+                            ?.let { android.net.Uri.fromFile(it).toString() }
+
+                        val intent = Intent(requireContext(), MapSnapshotViewerActivity::class.java)
+                            .putExtra(MapSnapshotViewerActivity.EXTRA_TITLE, label)
+                            .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, label)
+                            .putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
+                            .putExtra(MapSnapshotViewerActivity.EXTRA_LON, lon)
+                            .apply {
+                                snapshotUriStr?.let {
+                                    putExtra(MapSnapshotViewerActivity.EXTRA_SNAPSHOT_URI, it)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                            }
+
+                        // 🔑 Fermer la sheet puis lancer via l’Activity hôte
+                        dismissAllowingStateLoss()
+                        requireActivity().startActivity(intent)
+                    }
                     return@MediaGridAdapter
                 }
+
+
 
 
                 when (item) {
@@ -713,12 +782,76 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 leftStrip.isVisible = false
                 bindChildLabel(label, item)
 
-                card.setOnClickListener { onClick(item) }
+                card.setOnClickListener {
+                    if (item.type == BlockType.LOCATION || item.type == BlockType.ROUTE) {
+                        val act = card.context as? AppCompatActivity ?: return@setOnClickListener
+                        act.lifecycleScope.launch {
+                            val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(item.blockId) }
+                            if (block == null) {
+                                Toast.makeText(act, act.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                                return@launch
+                            }
+
+                            val routeGson = Gson()
+                            val triple = when (block.type) {
+                                BlockType.LOCATION -> {
+                                    val la = block.lat; val lo = block.lon
+                                    if (la == null || lo == null) null else {
+                                        val lbl = block.placeName?.takeIf { it.isNotBlank() }
+                                            ?: act.getString(R.string.block_location_coordinates, la, lo)
+                                        Triple(la, lo, lbl)
+                                    }
+                                }
+                                BlockType.ROUTE -> {
+                                    val payload = block.routeJson?.let { json ->
+                                        runCatching { routeGson.fromJson(json, RoutePayload::class.java) }.getOrNull()
+                                    }
+                                    val first = payload?.firstPoint()
+                                    val la = first?.lat ?: block.lat
+                                    val lo = first?.lon ?: block.lon
+                                    if (la == null || lo == null) null else {
+                                        val lbl = if (payload != null && payload.pointCount > 0) {
+                                            act.getString(R.string.block_route_points, payload.pointCount)
+                                        } else {
+                                            act.getString(R.string.block_location_coordinates, la, lo)
+                                        }
+                                        Triple(la, lo, lbl)
+                                    }
+                                }
+                                else -> null
+                            } ?: run {
+                                Toast.makeText(act, act.getString(R.string.map_location_unavailable), Toast.LENGTH_SHORT).show()
+                                return@launch
+                            }
+
+                            val (lat, lon, label) = triple
+                            val snapshotUriStr = item.mediaUri.takeIf { it.isNotBlank() }
+
+                            val intent = Intent(act, MapSnapshotViewerActivity::class.java)
+                                .putExtra(MapSnapshotViewerActivity.EXTRA_TITLE, label)
+                                .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, label)
+                                .putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
+                                .putExtra(MapSnapshotViewerActivity.EXTRA_LON, lon)
+                                .apply {
+                                    snapshotUriStr?.let {
+                                        putExtra(MapSnapshotViewerActivity.EXTRA_SNAPSHOT_URI, it)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                }
+
+                            act.startActivity(intent)
+                        }
+                    } else {
+                        onClick(item)
+                    }
+                }
+
                 card.setOnLongClickListener {
                     onLongClick(it, item)
                     true
                 }
             }
+
         }
 
         inner class AudioHolder(
