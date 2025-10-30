@@ -207,6 +207,7 @@ class BlocksAdapter(
                         .putExtra(MapSnapshotViewerActivity.EXTRA_TITLE, displayLabel)
                         .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, displayLabel)
                         .putExtra(MapSnapshotViewerActivity.EXTRA_SNAPSHOT_URI, uri.toString())
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_BLOCK_ID, block.id)
                         .apply {
                             if (lat != null && lon != null) {
                                 putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
@@ -322,6 +323,7 @@ class BlocksAdapter(
             .putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
             .putExtra(MapSnapshotViewerActivity.EXTRA_LON, lon)
             .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, label)
+            .putExtra(MapSnapshotViewerActivity.EXTRA_BLOCK_ID, block.id)
 // Si tu stockes un snapshot local pour ce block, passe aussi l’URI :
         /*
         val snapshotUri = MapPreviewStorage.fileFor(context, block.id, block.type).takeIf { it.exists() }?.toURI()
