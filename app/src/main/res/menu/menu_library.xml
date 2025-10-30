@@ -5,20 +5,20 @@
     <item
         android:id="@+id/action_list"
         android:title="Liste"
-        app:showAsAction="always"
-        android:icon="@android:drawable/ic_menu_sort_by_size" />
+        android:icon="@android:drawable/ic_menu_sort_by_size"
+        app:showAsAction="always" />
 
     <item
         android:id="@+id/action_calendar"
         android:title="Calendrier"
-        app:showAsAction="always"
-        android:icon="@android:drawable/ic_menu_month" />
+        android:icon="@android:drawable/ic_menu_month"
+        app:showAsAction="always" />
 
     <item
         android:id="@+id/action_map"
         android:title="@string/map_title"
-        android:showAsAction="always"
-        android:icon="@android:drawable/ic_dialog_map" />
+        android:icon="@android:drawable/ic_dialog_map"
+        app:showAsAction="always" />
 
     <item
         android:id="@+id/action_merge_history"
