@@ -23,12 +23,14 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapPreviewStorage
-import com.example.openeer.ui.sheets.LocationPreviewSheet
 import com.example.openeer.ui.sheets.MapSnapshotSheet
 import com.example.openeer.ui.map.MapText   // ⬅️ pour détecter le fallback coordonnées
 import com.google.android.material.chip.Chip
 import com.google.gson.Gson
 import java.util.Locale
+import com.example.openeer.ui.library.MapSnapshotViewerActivity
+
+
 
 class BlocksAdapter(
     private val onTextCommit: (Long, String) -> Unit,
@@ -195,8 +197,27 @@ class BlocksAdapter(
 
             preview.setOnClickListener(null)
             if (hasCoordinates && preview.visibility == View.VISIBLE) {
-                preview.setOnClickListener { openPreviewSheet(context, block, displayLabel) }
+                preview.setOnClickListener {
+                    val file = MapPreviewStorage.fileFor(context, block.id, block.type)
+                    val uri = Uri.fromFile(file)
+
+                    val (lat, lon) = block.lat to block.lon
+
+                    val intent = Intent(context, MapSnapshotViewerActivity::class.java)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_TITLE, displayLabel)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, displayLabel)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_SNAPSHOT_URI, uri.toString())
+                        .apply {
+                            if (lat != null && lon != null) {
+                                putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
+                                putExtra(MapSnapshotViewerActivity.EXTRA_LON, lon)
+                            }
+                        }
+
+                    context.startActivity(intent)
+                }
             }
+
         }
     }
 
@@ -296,15 +317,18 @@ class BlocksAdapter(
             else -> null to null
         }
         if (lat == null || lon == null) return
-        LocationPreviewSheet.show(
-            fm = act.supportFragmentManager,
-            noteId = block.noteId,
-            blockId = block.id,
-            lat = lat,
-            lon = lon,
-            label = label,
-            type = block.type
-        )
+        val intent = Intent(context, MapSnapshotViewerActivity::class.java)
+            .putExtra(MapSnapshotViewerActivity.EXTRA_TITLE, label)
+            .putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
+            .putExtra(MapSnapshotViewerActivity.EXTRA_LON, lon)
+            .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, label)
+// Si tu stockes un snapshot local pour ce block, passe aussi l’URI :
+        /*
+        val snapshotUri = MapPreviewStorage.fileFor(context, block.id, block.type).takeIf { it.exists() }?.toURI()
+        snapshotUri?.let { intent.putExtra(MapSnapshotViewerActivity.EXTRA_SNAPSHOT_URI, it.toString()) }
+        */
+
+        context.startActivity(intent)
     }
 
     private fun showBlockMenu(view: View, block: BlockEntity) {

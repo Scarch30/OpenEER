@@ -442,4 +442,9 @@
     <string name="voice_adaptive_feedback_pending">Action en attente d’affinage…</string>
     <string name="voice_adaptive_feedback_refine">Analyse en cours…</string>
 
+    <string name="action_rename">Renommer</string>
+    <string name="open_in_google_maps">Ouvrir dans Google Maps</string>
+    <string name="action_share">Partager</string>
+    <string name="action_delete">Supprimer</string>
+
 </resources>
