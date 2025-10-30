@@ -153,8 +153,9 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
     private fun handleSave(noteId: Long) {
         val blockId = existingBlockId
-        val titleContent = currentTitle.trim()
-        val bodyContent = currentBody.trim()
+        val editorContent = currentContent()
+        val titleContent = editorContent.title
+        val bodyContent = editorContent.body
         val checklistDrafts = if (isListMode) buildChecklistDraft() else emptyList()
 
         validateButton?.isEnabled = false
@@ -175,6 +176,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
                         }
                     } else {
                         if (isListMode) {
+                            blocksRepo.updateText(blockId, bodyContent, titleContent)
                             blocksRepo.upsertChecklistItems(blockId, checklistDrafts)
                             blockId
                         } else {
@@ -737,16 +739,33 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             onSave = { newName ->
                 uiScope.launch {
                     withContext(Dispatchers.IO) { blocksRepo.setChildNameForBlock(blockId, newName) }
-                    currentChildName = newName?.ifBlank { null }
+                    refreshTitleAndName(blockId)
                 }
             },
             onReset = {
                 uiScope.launch {
                     withContext(Dispatchers.IO) { blocksRepo.setChildNameForBlock(blockId, null) }
-                    currentChildName = null
+                    refreshTitleAndName(blockId)
                 }
             },
         )
+    }
+
+    private suspend fun refreshTitleAndName(blockId: Long) {
+        val snapshot = withContext(Dispatchers.IO) {
+            val block = blocksRepo.getBlock(blockId) ?: return@withContext null
+            val content = blocksRepo.extractTextContent(block)
+            Triple(block.childName, content.title, content.body)
+        } ?: return
+        currentChildName = snapshot.first
+        currentTitle = snapshot.second
+        currentBody = snapshot.third
+        titleEditor?.setText(currentTitle)
+        titleEditor?.setSelection(currentTitle.length)
+        inputBody?.setText(currentBody)
+        inputBody?.setSelection(currentBody.length)
+        updateValidateButtonState()
+        updateMenuState()
     }
 
     private fun handleConvertToList(
