@@ -6,20 +6,10 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
 
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/viewerToolbar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/viewer_toolbar_scrim"
-        android:minHeight="?attr/actionBarSize"
-        android:theme="@style/ThemeOverlay.MaterialComponents.Dark.ActionBar"
-        app:titleTextColor="@android:color/white" />
-
     <ImageView
         android:id="@+id/mapSnapshotImage"
         android:layout_width="match_parent"
         android:layout_height="200dp"
-        android:layout_marginTop="16dp"
         android:scaleType="centerCrop"
         android:adjustViewBounds="true"
         android:background="@drawable/shape_rounded_bg"

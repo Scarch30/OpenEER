@@ -7,11 +7,8 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.content.res.AppCompatResources
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.os.bundleOf
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.updatePadding
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
@@ -25,7 +22,6 @@ import com.example.openeer.ui.library.MapPreviewStorage
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.textview.MaterialTextView
@@ -86,8 +82,6 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
 
     // Accès direct au DAO (simple et fiable)
     private val noteDao by lazy { AppDatabase.get(requireContext().applicationContext).noteDao() }
-    private val blocksRepository by lazy { Injection.provideBlocksRepository(requireContext()) }
-    private var toolbar: MaterialToolbar? = null
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         return BottomSheetDialog(requireContext(), theme).also { dialog ->
@@ -115,31 +109,43 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
 
         val image: ShapeableImageView = root.findViewById(R.id.imagePreview)
         val addressText: MaterialTextView = root.findViewById(R.id.addressText)
+        val overflowButton: View = root.findViewById(R.id.overflowButton)
         val openMaps: MaterialButton = root.findViewById(R.id.btnOpenInMaps)
         val openMapLibre: MaterialButton = root.findViewById(R.id.btnOpenMapLibre)
 
-        toolbar = root.findViewById<MaterialToolbar>(R.id.viewerToolbar).apply {
-            navigationIcon = AppCompatResources.getDrawable(requireContext(), R.drawable.ic_close)
-            setNavigationOnClickListener { dismiss() }
-            inflateMenu(R.menu.menu_viewer_item)
-            menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
-            setOnMenuItemClickListener { item ->
-                when (item.itemId) {
+        overflowButton.visibility = if (blockId > 0) View.VISIBLE else View.GONE
+        overflowButton.setOnClickListener { anchor ->
+            if (blockId <= 0) return@setOnClickListener
+            val popup = PopupMenu(requireContext(), anchor)
+            popup.menuInflater.inflate(R.menu.menu_viewer_item, popup.menu)
+            popup.setOnMenuItemClickListener { mi ->
+                when (mi.itemId) {
                     R.id.action_rename -> {
-                        showRenameDialog()
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            val repo = Injection.provideBlocksRepository(requireContext())
+                            val current = withContext(Dispatchers.IO) { repo.getChildNameForBlock(blockId) }
+                            ChildNameDialog.show(
+                                context = requireContext(),
+                                initialValue = current,
+                                onSave = { newName ->
+                                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                                        repo.setChildNameForBlock(blockId, newName)
+                                    }
+                                },
+                                onReset = {
+                                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                                        repo.setChildNameForBlock(blockId, null)
+                                    }
+                                }
+                            )
+                        }
                         true
                     }
                     else -> false
                 }
             }
-            ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
-                val sys = insets.getInsets(WindowInsetsCompat.Type.statusBars())
-                view.updatePadding(top = sys.top)
-                insets
-            }
+            popup.show()
         }
-        updateToolbarTitle(null)
-        refreshToolbarTitle()
 
         // 1) Charger la capture si elle existe
         val file = MapPreviewStorage.fileFor(requireContext(), blockId, type)
@@ -214,48 +220,6 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
         }
 
         return root
-    }
-
-    private fun showRenameDialog() {
-        if (blockId <= 0) return
-        viewLifecycleOwner.lifecycleScope.launch {
-            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(blockId) }
-            ChildNameDialog.show(
-                context = requireContext(),
-                initialValue = current,
-                onSave = { newName ->
-                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                        blocksRepository.setChildNameForBlock(blockId, newName)
-                    }.invokeOnCompletion { refreshToolbarTitle() }
-                },
-                onReset = {
-                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                        blocksRepository.setChildNameForBlock(blockId, null)
-                    }.invokeOnCompletion { refreshToolbarTitle() }
-                }
-            )
-        }
-    }
-
-    private fun refreshToolbarTitle() {
-        if (blockId <= 0) {
-            updateToolbarTitle(null)
-            return
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(blockId) }
-            updateToolbarTitle(current)
-        }
-    }
-
-    private fun updateToolbarTitle(name: String?) {
-        val fallback = initialLabel.takeIf { it.isNotBlank() } ?: getString(R.string.pile_label_locations)
-        toolbar?.title = name?.takeIf { it.isNotBlank() } ?: fallback
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        toolbar = null
     }
 
     /** Détection de fallback : vide, "Position actuelle", "geo:…", ou "lat, lon". */
