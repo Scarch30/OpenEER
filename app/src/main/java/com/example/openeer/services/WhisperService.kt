@@ -2,8 +2,9 @@ package com.example.openeer.services
 
 import android.content.Context
 import android.util.Log
-import com.example.openeer.media.decodeWaveFile
 import com.example.openeer.media.AudioDenoiser
+import com.example.openeer.media.decodeWaveFile
+import com.example.openeer.text.FrNumberITN
 import com.whispercpp.java.whisper.WhisperContext
 import com.whispercpp.java.whisper.WhisperSegment
 import kotlinx.coroutines.Dispatchers
@@ -79,7 +80,7 @@ object WhisperService {
             val start = System.currentTimeMillis()
             val text = c.transcribeData(floats)
             Log.d(LOG_TAG, "Whisper done in ${System.currentTimeMillis() - start} ms")
-            text
+            FrNumberITN.normalize(text)
         } catch (e: ExecutionException) {
             throw (e.cause ?: e)
         }
@@ -97,7 +98,8 @@ object WhisperService {
         Log.d(LOG_TAG, "🔊 Denoiser applied (transcribeDataDirect) in ${dt}ms | RMS before=$rmsBefore RMS after=$rmsAfter")
 
         try {
-            c.transcribeData(floats)
+            val text = c.transcribeData(floats)
+            FrNumberITN.normalize(text)
         } catch (e: ExecutionException) {
             throw (e.cause ?: e)
         }
@@ -168,7 +170,8 @@ object WhisperService {
             }
             if (text.isNotBlank()) sb.append(' ').append(text.trim())
         }
-        sb.toString().trim()
+        val raw = sb.toString().trim()
+        FrNumberITN.normalize(raw)
     }
 
     // =========================================================
