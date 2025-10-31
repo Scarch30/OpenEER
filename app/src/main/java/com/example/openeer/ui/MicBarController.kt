@@ -28,6 +28,7 @@ import com.example.openeer.voice.VoiceComponents
 import com.example.openeer.voice.VoiceEarlyDecision
 import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
+import com.example.openeer.text.FrNumberITN
 import kotlinx.coroutines.*
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -242,7 +243,9 @@ class MicBarController(
                 }
                 val segmentDurationMs = segmentStartRealtime?.let { SystemClock.elapsedRealtime() - it }
                 val finalResult = withContext(Dispatchers.IO) { live?.stopDetailed() } ?: FinalResult.Empty
-                val initialVoskText = finalResult.text.trim()
+                val rawVoskText = finalResult.text.trim()
+                val normalizedVosk = FrNumberITN.normalize(rawVoskText)
+                val initialVoskText = normalizedVosk.ifBlank { rawVoskText }
                 live = null
 
                 val openIdNow = getOpenNoteId()

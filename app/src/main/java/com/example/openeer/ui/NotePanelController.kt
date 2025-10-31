@@ -407,6 +407,14 @@ class NotePanelController(
     }
 
     fun onAppendLive(displayBody: String) {
+        if (displayBody == TRANSCRIPTION_PLACEHOLDER) {
+            activity.lifecycleScope.launch(Dispatchers.Main) {
+                binding.bodyEditor.setText(displayBody)
+                binding.bodyEditor.setSelection(displayBody.length)
+            }
+            return
+        }
+
         val nid = openNoteId ?: return
         activity.lifecycleScope.launch(Dispatchers.IO) {
             blocksRepo.updateNoteBody(nid, displayBody)
@@ -527,6 +535,13 @@ class NotePanelController(
         }
 
         // 2) Sinon, note PLAIN → on peut resynchroniser l'éditeur
+        val sanitizedBody = stripTranscriptionPlaceholder(note.body)
+        if (sanitizedBody != note.body) {
+            activity.lifecycleScope.launch(Dispatchers.IO) {
+                blocksRepo.updateNoteBody(note.id, sanitizedBody)
+            }
+        }
+
         val editorText = binding.bodyEditor.text
         val keepCurrentStyled =
             (editorText is Spanned) &&
@@ -538,12 +553,12 @@ class NotePanelController(
             suppressNextBodyResync = false
         } else if (keepCurrentStyled) {
             val currentPlain = editorText?.toString()
-            if (currentPlain != note.body) {
+            if (currentPlain != sanitizedBody) {
                 Log.w(TAG, "Temporary body styling detected for note=${note.id}; forcing resync with canonical body")
-                binding.bodyEditor.setText(note.body)
+                binding.bodyEditor.setText(sanitizedBody)
             }
         } else {
-            binding.bodyEditor.setText(note.body)
+            binding.bodyEditor.setText(sanitizedBody)
         }
 
         // Assure la vue: éditeur visible, liste masquée
