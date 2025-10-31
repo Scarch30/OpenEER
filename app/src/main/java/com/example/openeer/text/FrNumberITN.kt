@@ -2,7 +2,8 @@ package com.example.openeer.text
 
 import android.os.Build
 import android.text.SpannableStringBuilder
-import android.icu.text.RuleBasedNumberFormat
+import java.lang.Integer
+import java.lang.reflect.Method
 import java.text.ParsePosition
 import java.util.Locale
 import java.util.regex.Pattern
@@ -33,7 +34,7 @@ object FrNumberITN {
 
     fun normalize(text: String): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return text
-        val rbnf = RuleBasedNumberFormat(Locale.FRENCH, RuleBasedNumberFormat.SPELLOUT)
+        val rbnf = RuleBasedNumberFormatCompat.create(Locale.FRENCH) ?: return text
         val sb = SpannableStringBuilder(text)
         var m = NUMBER_WORDS.matcher(sb)
         var offset = 0
@@ -73,5 +74,34 @@ object FrNumberITN {
         val start = i
         while (i < s.length && !s[i].isWhitespace()) i++
         return s.subSequence(start, i).toString()
+    }
+    private object RuleBasedNumberFormatCompat {
+        private const val ANDROID_CLASS = "android.icu.text.RuleBasedNumberFormat"
+        private const val ICU4J_CLASS = "com.ibm.icu.text.RuleBasedNumberFormat"
+
+        fun create(locale: Locale): Instance? {
+            return createInstance(ANDROID_CLASS, locale)
+                ?: createInstance(ICU4J_CLASS, locale)
+        }
+
+        private fun createInstance(className: String, locale: Locale): Instance? {
+            return try {
+                val clazz = Class.forName(className)
+                val spellOut = clazz.getField("SPELLOUT").get(null) as? Int ?: return null
+                val intClass = Int::class.javaPrimitiveType ?: Integer.TYPE
+                val constructor = clazz.getConstructor(Locale::class.java, intClass)
+                val instance = constructor.newInstance(locale, spellOut)
+                val parseMethod = clazz.getMethod("parse", String::class.java, ParsePosition::class.java)
+                Instance(instance, parseMethod)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+
+        class Instance(private val delegate: Any, private val parse: Method) {
+            fun parse(text: String, position: ParsePosition): Number? {
+                return parse.invoke(delegate, text, position) as? Number
+            }
+        }
     }
 }
