@@ -15,7 +15,6 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.PhotoViewerActivity
-import com.example.openeer.ui.SimplePlayer
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.sheets.ChildPostitSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
@@ -26,6 +25,7 @@ import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.Locale
 import com.example.openeer.ui.library.MapSnapshotViewerActivity
+import com.example.openeer.ui.viewer.AudioViewerActivity
 
 
 class MediaActions(
@@ -165,42 +165,13 @@ class MediaActions(
             }
 
             is MediaStripItem.Audio -> {
-                uiScope.launch {
-                    val triple = withContext(Dispatchers.IO) {
-                        val audioBlock = blocksRepo.getBlock(item.blockId)
-                        val noteId = audioBlock?.noteId
-                        val linkedTextId = audioBlock?.id?.let { blocksRepo.findTextForAudio(it) }
-                        Triple(noteId, linkedTextId, audioBlock?.mediaUri)
-                    }
-                    val noteId = triple.first
-                    val linkedTextId = triple.second
-
-                    if (noteId != null && linkedTextId != null) {
-                        ChildPostitSheet.open(noteId, linkedTextId)
-                            .show(activity.supportFragmentManager, "child_text_edit_$linkedTextId")
-                        return@launch
-                    }
-
-                    // Fallback : lecture directe
-                    val uriStr: String? = item.mediaUri.takeIf { it.isNotBlank() }
-                    if (uriStr == null) {
-                        Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
-                        return@launch
-                    }
-                    SimplePlayer.play(
-                        ctx = activity,
-                        path = uriStr,
-                        onStart = { /* no-op */ },
-                        onStop  = { /* no-op */ },
-                        onError = { e ->
-                            Toast.makeText(
-                                activity,
-                                "Lecture impossible : ${e?.message ?: "erreur inconnue"}",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    )
+                val uriStr: String? = item.mediaUri.takeIf { it.isNotBlank() }
+                if (uriStr == null) {
+                    Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                    return
                 }
+                val intent = AudioViewerActivity.newIntent(activity, uriStr, item.blockId)
+                activity.startActivity(intent)
             }
 
             is MediaStripItem.Text -> {

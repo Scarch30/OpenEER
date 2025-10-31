@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import com.example.openeer.ui.library.MapSnapshotViewerActivity
+import com.example.openeer.ui.viewer.AudioViewerActivity
 
 
 
@@ -256,12 +257,11 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 when (item) {
                     is MediaStripItem.Audio -> {
                         val uriStr = item.mediaUri
-                        if (!uriStr.isNullOrBlank()) {
-                            AudioQuickPlayerDialog.show(
-                                fm = childFragmentManager,
-                                id = item.blockId,
-                                src = uriStr
-                            )
+                        if (uriStr.isNullOrBlank()) {
+                            Toast.makeText(requireContext(), R.string.media_missing_file, Toast.LENGTH_SHORT).show()
+                        } else {
+                            val intent = AudioViewerActivity.newIntent(requireContext(), uriStr, item.blockId)
+                            startActivity(intent)
                         }
                     }
                     is MediaStripItem.Image -> {
