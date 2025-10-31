@@ -163,6 +163,9 @@
     <string name="media_dialog_rename_hint">Nom affiché dans la note</string>
     <string name="media_dialog_rename_save">Enregistrer</string>
     <string name="media_dialog_rename_reset">Réinitialiser</string>
+    <string name="audio_viewer_default_title">Audio</string>
+    <string name="audio_viewer_missing_file">Audio introuvable</string>
+    <string name="audio_viewer_artwork_cd">Illustration audio</string>
 
     <string name="media_category_photo">Photos</string>
     <string name="media_category_sketch">Croquis</string>

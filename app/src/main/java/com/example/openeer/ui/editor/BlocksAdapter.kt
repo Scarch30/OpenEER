@@ -29,6 +29,7 @@ import com.google.android.material.chip.Chip
 import com.google.gson.Gson
 import java.util.Locale
 import com.example.openeer.ui.library.MapSnapshotViewerActivity
+import com.example.openeer.ui.viewer.AudioViewerActivity
 
 
 
@@ -140,11 +141,7 @@ class BlocksAdapter(
             itemView.setOnClickListener {
                 val uri = block.mediaUri ?: return@setOnClickListener
                 val ctx = itemView.context
-                if (com.example.openeer.ui.SimplePlayer.isPlaying(block.id)) {
-                    com.example.openeer.ui.SimplePlayer.pause()
-                } else {
-                    com.example.openeer.ui.SimplePlayer.play(ctx, block.id, uri)
-                }
+                ctx.startActivity(AudioViewerActivity.newIntent(ctx, uri, block.id))
             }
         }
     }
