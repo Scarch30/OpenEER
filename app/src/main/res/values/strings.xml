@@ -446,5 +446,9 @@
     <string name="open_in_google_maps">Ouvrir dans Google Maps</string>
     <string name="action_share">Partager</string>
     <string name="action_delete">Supprimer</string>
+    <string name="audio_open_transcript">Ouvrir la transcription liée</string>
+    <string name="media_action_play">Lecture</string>
+    <string name="media_action_pause">Pause</string>
+
 
 </resources>

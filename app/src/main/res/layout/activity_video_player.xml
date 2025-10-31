@@ -23,15 +23,17 @@
 
     <!-- PlayerView Media3 avec contrôles par défaut -->
     <androidx.media3.ui.PlayerView
-        android:id="@+id/playerView"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        app:show_buffering="when_playing"
-        app:use_controller="true"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+    android:id="@+id/playerView"
+    android:layout_width="0dp"
+    android:layout_height="0dp"
+    app:show_buffering="when_playing"
+    app:use_controller="true"
+    app:layout_constraintTop_toBottomOf="@id/viewerToolbar"
+    app:layout_constraintBottom_toBottomOf="parent"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:surface_type="texture_view" />
+
 
     <!-- Indicateur pause -->
     <ImageView
