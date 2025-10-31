@@ -421,8 +421,16 @@ class NotePanelController(
                 .getOrNull()
                 ?.body
                 .orEmpty()
-            blocksRepo.updateNoteBody(nid, baseline + toAppend)
+            val cleanedBaseline = stripTranscriptionPlaceholder(baseline)
+            val baselineForAppend = if (cleanedBaseline.isBlank()) "" else cleanedBaseline
+            blocksRepo.updateNoteBody(nid, baselineForAppend + toAppend)
         }
+    }
+
+    private fun stripTranscriptionPlaceholder(body: String): String {
+        if (!body.contains(TRANSCRIPTION_PLACEHOLDER)) return body
+        val cleaned = body.replace(TRANSCRIPTION_PLACEHOLDER, "")
+        return if (cleaned.isBlank()) "" else cleaned.trimStart()
     }
 
     fun highlightBlock(blockId: Long) {
@@ -582,6 +590,7 @@ class NotePanelController(
         private const val MENU_MERGE_WITH = 2
         private const val MENU_CONVERT_TO_LIST = 3
         private const val MENU_CONVERT_TO_TEXT = 4
+        private const val TRANSCRIPTION_PLACEHOLDER = "(transcription en cours…)"
     }
 
     private fun crossFade(from: View, to: View, duration: Long = 250L, startDelay: Long = 50L) {

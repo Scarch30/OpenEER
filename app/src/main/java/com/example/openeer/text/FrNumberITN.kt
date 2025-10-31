@@ -1,6 +1,5 @@
 package com.example.openeer.text
 
-import android.os.Build
 import android.text.SpannableStringBuilder
 import java.lang.Integer
 import java.lang.reflect.Method
@@ -33,7 +32,6 @@ object FrNumberITN {
     )
 
     fun normalize(text: String): String {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return text
         val rbnf = RuleBasedNumberFormatCompat.create(Locale.FRENCH) ?: return text
         val sb = SpannableStringBuilder(text)
         var m = NUMBER_WORDS.matcher(sb)
