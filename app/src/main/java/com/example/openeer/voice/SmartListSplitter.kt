@@ -42,8 +42,11 @@ object SmartListSplitter {
         val pass2Segments = applyArticleRepetitionSplit(refinedSegments, ::splitSegmentOnArticleRepetitionNorm)
         if (pass2Segments.isEmpty()) return emptyList()
 
+        val quantifierSegments = applyNumericQuantifierSplit(pass2Segments) { it.normalized }
+        if (quantifierSegments.isEmpty()) return emptyList()
+
         // 3) Normaliser l’intérieur de chaque segment (sans toucher aux \n puisqu’on a déjà splitté)
-        val normalizedSegments = pass2Segments.map { seg ->
+        val normalizedSegments = quantifierSegments.map { seg ->
             WHITESPACE_REGEX.replace(seg.trim(*TRIM_CHARS), " ")
         }.filter { it.isNotEmpty() }
         if (normalizedSegments.isEmpty()) return emptyList()
@@ -83,8 +86,11 @@ object SmartListSplitter {
 
         val pass2Segments = applyArticleRepetitionSplit(refinedSegments, ::splitSegmentOnArticleRepetitionRaw)
 
+        val quantifierSegments = applyNumericQuantifierSplit(pass2Segments) { it.raw }
+        if (quantifierSegments.isEmpty()) return emptyList()
+
         // 3) Puis normaliser chaque segment
-        val normalizedSegments = pass2Segments.map {
+        val normalizedSegments = quantifierSegments.map {
             WHITESPACE_REGEX.replace(it.trim(*TRIM_CHARS), " ")
         }.filter { it.isNotEmpty() }
 
@@ -184,6 +190,96 @@ object SmartListSplitter {
         return if (parts.isNotEmpty()) parts else emptyList()
     }
 
+    private fun applyNumericQuantifierSplit(
+        segments: List<String>,
+        tokenValueSelector: (Token) -> String,
+    ): List<String> {
+        if (segments.isEmpty()) return emptyList()
+        val result = segments.flatMap { splitSegmentOnNumericQuantifier(it, tokenValueSelector) }
+        return result.map { it.trim(*TRIM_CHARS) }.filter { it.isNotEmpty() }
+    }
+
+    private fun splitSegmentOnNumericQuantifier(
+        segment: String,
+        tokenValueSelector: (Token) -> String,
+    ): List<String> {
+        val trimmed = segment.trim(*TRIM_CHARS)
+        if (trimmed.isEmpty()) return emptyList()
+        val tokens = tokenize(trimmed)
+        if (tokens.isEmpty()) return emptyList()
+        val numericCount = tokens.count { NUMBER_TOKEN_REGEX.matches(it.normalized) }
+        if (numericCount <= 1) return listOf(trimmed)
+
+        val parts = mutableListOf<MutableList<Token>>()
+        var currentTokens = mutableListOf<Token>()
+        var hasNumericInCurrent = false
+
+        fun emitCurrent() {
+            if (currentTokens.isNotEmpty()) {
+                parts.add(currentTokens.toMutableList())
+            }
+            currentTokens = mutableListOf()
+            hasNumericInCurrent = false
+        }
+
+        tokens.forEach { token ->
+            val isNumeric = NUMBER_TOKEN_REGEX.matches(token.normalized)
+            if (isNumeric) {
+                if (hasNumericInCurrent) {
+                    emitCurrent()
+                } else if (currentTokens.isNotEmpty()) {
+                    val carryStartIndex = findCarryStartIndex(currentTokens)
+                    if (carryStartIndex == currentTokens.size) {
+                        emitCurrent()
+                    } else {
+                        val prefix = currentTokens.subList(0, carryStartIndex)
+                        if (prefix.isNotEmpty()) {
+                            parts.add(prefix.toMutableList())
+                        }
+                        val carried = currentTokens.subList(carryStartIndex, currentTokens.size)
+                        currentTokens = carried.toMutableList()
+                    }
+                }
+                currentTokens.add(token)
+                hasNumericInCurrent = true
+            } else {
+                currentTokens.add(token)
+            }
+        }
+
+        if (currentTokens.isNotEmpty()) {
+            parts.add(currentTokens.toMutableList())
+        }
+
+        val rebuilt = parts.map { joinTokens(it, tokenValueSelector) }
+            .map { it.trim(*TRIM_CHARS) }
+            .filter { it.isNotEmpty() }
+        return if (rebuilt.isNotEmpty()) rebuilt else listOf(trimmed)
+    }
+
+    private fun findCarryStartIndex(tokens: List<Token>): Int {
+        var index = tokens.size
+        while (index > 0) {
+            val candidate = tokens[index - 1].normalized
+            if (candidate.isEmpty()) {
+                index--
+                continue
+            }
+            if (FrenchLexicon.isDeterminer(candidate)) {
+                index--
+                continue
+            }
+            break
+        }
+        return index
+    }
+
+    private fun joinTokens(tokens: List<Token>, tokenValueSelector: (Token) -> String): String {
+        return tokens.joinToString(" ") { token ->
+            tokenValueSelector(token).trim(*TRIM_CHARS)
+        }.trim()
+    }
+
     private fun hasFollowingWord(segment: String, match: MatchResult): Boolean {
         var index = match.range.last + 1
         while (index < segment.length && segment[index].isWhitespace()) {
@@ -223,6 +319,7 @@ object SmartListSplitter {
     private val ET_SPLIT_REGEX = Regex("\\s+et\\s+", RegexOption.IGNORE_CASE)
     private val WHITESPACE_REGEX = "\\s+".toRegex()
     private val TRIM_CHARS = charArrayOf(' ', ',', ';', '.', '\'', '"')
+    private val NUMBER_TOKEN_REGEX = Regex("\\d+")
     private val ARTICLE_PATTERN_NORM = Regex(
         "\\b(?:de\\s+l['’]|de\\s+la|des|les|du|l['’]|la|le)\\b",
         RegexOption.IGNORE_CASE
