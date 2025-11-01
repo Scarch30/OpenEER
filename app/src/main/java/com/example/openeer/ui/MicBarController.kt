@@ -886,25 +886,25 @@ class MicBarController(
             }
         }
 
-        val shouldSkipFinal = if (intentKey != null) {
-            sessionIntentRegistry.shouldSkipFinal(intentKey, reqId = reqId)
-        } else {
-            false
-        }
+        val shouldSkipFinal = intentKey?.let { key ->
+            sessionIntentRegistry.shouldSkipFinal(key, reqId = reqId)
+        } ?: false
         if (decision is VoiceRouteDecision.List) {
-            val state = intentKey?.let { sessionIntentRegistry.stateOf(it, reqId = reqId) }
+            val state = intentKey?.let { key -> sessionIntentRegistry.stateOf(key, reqId = reqId) }
             Log.d(
                 "ListDiag",
                 "FINAL-LIST: skip=$shouldSkipFinal state=$state",
             )
         }
-        if (intentKey != null && shouldSkipFinal) {
-            Log.d(TAG_INTENT, "INTENT_SKIP_REASON req=$reqId key=$intentKey reason=duplicate_final")
-            Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=intentResolved key=$intentKey")
-            Log.d("MicCtl", "FinalSkip/Resolved key=$intentKey block=$audioBlockId")
-            voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
-            releaseAudioSessionForBlock(audioBlockId)
-            return
+        intentKey?.let { key ->
+            if (shouldSkipFinal) {
+                Log.d(TAG_INTENT, "INTENT_SKIP_REASON req=$reqId key=$key reason=duplicate_final")
+                Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=intentResolved key=$key")
+                Log.d("MicCtl", "FinalSkip/Resolved key=$key block=$audioBlockId")
+                voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+                releaseAudioSessionForBlock(audioBlockId)
+                return
+            }
         }
         val reconciliationTarget = earlyApplied
         if (intentKey != null && reconciliationTarget != null &&
@@ -925,9 +925,9 @@ class MicBarController(
                         "ListDiag",
                         "FINAL-LIST: completed action=${decision.action} refinedCount=${decision.items.size}",
                     )
-                    sessionIntentRegistry.markResolved(intentKey, reqId = reqId)
+                    intentKey?.let { key -> sessionIntentRegistry.markResolved(key, reqId = reqId) }
                 } catch (error: Throwable) {
-                    sessionIntentRegistry.remove(intentKey)
+                    intentKey?.let { key -> sessionIntentRegistry.remove(key) }
                     throw error
                 } finally {
                     releaseAudioSessionForBlock(audioBlockId)
@@ -1008,14 +1008,10 @@ class MicBarController(
             }
             }
         } catch (error: Throwable) {
-            if (intentKey != null) {
-                sessionIntentRegistry.remove(intentKey)
-            }
+            intentKey?.let { key -> sessionIntentRegistry.remove(key) }
             throw error
         } finally {
-            if (intentKey != null) {
-                sessionIntentRegistry.markResolved(intentKey, reqId = reqId)
-            }
+            intentKey?.let { key -> sessionIntentRegistry.markResolved(key, reqId = reqId) }
             releaseAudioSessionForBlock(audioBlockId)
         }
     }
