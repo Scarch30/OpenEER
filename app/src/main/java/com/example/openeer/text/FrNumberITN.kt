@@ -17,9 +17,22 @@ object FrNumberITN {
         "(?i)\\b(z[ée]ro|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|vingt|trente|quarante|cinquante|soixante|cent|mille|million|milliard|virgule)\\b"
     )
 
-    // On ne matche que des séquences de lettres/espaces/tirets (aucun chiffre) ; le parseur décidera si c'est bien un nombre.
-    private val WORD_SEQ: Pattern = Pattern.compile(
-        "(?i)\\b(?!.*\\d)[\\p{L}]+(?:[\\p{L}\\s-]+)?(?=\\s|\\p{Punct}|$)"
+    // Vocabulaire numérique autorisé (inclut "et")
+    private const val NUM_WORD =
+        "(?:z[ée]ro|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|" +
+                "dix|onze|douze|treize|quatorze|quinze|seize|" +
+                "dix[-\\s]?sept|dix[-\\s]?huit|dix[-\\s]?neuf|" +
+                "vingt|trente|quarante|cinquante|soixante|" +
+                "soixante[-\\s]?dix|quatre[-\\s]?vingt[s]?|quatre[-\\s]?vingt[-\\s]?dix|" +
+                "cent[s]?|mille|million[s]?|milliard[s]?|et)"
+
+    // Une *phrase numérique* = uniquement des NUM_WORD (plus tirets/espaces),
+    // optionnellement suivie de "virgule ..." aussi en NUM_WORD.
+    // S'arrête **avant** le mot normal qui suit (ex. "bananes").
+    private val NUMBER_PHRASE: Pattern = Pattern.compile(
+        "(?i)\\b(?>$NUM_WORD)(?:[-\\s]+(?>$NUM_WORD))*" +
+                "(?:\\s+virgule\\s+(?>$NUM_WORD)(?:[-\\s]+(?>$NUM_WORD))*)?" +
+                "(?=(?:\\s|[,.!?;:])|$)"
     )
 
     private val UNITS = mapOf(
@@ -50,7 +63,7 @@ object FrNumberITN {
         if (!QUICK_HINT.containsMatchIn(text)) return text
 
         val sb = SpannableStringBuilder(text)
-        var m = WORD_SEQ.matcher(sb)
+        var m = NUMBER_PHRASE.matcher(sb)
         var cursor = 0
 
         while (m.find(cursor)) {
@@ -73,7 +86,11 @@ object FrNumberITN {
             // Si c'est un petit nombre (0..9) isolé, on évite de casser le style excepté si une unité suit
             val nextTok = nextWord(sb, end)
             val isSmall = value in 0.0..9.0
-            val canReplaceSmall = allowSmall || (nextTok != null && UNIT_AFTER.contains(nextTok.lowercase(Locale.ROOT).trim('·','.')))
+            val nextIsUnit = nextTok != null && UNIT_AFTER.contains(nextTok.lowercase(Locale.ROOT).trim('·','.'))
+            val nextIsWord = nextTok != null && nextTok.matches(Regex("[\\p{L}-]+"))
+
+            val canReplaceSmall = allowSmall || nextIsUnit || nextIsWord
+
             if (isSmall && !canReplaceSmall) {
                 cursor = end
                 continue
@@ -87,7 +104,7 @@ object FrNumberITN {
 
             sb.replace(start, end, replacement)
             cursor = start + replacement.length
-            m = WORD_SEQ.matcher(sb) // réinitialise le matcher sur la nouvelle chaîne
+            m = NUMBER_PHRASE.matcher(sb) // réinitialise le matcher sur la nouvelle chaîne
         }
         return sb.toString()
     }
