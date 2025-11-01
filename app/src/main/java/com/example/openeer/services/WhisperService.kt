@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.openeer.media.AudioDenoiser
 import com.example.openeer.media.decodeWaveFile
 import com.example.openeer.text.FrNumberITN
+import com.example.openeer.text.FrNumberSecondPass
 import com.whispercpp.java.whisper.WhisperContext
 import com.whispercpp.java.whisper.WhisperSegment
 import kotlinx.coroutines.Dispatchers
@@ -14,11 +15,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.ExecutionException
-import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
+import java.util.Locale
 
 object WhisperService {
 
@@ -59,16 +60,102 @@ object WhisperService {
         }
     }
 
-    // =========================================================
-    //  Fonctions de transcription + intégration AudioDenoiser
-    // =========================================================
+    // ---------------------------
+    //  Pré-filtre "quatre-vingt(s)" avant ITN
+    // ---------------------------
+    private fun preFilterQuatreVingtAA(s: String): String {
+        var out = s
+        // Gestion des formes avec ou sans tirets et "vingts"
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?neuf\\b"), "99")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?huit\\b"), "98")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?sept\\b"), "97")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?six\\b"), "96")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?cinq\\b"), "95")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?quatre\\b"), "94")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?trois\\b"), "93")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?deux\\b"), "92")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?onze\\b"), "91")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix\\b"), "90")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?neuf\\b"), "89")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?huit\\b"), "88")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?sept\\b"), "87")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?six\\b"), "86")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?cinq\\b"), "85")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?quatre\\b"), "84")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?trois\\b"), "83")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?deux\\b"), "82")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?un\\b"), "81")
+        out = out.replace(Regex("(?i)\\bquatre[-\\s]?vingts?\\b"), "80")
+        return out
+    }
 
+    // ---------------------------
+    //  Normalisation 2 passes
+    // ---------------------------
+    private fun normalizeTwoPass(s: String): String {
+        // 0) Pré-filtre spécial pour éviter la casse 4+20+1 -> 25
+        val pre = preFilterQuatreVingtAA(s)
+        // 1) ITN sûr (lettres -> chiffres)
+        val step1 = FrNumberITN.normalize(pre)
+        // 2) Correctifs ciblés (cinquante -> 50, quatre-vingt(s) -> 80, etc.)
+        return FrNumberSecondPass.apply(step1)
+    }
+
+    // ---------------------------
+    //  Outils de debug Whisper
+    // ---------------------------
+    private fun visualizeSeparators(s: String): String = buildString {
+        for (ch in s) {
+            append(
+                when (ch) {
+                    ' ' -> '␠'
+                    '\u00A0' -> '⍽'
+                    '\u202F' -> '⨝'
+                    '\u2009' -> ' '
+                    '\u200A' -> ' '
+                    '-' -> '‐'
+                    '\u2010' -> '‐'
+                    '\u2011' -> '-'
+                    '\u2012' -> '‒'
+                    '\u2013' -> '–'
+                    '\u2014' -> '—'
+                    '\t' -> '⇥'
+                    '\n' -> '↩'
+                    else -> ch
+                }
+            )
+        }
+    }
+
+    private fun codePointsHex(s: String): String = buildString {
+        val it = s.codePoints().iterator()
+        var first = true
+        while (it.hasNext()) {
+            if (!first) append(' ')
+            val cp = it.nextInt()
+            append(String.format(Locale.ROOT, "U+%04X", cp))
+            first = false
+        }
+    }
+
+    private fun tokensView(s: String): String =
+        s.split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" | ") { "|$it|" }
+
+    private fun logWhisperRaw(tagSuffix: String, text: String) {
+        Log.d(LOG_TAG, "[$tagSuffix] RAW: «$text»")
+        Log.d(LOG_TAG, "[$tagSuffix] VIS: «${visualizeSeparators(text)}»")
+        Log.d(LOG_TAG, "[$tagSuffix] HEX: ${codePointsHex(text)}")
+        Log.d(LOG_TAG, "[$tagSuffix] TOK: ${tokensView(text)}")
+    }
+
+    // =========================================================
+    //  Fonctions de transcription + débruitage
+    // =========================================================
     suspend fun transcribeWav(wavFile: File): String = withContext(Dispatchers.Default) {
         val c = ensureCtx()
         var floats = decodeWaveFile(wavFile)
         Log.d(LOG_TAG, "transcribeWav: samples=${floats.size} sr=16000")
 
-        // --- Débruitage AudioDenoiser ---
         val t0 = System.currentTimeMillis()
         val rmsBefore = floats.map { it * it }.average().let { sqrt(it).toFloat() }
         floats = AudioDenoiser.denoise(floats)
@@ -80,7 +167,8 @@ object WhisperService {
             val start = System.currentTimeMillis()
             val text = c.transcribeData(floats)
             Log.d(LOG_TAG, "Whisper done in ${System.currentTimeMillis() - start} ms")
-            FrNumberITN.normalize(text)
+            logWhisperRaw("transcribeWav", text)
+            normalizeTwoPass(text)
         } catch (e: ExecutionException) {
             throw (e.cause ?: e)
         }
@@ -99,7 +187,8 @@ object WhisperService {
 
         try {
             val text = c.transcribeData(floats)
-            FrNumberITN.normalize(text)
+            logWhisperRaw("transcribeDataDirect", text)
+            normalizeTwoPass(text)
         } catch (e: ExecutionException) {
             throw (e.cause ?: e)
         }
@@ -110,7 +199,6 @@ object WhisperService {
         var floats = decodeWaveFile(wavFile)
         Log.d(LOG_TAG, "transcribeWavWithTimestamps: samples=${floats.size}")
 
-        // --- Débruitage AudioDenoiser ---
         val t0 = System.currentTimeMillis()
         val rmsBefore = floats.map { it * it }.average().let { sqrt(it).toFloat() }
         floats = AudioDenoiser.denoise(floats)
@@ -133,7 +221,6 @@ object WhisperService {
         var samples = decodeWaveFile(wavFile)
         val sr = 16_000
 
-        // --- Débruitage AudioDenoiser ---
         val t0 = System.currentTimeMillis()
         val rmsBefore = samples.map { it * it }.average().let { sqrt(it).toFloat() }
         samples = AudioDenoiser.denoise(samples)
@@ -141,18 +228,11 @@ object WhisperService {
         val dt = System.currentTimeMillis() - t0
         Log.d(LOG_TAG, "🔊 Denoiser applied (silenceAware) in ${dt}ms | RMS before=$rmsBefore RMS after=$rmsAfter")
 
-        Log.d(LOG_TAG, "Silence-aware transcription: samples=${samples.size} sr=$sr")
-
         val speechMask = detectSpeechMask(samples, sr)
         val speechIslands = maskToIslands(speechMask, sr)
-        if (speechIslands.isEmpty()) {
-            Log.d(LOG_TAG, "No speech detected -> empty result")
-            return@withContext ""
-        }
+        if (speechIslands.isEmpty()) return@withContext ""
 
         val windows = buildWindowsAroundIslands(speechIslands, samples.size, sr)
-        Log.d(LOG_TAG, "Built ${windows.size} windows")
-
         val sb = StringBuilder()
         var idx = 0
         for (w in windows) {
@@ -168,16 +248,19 @@ object WhisperService {
                 Log.w(LOG_TAG, "Whisper error on window $idx: ${e.message}")
                 ""
             }
-            if (text.isNotBlank()) sb.append(' ').append(text.trim())
+            if (text.isNotBlank()) {
+                logWhisperRaw("silenceAware#$idx", text)
+                sb.append(' ').append(text.trim())
+            }
         }
         val raw = sb.toString().trim()
-        FrNumberITN.normalize(raw)
+        logWhisperRaw("silenceAware#merged", raw)
+        normalizeTwoPass(raw)
     }
 
     // =========================================================
-    //   Fonctions internes : VAD + détection silence
+    //   Fonctions internes : VAD + silence
     // =========================================================
-
     private fun ensureCtx(): WhisperContext =
         ctx ?: error("Whisper model not loaded yet. Call ensureLoaded().")
 

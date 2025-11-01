@@ -29,6 +29,7 @@ import com.example.openeer.voice.VoiceEarlyDecision
 import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
 import com.example.openeer.text.FrNumberITN
+import com.example.openeer.text.FrNumberSecondPass
 import kotlinx.coroutines.*
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -233,6 +234,38 @@ class MicBarController(
         state = RecordingState.IDLE
 
         activity.lifecycleScope.launch {
+
+            // --- Préfiltre local "quatre-vingt(s)" (section AA) -------------
+            // Objectif : convertir AVANT l’ITN pour éviter le découpage 4 20 ...
+            fun preAA(src: String): String {
+                var s = src
+                // 99..91
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?neuf\\b"), "99")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?huit\\b"), "98")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix[-\\s]?sept\\b"), "97")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?seize\\b"), "96")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?quinze\\b"), "95")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?quatorze\\b"), "94")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?treize\\b"), "93")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?douze\\b"), "92")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?onze\\b"), "91")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?dix\\b"), "90")
+                // 89..81
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?neuf\\b"), "89")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?huit\\b"), "88")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?sept\\b"), "87")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?six\\b"), "86")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?cinq\\b"), "85")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?quatre\\b"), "84")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?trois\\b"), "83")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?deux\\b"), "82")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?[-\\s]?un\\b"), "81")
+                // 80 (avec ou sans "s")
+                s = s.replace(Regex("(?i)\\bquatre[-\\s]?vingts?\\b"), "80")
+                return s
+            }
+            // ---------------------------------------------------------------
+
             val reqId = newReqId()
             var newBlockId: Long? = null
             var provisionalList: ListProvisionalItem? = null
@@ -244,7 +277,12 @@ class MicBarController(
                 val segmentDurationMs = segmentStartRealtime?.let { SystemClock.elapsedRealtime() - it }
                 val finalResult = withContext(Dispatchers.IO) { live?.stopDetailed() } ?: FinalResult.Empty
                 val rawVoskText = finalResult.text.trim()
-                val normalizedVosk = FrNumberITN.normalize(rawVoskText)
+
+                // ✅ Nouvel ordre de normalisation (préfiltre → ITN → 2e passe)
+                val pre = preAA(rawVoskText)
+                var normalizedVosk = FrNumberITN.normalize(pre)
+                normalizedVosk = FrNumberSecondPass.apply(normalizedVosk)
+
                 val initialVoskText = normalizedVosk.ifBlank { rawVoskText }
                 live = null
 
@@ -260,19 +298,12 @@ class MicBarController(
                 }
 
                 if (targetNoteId == null || openIdNow == null || targetNoteId != openIdNow) {
-                    Log.w(
-                        "MicCtl",
-                        "stopSegment aborted: targetNoteId=$targetNoteId openId=$openIdNow"
-                    )
-                    withContext(Dispatchers.Main) {
-                        bodyManager.buffer.removeCurrentSession()
-                    }
+                    Log.w("MicCtl", "stopSegment aborted: targetNoteId=$targetNoteId openId=$openIdNow")
+                    withContext(Dispatchers.Main) { bodyManager.buffer.removeCurrentSession() }
                     activeSessionNoteId = null
                     activeSessionBaseline = null
                     segmentStartRealtime = null
-                    if (!wavPath.isNullOrBlank()) {
-                        runCatching { File(wavPath).takeIf { it.exists() }?.delete() }
-                    }
+                    if (!wavPath.isNullOrBlank()) runCatching { File(wavPath).takeIf { it.exists() }?.delete() }
                     return@launch
                 }
 
@@ -290,9 +321,7 @@ class MicBarController(
                     val addNewline = !lastWasHandsFree
                     val blockRange = if (!isListNote) {
                         bodyManager.buffer.append(initialVoskText, addNewline)
-                    } else {
-                        null
-                    }
+                    } else null
 
                     newBlockId = withContext(Dispatchers.IO) {
                         blocksRepo.appendAudio(
@@ -329,9 +358,7 @@ class MicBarController(
                     val attemptEarlyRouting =
                         FeatureFlags.voiceCommandsEnabled && FeatureFlags.voiceEarlyCommandsEnabled
                     val assumeListForInitial =
-                        isListNote ||
-                                (provisionalList != null) ||
-                                initialVoskText.contains("liste", ignoreCase = true)
+                        isListNote || (provisionalList != null) || initialVoskText.contains("liste", ignoreCase = true)
                     val earlyContext = VoiceCommandRouter.EarlyContext(assumeListForInitial)
                     val earlyAnalysis = if (attemptEarlyRouting) {
                         voiceCommandRouter.analyzeEarly(initialVoskText, earlyContext)
@@ -388,30 +415,18 @@ class MicBarController(
                                 runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
                                 val refinedText = WhisperService.transcribeWav(File(wavPath)).trim()
 
-                                // 🔹 Heuristique robuste pour le contexte liste :
-                                //    - si la note est déjà LIST (UI), OK
-                                //    - si on a créé un provisoire de liste, c’est qu’on est en logique LIST
-                                //    - si l’énoncé contient “liste”, on force le contexte liste
                                 val hintList =
-                                    isListNote ||
-                                            (provisionalList != null) ||
-                                            refinedText.contains("liste", ignoreCase = true)
+                                    isListNote || (provisionalList != null) || refinedText.contains("liste", ignoreCase = true)
 
                                 val decision = voiceCommandRouter.route(
                                     refinedText,
                                     assumeListContext = hintList
                                 )
-                                Log.d(
-                                    "VoiceRoute",
-                                    "Bloc #$blockId → décision $decision pour \"$refinedText\""
-                                )
+                                Log.d("VoiceRoute", "Bloc #$blockId → décision $decision pour \"$refinedText\"")
 
                                 val pendingReminder = pendingEarlyReminders.remove(blockId)
                                 if (pendingReminder != null) {
-                                    Log.d(
-                                        "EarlyVC",
-                                        "ReconcileEarly reminder final=${decision.logToken}"
-                                    )
+                                    Log.d("EarlyVC", "ReconcileEarly reminder final=${decision.logToken}")
                                     val result = reminderExecutor.reconcileReminderWithWhisper(
                                         pendingReminder.pending,
                                         decision,
@@ -502,14 +517,8 @@ class MicBarController(
                     if (shouldExecuteEarly) {
                         val resolvedTarget = targetNoteId
                         if (resolvedTarget == null) {
-                            Log.w(
-                                "MicCtl",
-                                "Commande vocale anticipée ignorée: note cible introuvable"
-                            )
-                            Log.d(
-                                TAG_EARLY,
-                                "EARLY_EXIT req=$reqId reason=noteNotFound"
-                            )
+                            Log.w("MicCtl", "Commande vocale anticipée ignorée: note cible introuvable")
+                            Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=noteNotFound")
                         } else {
                             val sessionIdForIntent = audioSessionId
                             val intentKey = voiceCommandRouter.intentKeyFor(
@@ -537,10 +546,7 @@ class MicBarController(
                                     else -> "unknown"
                                 }
                                 if (intentKey != null) {
-                                    Log.d(
-                                        TAG_INTENT,
-                                        "INTENT_SKIP_REASON req=$reqId key=$intentKey reason=$skipReason",
-                                    )
+                                    Log.d(TAG_INTENT, "INTENT_SKIP_REASON req=$reqId key=$intentKey reason=$skipReason")
                                 }
                                 Log.d(
                                     TAG_EARLY,
@@ -572,14 +578,8 @@ class MicBarController(
                                         skipWhisper = true
                                     }
                                 } catch (error: Throwable) {
-                                    if (intentKey != null) {
-                                        sessionIntentRegistry.remove(intentKey)
-                                    }
-                                    Log.e(
-                                        "MicCtl",
-                                        "Erreur exécution commande vocale anticipée pour le bloc #$audioBlockId",
-                                        error
-                                    )
+                                    if (intentKey != null) sessionIntentRegistry.remove(intentKey)
+                                    Log.e("MicCtl", "Erreur exécution commande vocale anticipée pour le bloc #$audioBlockId", error)
                                 }
                             }
                         }
@@ -589,11 +589,7 @@ class MicBarController(
                         skipWhisper = true
                     }
                     val whisperReason = when (earlyDecision) {
-                        is VoiceEarlyDecision.ListCommand -> if (earlyDecision.command.items.size <= 1) {
-                            "singleItem"
-                        } else {
-                            "multiItem"
-                        }
+                        is VoiceEarlyDecision.ListCommand -> if (earlyDecision.command.items.size <= 1) "singleItem" else "multiItem"
                         else -> "unsupported"
                     }
                     Log.d(TAG_EARLY, "WHISPER req=$reqId skip=$skipWhisper reason=$whisperReason")
@@ -627,6 +623,7 @@ class MicBarController(
             }
         }
     }
+
 
 
 
