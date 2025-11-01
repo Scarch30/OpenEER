@@ -855,7 +855,7 @@ class MicBarController(
         commitContext: BodyTranscriptionManager.DictationCommitContext,
         reqId: String,
     ) {
-        val intentKey = voiceCommandRouter.intentKeyFor(
+        var intentKey = voiceCommandRouter.intentKeyFor(
             decision = decision,
             noteId = targetNoteId,
             normalizedText = transcription,
@@ -867,6 +867,25 @@ class MicBarController(
                 "FINAL-LIST: received action=${decision.action} note=$targetNoteId items=${decision.items} key=$intentKey",
             )
         }
+        var earlyApplied: SessionIntentRegistry.EarlyApplied? = null
+        if (decision is VoiceRouteDecision.List && decision.action == VoiceListAction.ADD) {
+            earlyApplied = intentKey?.let {
+                sessionIntentRegistry.getEarlyApplied(it, reqId = reqId)
+            }
+            if (earlyApplied == null) {
+                sessionIntentRegistry.findEarlyAppliedByReq(reqId)?.let { (resolvedKey, fallback) ->
+                    if (intentKey == null || intentKey != resolvedKey) {
+                        Log.d(
+                            TAG_INTENT,
+                            "INTENT_FALLBACK req=$reqId from=${intentKey ?: "none"} to=$resolvedKey",
+                        )
+                    }
+                    intentKey = resolvedKey
+                    earlyApplied = fallback
+                }
+            }
+        }
+
         val shouldSkipFinal = if (intentKey != null) {
             sessionIntentRegistry.shouldSkipFinal(intentKey, reqId = reqId)
         } else {
@@ -887,8 +906,8 @@ class MicBarController(
             releaseAudioSessionForBlock(audioBlockId)
             return
         }
-        val earlyApplied = intentKey?.let { sessionIntentRegistry.getEarlyApplied(it, reqId = reqId) }
-        if (intentKey != null && earlyApplied != null &&
+        val reconciliationTarget = earlyApplied
+        if (intentKey != null && reconciliationTarget != null &&
             decision is VoiceRouteDecision.List &&
             decision.action == VoiceListAction.ADD
         ) {
@@ -899,7 +918,7 @@ class MicBarController(
                         "ListDiag",
                         "FINAL-LIST: applying action=${decision.action} refinedItems=${decision.items}",
                     )
-                    val sanitizedEarly = cleanupEarlyFusion(noteId, earlyApplied, decision.items, reqId)
+                    val sanitizedEarly = cleanupEarlyFusion(noteId, reconciliationTarget, decision.items, reqId)
                     reconcileEarlyListAdd(noteId, sanitizedEarly, decision.items)
                     finalizeListCommandCleanup(audioBlockId, audioPath, reqId)
                     Log.d(
@@ -1407,6 +1426,7 @@ class MicBarController(
             var affectedItemIds: List<Long> = emptyList(),
             var originalTexts: List<String> = emptyList(),
             var appliedTexts: List<String> = emptyList(),
+            val reqTokens: MutableSet<String> = mutableSetOf(),
         )
 
         private val entries = mutableMapOf<String, Entry>()
@@ -1430,6 +1450,7 @@ class MicBarController(
             entry.affectedItemIds = affectedItemIds.toList()
             entry.originalTexts = originalTexts.toList()
             entry.appliedTexts = appliedTexts.toList()
+            entry.reqTokens.add(reqToken(reqId))
             Log.d(
                 TAG_INTENT,
                 "INTENT_REGISTER req=${reqToken(reqId)} key=$intentKey state=APPLIED_EARLY ids=$affectedItemIds",
@@ -1446,6 +1467,7 @@ class MicBarController(
             entry.affectedItemIds = emptyList()
             entry.originalTexts = emptyList()
             entry.appliedTexts = emptyList()
+            entry.reqTokens.add(reqToken(reqId))
             Log.d(
                 TAG_INTENT,
                 "INTENT_REGISTER req=${reqToken(reqId)} key=$intentKey state=RESOLVED ids=[]",
@@ -1465,6 +1487,25 @@ class MicBarController(
             logTtlCheck(reqToken(reqId), intentKey, before, after, now, ttlMs)
             if (after?.state != State.APPLIED_EARLY) return null
             return EarlyApplied(after.affectedItemIds, after.originalTexts, after.appliedTexts)
+        }
+
+        @Synchronized
+        fun findEarlyAppliedByReq(
+            reqId: String,
+            ttlMs: Long = INTENT_TTL_MS,
+        ): Pair<String, EarlyApplied>? {
+            val now = clock()
+            purgeExpired(now, ttlMs)
+            val token = reqToken(reqId)
+            val match = entries.entries.firstOrNull { (_, entry) ->
+                entry.state == State.APPLIED_EARLY && entry.reqTokens.contains(token)
+            } ?: return null
+            Log.d(
+                TAG_INTENT,
+                "INTENT_FALLBACK_MATCH req=$token key=${match.key}",
+            )
+            val entry = match.value
+            return match.key to EarlyApplied(entry.affectedItemIds, entry.originalTexts, entry.appliedTexts)
         }
 
         @Synchronized
