@@ -14,10 +14,8 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.RoutePayload
-import com.example.openeer.ui.MainActivity
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.dialogs.ChildNameDialog
-import com.example.openeer.ui.injection.InjectionCoordinator
 import com.example.openeer.ui.sheets.ChildPostitSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import com.example.openeer.ui.viewer.VideoPlayerActivity
@@ -189,10 +187,6 @@ class MediaActions(
         popup.menu.add(0, MENU_RENAME, 1, activity.getString(R.string.media_action_rename))
         popup.menu.add(0, MENU_DELETE, 2, activity.getString(R.string.media_action_delete))
 
-        if (item !is MediaStripItem.Pile) {
-            popup.menu.add(0, MENU_INJECT_PARENT, 3, activity.getString(R.string.media_action_inject_parent))
-        }
-
         // 🗺️ Option spéciale pour la pile Carte : “Ouvrir dans Google Maps”
         val mapsEnabledForPile = (item as? MediaStripItem.Pile)?.category == MediaCategory.LOCATION
         if (mapsEnabledForPile) {
@@ -204,41 +198,6 @@ class MediaActions(
                 MENU_SHARE -> { share(item); true }
                 MENU_RENAME -> { rename(item); true }
                 MENU_DELETE -> { confirmDelete(item); true }
-                MENU_INJECT_PARENT -> {
-                    val noteId = when (item) {
-                        is MediaStripItem.Image -> item.noteId
-                        is MediaStripItem.Audio -> item.noteId
-                        is MediaStripItem.Text -> item.noteId
-                        is MediaStripItem.File -> item.noteId
-                        is MediaStripItem.Pile -> null
-                    }
-                    val ok = InjectionCoordinator.injectIntoParent(
-                        activity,
-                        noteId,
-                        openNoteIdProvider = { (activity as? MainActivity)?.notePanelController?.openNoteId },
-                        blockId = when (item) {
-                            is MediaStripItem.Image -> item.blockId
-                            is MediaStripItem.Audio -> item.blockId
-                            is MediaStripItem.Text -> item.blockId
-                            is MediaStripItem.File -> item.blockId
-                            is MediaStripItem.Pile -> -1
-                        }
-                    )
-                    if (!ok) {
-                        Toast.makeText(
-                            activity,
-                            activity.getString(R.string.inject_parent_missing),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else {
-                        Toast.makeText(
-                            activity,
-                            activity.getString(R.string.inject_done),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                    true
-                }
                 MENU_OPEN_IN_MAPS -> {
                     val pile = item as? MediaStripItem.Pile
                     if (pile != null) openLocationPileCoverInMaps(pile) else Unit
@@ -473,6 +432,5 @@ class MediaActions(
         const val MENU_DELETE = 2
         const val MENU_RENAME = 3
         const val MENU_OPEN_IN_MAPS = 4
-        const val MENU_INJECT_PARENT = 5
     }
 }
