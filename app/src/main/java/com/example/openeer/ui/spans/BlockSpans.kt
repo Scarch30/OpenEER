@@ -31,7 +31,7 @@ object BlockSpans {
         for (match in matches.asReversed()) {
             val (idGroup) = match.destructured
             val blockId = idGroup.toLongOrNull() ?: continue
-            val span = MediaThumbnailSpan(context, textView, blockId)
+            val span = MediaChipSpan(context, blockId)
             val clickable = object : ClickableSpan() {
                 override fun onClick(widget: View) {
                     onMediaLinkClicked(blockId)
