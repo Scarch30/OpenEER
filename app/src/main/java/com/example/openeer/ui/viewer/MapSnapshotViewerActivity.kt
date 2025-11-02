@@ -2,6 +2,7 @@ package com.example.openeer.ui.viewer
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -9,7 +10,9 @@ import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -21,10 +24,10 @@ import com.example.openeer.R
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MapSnapshotViewerActivity : AppCompatActivity() {
 
@@ -40,6 +43,7 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     }
 
     private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK_ID, -1L) }
+    private val sourcePath: String? by lazy { intent.getStringExtra(EXTRA_URI) }
     private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
     private lateinit var toolbar: MaterialToolbar
 
@@ -73,7 +77,7 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
 
         val photoView = findViewById<PhotoView>(R.id.photoView)
 
-        val raw = intent.getStringExtra(EXTRA_URI)
+        val raw = sourcePath
         if (raw.isNullOrBlank()) {
             finish()
             return
@@ -96,6 +100,8 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_viewer_item, menu)
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
+        menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
+        menu.findItem(R.id.action_share)?.isVisible = !sourcePath.isNullOrBlank()
         return true
     }
 
@@ -107,6 +113,14 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
             }
             R.id.action_rename -> {
                 showRenameDialog()
+                true
+            }
+            R.id.action_share -> {
+                shareSnapshot()
+                true
+            }
+            R.id.action_delete -> {
+                confirmDelete()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -150,5 +164,58 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     private fun updateToolbarTitle(name: String?) {
         val title = name?.takeIf { it.isNotBlank() } ?: getString(R.string.map_snapshot_preview)
         supportActionBar?.title = title
+    }
+
+    private fun shareSnapshot() {
+        val source = sourcePath ?: run {
+            Toast.makeText(this, getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val shareUri = ViewerMediaUtils.resolveShareUri(this, source) ?: run {
+            Toast.makeText(this, getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/*"
+            putExtra(Intent.EXTRA_STREAM, shareUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val targets = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        targets.forEach { info ->
+            grantUriPermission(info.activityInfo.packageName, shareUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching {
+            startActivity(Intent.createChooser(intent, getString(R.string.media_action_share)))
+        }.onFailure {
+            Toast.makeText(this, getString(R.string.media_share_error), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmDelete() {
+        if (blockId <= 0) return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.media_action_delete)
+            .setMessage(R.string.media_delete_confirm)
+            .setPositiveButton(R.string.action_validate) { _, _ -> deleteSnapshot() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun deleteSnapshot() {
+        val path = sourcePath
+        lifecycleScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                runCatching {
+                    path?.let { ViewerMediaUtils.deleteMediaFile(this@MapSnapshotViewerActivity, it) }
+                    blocksRepository.deleteBlock(blockId)
+                }.isSuccess
+            }
+            if (success) {
+                Toast.makeText(this@MapSnapshotViewerActivity, getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
+                finish()
+            } else {
+                Toast.makeText(this@MapSnapshotViewerActivity, getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
+            }
+        }
     }
 }

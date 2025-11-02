@@ -1,10 +1,13 @@
 package com.example.openeer.ui.viewer
 
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.ViewCompat
@@ -33,6 +36,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     private var playWhenReady = true
     private var lastPosition = 0L
     private val blockId: Long by lazy { intent.getLongExtra("blockId", -1L) }
+    private val sourceUri: String? by lazy { intent.getStringExtra(EXTRA_URI) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,7 +57,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         updateToolbarTitle(null)
         refreshToolbarTitle()
 
-        val uriString = intent.getStringExtra(EXTRA_URI)
+        val uriString = sourceUri
         if (uriString.isNullOrBlank()) {
             Toast.makeText(this, getString(R.string.video_player_error), Toast.LENGTH_LONG).show()
             finish()
@@ -115,6 +119,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
         menuInflater.inflate(R.menu.menu_viewer_item, menu)
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
+        menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
+        menu.findItem(R.id.action_share)?.isVisible = !sourceUri.isNullOrBlank()
         return true
     }
 
@@ -126,6 +132,14 @@ class VideoPlayerActivity : AppCompatActivity() {
             }
             R.id.action_rename -> {
                 showRenameDialog()
+                true
+            }
+            R.id.action_share -> {
+                shareVideo()
+                true
+            }
+            R.id.action_delete -> {
+                confirmDelete()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -171,5 +185,58 @@ class VideoPlayerActivity : AppCompatActivity() {
     private fun updateToolbarTitle(name: String?) {
         val title = name?.takeIf { it.isNotBlank() } ?: ""
         supportActionBar?.title = title
+    }
+
+    private fun shareVideo() {
+        val source = sourceUri ?: run {
+            Toast.makeText(this, getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val shareUri = ViewerMediaUtils.resolveShareUri(this, source) ?: run {
+            Toast.makeText(this, getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "video/*"
+            putExtra(Intent.EXTRA_STREAM, shareUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val targets = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        targets.forEach { info ->
+            grantUriPermission(info.activityInfo.packageName, shareUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching {
+            startActivity(Intent.createChooser(intent, getString(R.string.media_action_share)))
+        }.onFailure {
+            Toast.makeText(this, getString(R.string.media_share_error), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmDelete() {
+        if (blockId <= 0) return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.media_action_delete)
+            .setMessage(R.string.media_delete_confirm)
+            .setPositiveButton(R.string.action_validate) { _, _ -> deleteVideo() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun deleteVideo() {
+        val source = sourceUri
+        lifecycleScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                runCatching {
+                    source?.let { ViewerMediaUtils.deleteMediaFile(this@VideoPlayerActivity, it) }
+                    blocksRepository.deleteBlock(blockId)
+                }.isSuccess
+            }
+            if (success) {
+                Toast.makeText(this@VideoPlayerActivity, getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
+                finish()
+            } else {
+                Toast.makeText(this@VideoPlayerActivity, getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
+            }
+        }
     }
 }
