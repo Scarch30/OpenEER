@@ -7,7 +7,6 @@ import android.text.Spanned
 import android.text.style.StyleSpan
 import android.view.View
 import android.widget.EditText
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
@@ -29,7 +28,6 @@ import com.example.openeer.ui.library.LibraryFragment
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.util.toast
-import com.example.openeer.ui.spans.applyMediaSpans
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -177,7 +175,6 @@ class NotePanelController(
         reminderController.resetUi()
 
         binding.bodyEditor.setText("")
-        binding.bodyEditor.applyMediaSpans(::handleMediaLinkClicked)
         binding.noteMetaFooter.text = ""
         binding.noteMetaFooter.isGone = true
         binding.noteMetaFooterRow.isGone = true
@@ -231,7 +228,6 @@ class NotePanelController(
         binding.recycler.isVisible = true
 
         binding.bodyEditor.setText("")
-        binding.bodyEditor.applyMediaSpans(::handleMediaLinkClicked)
         binding.noteMetaFooter.isGone = true
         binding.noteMetaFooterRow.isGone = true
         binding.btnReminders.isVisible = false
@@ -414,7 +410,6 @@ class NotePanelController(
         if (displayBody == TRANSCRIPTION_PLACEHOLDER) {
             activity.lifecycleScope.launch(Dispatchers.Main) {
                 binding.bodyEditor.setText(displayBody)
-                binding.bodyEditor.applyMediaSpans(::handleMediaLinkClicked)
                 binding.bodyEditor.setSelection(displayBody.length)
             }
             return
@@ -478,11 +473,6 @@ class NotePanelController(
         return if (cleaned.isBlank()) "" else cleaned.trimStart()
     }
 
-    private fun handleMediaLinkClicked(blockId: Long) {
-        // TODO (Prompt 3/4): ouvrir la note-fille ou afficher menu contextuel
-        Toast.makeText(activity, "media link #$blockId", Toast.LENGTH_SHORT).show()
-    }
-
     fun highlightBlock(blockId: Long) {
         if (openNoteId == null) return
         blocksRenderer.highlightBlock(blockId)
@@ -524,7 +514,6 @@ class NotePanelController(
         // Applique visuellement le corps tout de suite
         val editor = binding.bodyEditor
         editor.setText(body)
-        editor.applyMediaSpans(::handleMediaLinkClicked)
         if (body.isNotEmpty()) {
             editor.setSelection(body.length)
         }
@@ -603,7 +592,6 @@ class NotePanelController(
         } else {
             binding.bodyEditor.setText(sanitizedBody)
         }
-        binding.bodyEditor.applyMediaSpans(::handleMediaLinkClicked)
 
         // Assure la vue: éditeur visible, liste masquée
         crossFadeListToBody(binding.listContainer, binding.bodyEditor)
