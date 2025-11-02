@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.text.style.ReplacementSpan
 import androidx.annotation.ColorInt
-import com.example.openeer.R
 import com.google.android.material.color.MaterialColors
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -25,14 +24,14 @@ class MediaChipSpan(
     @ColorInt
     private val backgroundColor: Int = resolveColor(
         context,
-        R.attr.colorSurfaceVariant,
+        com.google.android.material.R.attr.colorSurfaceVariant,
         Color.parseColor("#DDDDDD"),
     )
 
     @ColorInt
     private val textColor: Int = resolveColor(
         context,
-        R.attr.colorOnSurface,
+        com.google.android.material.R.attr.colorOnSurface,
         Color.BLACK,
     )
 
