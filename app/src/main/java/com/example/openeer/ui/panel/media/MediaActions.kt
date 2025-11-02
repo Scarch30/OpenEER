@@ -26,6 +26,8 @@ import java.io.File
 import java.util.Locale
 import com.example.openeer.ui.library.MapSnapshotViewerActivity
 import com.example.openeer.ui.viewer.AudioViewerActivity
+import com.example.openeer.ui.viewer.FileMetadataUtils
+import com.example.openeer.ui.viewer.FileViewerActivity
 
 
 class MediaActions(
@@ -155,11 +157,15 @@ class MediaActions(
 
 
                     else -> {
-                        val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
-                            putExtra("path", item.mediaUri)
-                            putExtra("blockId", item.blockId)
+                        if (item.type == BlockType.FILE) {
+                            openFileBlock(item)
+                        } else {
+                            val intent = Intent(activity, PhotoViewerActivity::class.java).apply {
+                                putExtra("path", item.mediaUri)
+                                putExtra("blockId", item.blockId)
+                            }
+                            activity.startActivity(intent)
                         }
-                        activity.startActivity(intent)
                     }
                 }
             }
@@ -217,6 +223,32 @@ class MediaActions(
             onSave = { newName -> updateChildName(target.blockId, newName) },
             onReset = { updateChildName(target.blockId, null) },
         )
+    }
+
+    private fun openFileBlock(item: MediaStripItem.Image) {
+        uiScope.launch {
+            val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(item.blockId) }
+            val rawUri = block?.mediaUri ?: item.mediaUri
+            if (block == null || rawUri.isNullOrBlank()) {
+                Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val ensured = FileMetadataUtils.ensureUri(activity, rawUri)
+            if (ensured == null) {
+                Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val mime = block.mimeType?.takeIf { it.isNotBlank() }
+                ?: activity.contentResolver.getType(ensured)
+            val intent = FileViewerActivity.newIntent(
+                activity,
+                rawUri,
+                mime,
+                block.id,
+                block.text
+            )
+            activity.startActivity(intent)
+        }
     }
 
     private fun updateChildName(blockId: Long, name: String?) {
