@@ -37,7 +37,8 @@ object InjectionCoordinator {
             database = db,
         )
         val parentId: Long? = runBlocking {
-            childNoteId?.let { repo.findMergeParent(it) }
+            val child = childNoteId?.let { repo.noteOnce(it) }
+            child?.parentId
         } ?: openNoteIdProvider()
 
         parentId ?: return false
