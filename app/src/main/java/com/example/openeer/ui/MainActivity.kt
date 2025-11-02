@@ -207,17 +207,10 @@ class MainActivity : AppCompatActivity() {
                 micCtl.onCanonicalBodyReplaced(noteId, body)
             }
         }
-        val injectFilter = IntentFilter(InjectionCoordinator.ACTION_INSERT_MEDIA_TOKEN)
-        try {
-            registerReceiver(
-                injectReceiver,
-                injectFilter,
-                Context.RECEIVER_NOT_EXPORTED
-            )
-        } catch (_: NoSuchFieldError) {
-            @Suppress("DEPRECATION")
-            registerReceiver(injectReceiver, injectFilter)
-        }
+        registerReceiver(
+            injectReceiver,
+            IntentFilter(InjectionCoordinator.ACTION_INSERT_MEDIA_TOKEN)
+        )
         injectReceiverRegistered = true
         pileUiController = PileUiController(this, b, notePanel)
         notePanel.onPileCountsChanged = { counts -> pileUiController.onPileCountsChanged(counts) }
