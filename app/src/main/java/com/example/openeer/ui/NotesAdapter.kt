@@ -3,7 +3,6 @@ package com.example.openeer.ui
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
-import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.DiffUtil
@@ -13,7 +12,6 @@ import com.example.openeer.R
 import com.example.openeer.data.Note
 import com.example.openeer.databinding.ItemNoteBinding
 import com.example.openeer.ui.formatMeta
-import com.example.openeer.ui.spans.applyMediaSpans
 import com.example.openeer.ui.reminders.ReminderBadgeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -115,10 +113,6 @@ class NotesAdapter(
         h.b.titleOrBody.text =
             n.title?.takeIf { it.isNotBlank() }
                 ?: n.body.ifBlank { ctx.getString(R.string.library_merge_untitled_placeholder) }.take(80)
-        h.b.titleOrBody.applyMediaSpans { blockId ->
-            // TODO (Prompt 3/4): ouvrir la note-fille ou afficher menu contextuel
-            Toast.makeText(ctx, "media link #$blockId", Toast.LENGTH_SHORT).show()
-        }
 
         val meta = n.formatMeta()
         h.b.meta.text = if (n.isMerged) {
