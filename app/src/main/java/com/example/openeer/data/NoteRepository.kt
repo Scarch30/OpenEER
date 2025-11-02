@@ -36,6 +36,7 @@ class NoteRepository(
 
     fun note(id: Long) = noteDao.getByIdFlow(id)
     suspend fun noteOnce(id: Long) = noteDao.getByIdOnce(id)
+    suspend fun findMergeParent(noteId: Long): Long? = noteDao.findMergeParent(noteId)
 
     fun attachments(noteId: Long) = attachmentDao.byNoteId(noteId)
     suspend fun addPhoto(noteId: Long, path: String) {

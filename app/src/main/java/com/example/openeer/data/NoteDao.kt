@@ -36,6 +36,9 @@ interface NoteDao {
     @Query("SELECT noteId FROM note_merge_map WHERE mergedIntoId = :parentId")
     suspend fun getMergedChildren(parentId: Long): List<Long>
 
+    @Query("SELECT mergedIntoId FROM note_merge_map WHERE noteId = :noteId LIMIT 1")
+    suspend fun findMergeParent(noteId: Long): Long?
+
     // 👇👇 AJOUT : charger un lot de notes par IDs (validation merge)
     @Query("SELECT * FROM notes WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<Long>): List<Note>
