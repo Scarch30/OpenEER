@@ -153,6 +153,9 @@
     <string name="media_action_share">Partager</string>
     <string name="media_action_rename">Renommer</string>
     <string name="media_action_delete">Supprimer</string>
+    <string name="media_action_inject_parent">Injecter dans la note-mère</string>
+    <string name="inject_parent_missing">Impossible de déterminer la note-mère</string>
+    <string name="inject_done">Lien inséré dans la note-mère</string>
     <string name="media_delete_confirm">Supprimer cet élément ?</string>
     <string name="media_delete_done">Élément supprimé</string>
     <string name="media_delete_error">Suppression impossible</string>
