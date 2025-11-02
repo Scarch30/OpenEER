@@ -224,6 +224,7 @@ class MediaThumbnailSpan(
             ThumbSource.Kind.AUDIO -> R.drawable.ic_media_audio_24
             ThumbSource.Kind.FILE -> R.drawable.ic_media_file_24
             ThumbSource.Kind.UNKNOWN -> R.drawable.ic_media_file_24
+            ThumbSource.Kind.BROKEN -> R.drawable.ic_media_file_24
         }
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -238,7 +239,20 @@ class MediaThumbnailSpan(
         val top = ((sizePx - iconSize) / 2f).toInt()
         drawable.setBounds(left, top, left + iconSize, top + iconSize)
         drawable.draw(canvas)
-        if (kind != ThumbSource.Kind.UNKNOWN) {
+        if (kind == ThumbSource.Kind.BROKEN) {
+            val strike = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0x88FFFFFF.toInt()
+                strokeWidth = dp(2f).toFloat()
+            }
+            canvas.drawLine(
+                dp(8f).toFloat(),
+                sizePx - dp(8f).toFloat(),
+                sizePx - dp(8f).toFloat(),
+                dp(8f).toFloat(),
+                strike,
+            )
+            drawOverlayLabel(canvas, context.getString(R.string.media_link_broken))
+        } else if (kind != ThumbSource.Kind.UNKNOWN) {
             drawOverlayLabel(canvas, kind.label)
         }
         Companion.placeholderCache[kind] = bitmap
@@ -297,5 +311,6 @@ private val ThumbSource.Kind.label: String
         ThumbSource.Kind.AUDIO -> "AUDIO"
         ThumbSource.Kind.FILE -> "FICHIER"
         ThumbSource.Kind.UNKNOWN -> "MEDIA"
+        ThumbSource.Kind.BROKEN -> "MEDIA"
     }
 
