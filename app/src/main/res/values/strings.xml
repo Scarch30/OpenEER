@@ -158,13 +158,6 @@
     <string name="inject_done">Lien inséré dans la note-mère</string>
     <string name="media_delete_confirm">Supprimer cet élément ?</string>
     <string name="media_delete_done">Élément supprimé</string>
-    <string name="media_link_menu_title">Lien média</string>
-    <string name="media_link_open">Ouvrir</string>
-    <string name="media_link_rename">Renommer…</string>
-    <string name="media_link_remove">Supprimer le lien</string>
-    <string name="media_link_removed">Lien supprimé</string>
-    <string name="media_link_remove_fail">Suppression du lien impossible</string>
-    <string name="media_link_broken">Lien rompu</string>
     <string name="media_delete_error">Suppression impossible</string>
     <string name="media_share_error">Partage impossible</string>
     <string name="media_missing_file">Fichier introuvable</string>

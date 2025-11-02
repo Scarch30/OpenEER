@@ -26,7 +26,6 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.library.LibraryFragment
-import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.util.toast
@@ -480,85 +479,9 @@ class NotePanelController(
         return if (cleaned.isBlank()) "" else cleaned.trimStart()
     }
 
-    private suspend fun findChildNoteIdForBlock(blockId: Long): Long? {
-        return withContext(Dispatchers.IO) { blocksRepo.getBlock(blockId)?.noteId }
-    }
-
-    private fun removeFirstTokenForBlock(blockId: Long): Boolean {
-        val editor = binding.bodyEditor
-        val body = editor.text?.toString().orEmpty()
-        val pattern = Regex("""\[\[media:block:$blockId]]""")
-        val replaced = pattern.replaceFirst(body, "")
-        if (replaced == body) return false
-        editor.setText(replaced)
-        editor.applyMediaSpans(::handleMediaLinkClicked)
-        editor.setSelection(replaced.length.coerceAtLeast(0))
-        val nid = openNoteId ?: return true
-        activity.lifecycleScope.launch(Dispatchers.IO) { blocksRepo.updateNoteBody(nid, replaced) }
-        return true
-    }
-
     private fun handleMediaLinkClicked(blockId: Long) {
-        val items = arrayOf(
-            activity.getString(R.string.media_link_open),
-            activity.getString(R.string.media_link_rename),
-            activity.getString(R.string.media_link_remove),
-        )
-        androidx.appcompat.app.AlertDialog.Builder(activity)
-            .setTitle(R.string.media_link_menu_title)
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> openChildNote(blockId)
-                    1 -> renameChildBlock(blockId)
-                    2 -> removeLink(blockId)
-                }
-            }
-            .show()
-    }
-
-    private fun openChildNote(blockId: Long) {
-        activity.lifecycleScope.launch {
-            val childNoteId = findChildNoteIdForBlock(blockId)
-            if (childNoteId != null) {
-                open(childNoteId)
-            } else {
-                Toast.makeText(
-                    activity,
-                    activity.getString(R.string.media_link_broken),
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-    }
-
-    private fun renameChildBlock(blockId: Long) {
-        ChildNameDialog.show(
-            context = activity,
-            initialValue = null,
-            onSave = { newName ->
-                activity.lifecycleScope.launch(Dispatchers.IO) {
-                    blocksRepo.setChildNameForBlock(blockId, newName)
-                }
-            },
-            onReset = {
-                activity.lifecycleScope.launch(Dispatchers.IO) {
-                    blocksRepo.setChildNameForBlock(blockId, null)
-                }
-            },
-        )
-    }
-
-    private fun removeLink(blockId: Long) {
-        val ok = removeFirstTokenForBlock(blockId)
-        Toast.makeText(
-            activity,
-            if (ok) {
-                activity.getString(R.string.media_link_removed)
-            } else {
-                activity.getString(R.string.media_link_remove_fail)
-            },
-            Toast.LENGTH_SHORT,
-        ).show()
+        // TODO (Prompt 3/4): ouvrir la note-fille ou afficher menu contextuel
+        Toast.makeText(activity, "media link #$blockId", Toast.LENGTH_SHORT).show()
     }
 
     fun highlightBlock(blockId: Long) {
