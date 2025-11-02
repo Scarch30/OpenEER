@@ -6,20 +6,32 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.example.openeer.R
 import com.example.openeer.Injection
+import com.example.openeer.R
+import com.example.openeer.data.block.BlockEntity
+import com.example.openeer.data.block.BlockType
+import com.example.openeer.data.block.RoutePayload
+import com.example.openeer.map.buildMapsUrl
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.maplibre.android.geometry.LatLng
 
 class MapSnapshotViewerActivity : AppCompatActivity() {
 
     private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK_ID, -1L) }
+    private val routeGson by lazy { Gson() }
+    private var openMapsAction: (() -> Unit)? = null
+    private var hasShownMapsUnavailableMessage = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,6 +48,8 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         intent.getStringExtra(EXTRA_SNAPSHOT_URI)?.let { uriStr ->
             photoView.setImageURI(Uri.parse(uriStr))
         }
+
+        setupOpenInMapsButton()
     }
 
     // ⬇️ C'EST ICI qu’on “gonfle” (inflate) le menu
@@ -45,7 +59,13 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         val hasValidBlock = blockId > 0
         renameItem?.isVisible = hasValidBlock
         renameItem?.isEnabled = hasValidBlock
+        menu.findItem(R.id.action_open_in_maps)?.isVisible = openMapsAction != null
         return true
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(R.id.action_open_in_maps)?.isVisible = openMapsAction != null
+        return super.onPrepareOptionsMenu(menu)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
@@ -56,7 +76,15 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
             }
             true
         }
-        R.id.action_open_in_maps -> { openInMaps(); true }
+        R.id.action_open_in_maps -> {
+            val action = openMapsAction
+            if (action != null) {
+                action()
+            } else {
+                showMapsUnavailableToast()
+            }
+            true
+        }
         R.id.action_share -> { sharePlace(); true }
         R.id.action_delete -> { /* TODO: suppression */ true }
         else -> super.onOptionsItemSelected(item)
@@ -85,16 +113,6 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         }
     }
 
-    private fun openInMaps() {
-        val lat = intent.getDoubleExtra(EXTRA_LAT, Double.NaN)
-        val lon = intent.getDoubleExtra(EXTRA_LON, Double.NaN)
-        val label = intent.getStringExtra(EXTRA_PLACE_LABEL) ?: "Lieu"
-        if (!lat.isNaN() && !lon.isNaN()) {
-            val uri = Uri.parse("geo:$lat,$lon?q=$lat,$lon($label)")
-            startActivity(Intent(Intent.ACTION_VIEW, uri))
-        }
-    }
-
     private fun sharePlace() {
         val label = intent.getStringExtra(EXTRA_PLACE_LABEL) ?: ""
         val lat = intent.getDoubleExtra(EXTRA_LAT, Double.NaN)
@@ -110,6 +128,117 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
             },
             getString(R.string.media_action_share)
         ))
+    }
+
+    private fun setupOpenInMapsButton() {
+        val button = findViewById<ExtendedFloatingActionButton>(R.id.openInMapsFab)
+        button.visibility = View.GONE
+        button.setOnClickListener(null)
+
+        lifecycleScope.launch {
+            val block = if (blockId > 0) {
+                val repo = Injection.provideBlocksRepository(applicationContext)
+                withContext(Dispatchers.IO) { repo.getBlock(blockId) }
+            } else {
+                null
+            }
+
+            val action = createMapsAction(block)
+            openMapsAction = action
+
+            if (action != null) {
+                button.visibility = View.VISIBLE
+                button.setOnClickListener { action() }
+            } else {
+                button.visibility = View.GONE
+                if (!hasShownMapsUnavailableMessage) {
+                    showMapsUnavailableToast()
+                    hasShownMapsUnavailableMessage = true
+                }
+            }
+
+            invalidateOptionsMenu()
+        }
+    }
+
+    private fun createMapsAction(block: BlockEntity?): (() -> Unit)? {
+        val extraLat = intent.getDoubleExtra(EXTRA_LAT, Double.NaN).takeUnless { it.isNaN() }
+        val extraLon = intent.getDoubleExtra(EXTRA_LON, Double.NaN).takeUnless { it.isNaN() }
+        val extraLabel = intent.getStringExtra(EXTRA_PLACE_LABEL)?.takeIf { it.isNotBlank() }
+
+        if (block?.type == BlockType.ROUTE) {
+            val payload = block.routeJson?.let { json ->
+                runCatching { routeGson.fromJson(json, RoutePayload::class.java) }.getOrNull()
+            }
+            if (payload != null) {
+                val points = payload.points.map { LatLng(it.lat, it.lon) }
+                val url = buildMapsUrl(points)
+                if (url != null) {
+                    return { openRouteInGoogleMaps(url) }
+                }
+                val single = payload.firstPoint()
+                if (single != null) {
+                    val label = extraLabel
+                        ?: block.placeName?.takeIf { it.isNotBlank() }
+                        ?: getString(R.string.block_location_coordinates, single.lat, single.lon)
+                    return { openCoordinateInMaps(single.lat, single.lon, label) }
+                }
+            }
+        }
+
+        val lat = extraLat ?: block?.lat
+        val lon = extraLon ?: block?.lon
+        if (lat != null && lon != null) {
+            val label = extraLabel
+                ?: block?.placeName?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.block_location_coordinates, lat, lon)
+            return { openCoordinateInMaps(lat, lon, label) }
+        }
+
+        return null
+    }
+
+    private fun openCoordinateInMaps(lat: Double, lon: Double, label: String) {
+        val encodedLabel = Uri.encode(label)
+        val geoUri = Uri.parse("geo:0,0?q=$lat,$lon($encodedLabel)")
+        val pm = packageManager
+
+        var launched = false
+        val geoIntent = Intent(Intent.ACTION_VIEW, geoUri)
+        if (geoIntent.resolveActivity(pm) != null) {
+            launched = runCatching { startActivity(geoIntent) }.isSuccess
+        }
+
+        if (!launched) {
+            val url = "https://www.google.com/maps/search/?api=1&query=$lat,$lon"
+            val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            if (fallbackIntent.resolveActivity(pm) != null) {
+                launched = runCatching { startActivity(fallbackIntent) }.isSuccess
+            }
+        }
+
+        if (!launched) {
+            showMapsUnavailableToast()
+        }
+    }
+
+    private fun openRouteInGoogleMaps(url: String) {
+        val uri = Uri.parse(url)
+        val packageManager = packageManager
+        val mapsPackage = "com.google.android.apps.maps"
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+        val mapsIntent = Intent(Intent.ACTION_VIEW, uri).apply { setPackage(mapsPackage) }
+        if (mapsIntent.resolveActivity(packageManager) != null) {
+            intent.`package` = mapsPackage
+        }
+
+        if (!runCatching { startActivity(intent) }.isSuccess) {
+            showMapsUnavailableToast()
+        }
+    }
+
+    private fun showMapsUnavailableToast() {
+        Toast.makeText(this, R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
     }
 
     companion object {
