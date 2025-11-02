@@ -110,8 +110,15 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
             val label = buildLabel(block, routePayload)
             title.text = label
 
+            val mapsAction = buildMapsAction(block, routePayload)
+            btn.isEnabled = mapsAction != null
             btn.setOnClickListener {
-                openInGoogleMaps(block)
+                val action = mapsAction
+                if (action != null) {
+                    action()
+                } else {
+                    showMapsUnavailableToast()
+                }
             }
 
             setupRouteButton(routeBtn, block, routePayload)
@@ -135,19 +142,64 @@ class MapSnapshotSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private fun openInGoogleMaps(block: BlockEntity) {
-        val lat = block.lat
-        val lon = block.lon
-        if (lat == null || lon == null) {
-            Toast.makeText(requireContext(), R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
-            return
+    private fun buildMapsAction(
+        block: BlockEntity,
+        payload: RoutePayload?,
+    ): (() -> Unit)? {
+        if (block.type == BlockType.ROUTE && payload != null) {
+            val points = payload.points.map { LatLng(it.lat, it.lon) }
+            val url = buildMapsUrl(points)
+            if (url != null) {
+                return { openRouteInGoogleMaps(url) }
+            }
+
+            val firstPoint = payload.firstPoint()
+            val lat = firstPoint?.lat ?: block.lat
+            val lon = firstPoint?.lon ?: block.lon
+            if (lat != null && lon != null) {
+                val label = block.placeName?.takeIf { it.isNotBlank() }
+                    ?: getString(R.string.block_route_points, payload.pointCount)
+                return { openCoordinateInMaps(lat, lon, label) }
+            }
         }
 
-        val uri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lon")
-        val intent = Intent(Intent.ACTION_VIEW, uri)
-        runCatching { startActivity(intent) }.onFailure {
-            Toast.makeText(requireContext(), "Aucune app de cartographie trouvée", Toast.LENGTH_SHORT).show()
+        val lat = block.lat
+        val lon = block.lon
+        if (lat != null && lon != null) {
+            val label = block.placeName?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.block_location_coordinates, lat, lon)
+            return { openCoordinateInMaps(lat, lon, label) }
         }
+
+        return null
+    }
+
+    private fun openCoordinateInMaps(lat: Double, lon: Double, label: String) {
+        val encodedLabel = Uri.encode(label)
+        val geoUri = Uri.parse("geo:0,0?q=$lat,$lon($encodedLabel)")
+        val pm = requireContext().packageManager
+
+        var launched = false
+        val geoIntent = Intent(Intent.ACTION_VIEW, geoUri)
+        if (geoIntent.resolveActivity(pm) != null) {
+            launched = runCatching { startActivity(geoIntent) }.isSuccess
+        }
+
+        if (!launched) {
+            val url = String.format(Locale.US, "https://www.google.com/maps/search/?api=1&query=%f,%f", lat, lon)
+            val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            if (fallbackIntent.resolveActivity(pm) != null) {
+                launched = runCatching { startActivity(fallbackIntent) }.isSuccess
+            }
+        }
+
+        if (!launched) {
+            showMapsUnavailableToast()
+        }
+    }
+
+    private fun showMapsUnavailableToast() {
+        Toast.makeText(requireContext(), R.string.map_pick_google_maps_unavailable, Toast.LENGTH_SHORT).show()
     }
 
     private fun setupRouteButton(routeBtn: Button, block: BlockEntity, payload: RoutePayload?) {
