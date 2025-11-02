@@ -12,7 +12,7 @@ object MediaThumbResolver {
     fun resolveSource(context: Context, blockId: Long): ThumbSource {
         val repository = Injection.provideBlocksRepository(context)
         val block = runBlocking { repository.getBlock(blockId) }
-            ?: return ThumbSource.Placeholder(ThumbSource.Kind.UNKNOWN)
+            ?: return ThumbSource.Placeholder(ThumbSource.Kind.BROKEN)
 
         return when (block.type) {
             BlockType.PHOTO, BlockType.SKETCH, BlockType.VIDEO -> {
@@ -44,6 +44,6 @@ object MediaThumbResolver {
         data class MapSnapshot(val file: File) : ThumbSource()
         data class Placeholder(val kind: Kind) : ThumbSource()
 
-        enum class Kind { AUDIO, FILE, UNKNOWN }
+        enum class Kind { AUDIO, FILE, UNKNOWN, BROKEN }
     }
 }
