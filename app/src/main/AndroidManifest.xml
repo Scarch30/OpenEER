@@ -1,6 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <queries>
+        <!-- Applications de cartographie compatibles -->
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.google.android.apps.mapslite" />
+        <package android:name="com.here.app.maps" />
+    </queries>
+
     <!-- Micro + caméra -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
