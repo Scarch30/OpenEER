@@ -7,7 +7,9 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.appcompat.widget.PopupMenu
+import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
@@ -82,6 +84,7 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
 
     // Accès direct au DAO (simple et fiable)
     private val noteDao by lazy { AppDatabase.get(requireContext().applicationContext).noteDao() }
+    private var currentLabel: String = ""
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         return BottomSheetDialog(requireContext(), theme).also { dialog ->
@@ -141,6 +144,14 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
                         }
                         true
                     }
+                    R.id.action_share -> {
+                        shareLocation()
+                        true
+                    }
+                    R.id.action_delete -> {
+                        confirmDelete()
+                        true
+                    }
                     else -> false
                 }
             }
@@ -159,17 +170,19 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
         // 2) Texte initial
         val coordsPretty = String.format(Locale.US, "%.6f, %.6f", lat, lon)
         val initialIsFallback = isFallbackLabel(initialLabel)
-        addressText.text = if (initialIsFallback) {
+        currentLabel = if (initialIsFallback) {
             // "Adresse en cours de résolution… (lat, lon)"
             getString(R.string.address_resolving_fallback, coordsPretty)
         } else {
             initialLabel
         }
+        addressText.text = currentLabel
 
         // 3) Si fallback, on relit la DB (immédiat), puis on poll ~5s pour capter la mise à jour
         viewLifecycleOwner.lifecycleScope.launchWhenStarted {
             val fromDb = withContext(Dispatchers.IO) { noteDao.getByIdOnce(noteId)?.placeLabel }
             if (!fromDb.isNullOrBlank() && !isFallbackLabel(fromDb)) {
+                currentLabel = fromDb
                 addressText.text = fromDb
             } else if (initialIsFallback) {
                 val updated = withTimeoutOrNull(5000L) {
@@ -181,6 +194,7 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
                     v
                 }
                 if (!updated.isNullOrBlank()) {
+                    currentLabel = updated
                     addressText.text = updated
                 }
             }
@@ -220,6 +234,61 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
         }
 
         return root
+    }
+
+    private fun shareLocation() {
+        val label = currentLabel.ifBlank { initialLabel }
+        val coords = if (!lat.isNaN() && !lon.isNaN()) String.format(Locale.US, "%.6f, %.6f", lat, lon) else null
+        val link = coords?.let { c -> "https://maps.google.com/?q=${c.replace(" ", "")}" }
+        val text = buildString {
+            if (label.isNotBlank()) append(label)
+            if (link != null) {
+                if (isNotEmpty()) append('\n')
+                append(link)
+            } else if (coords != null) {
+                if (isNotEmpty()) append('\n')
+                append(coords)
+            }
+        }.ifBlank { coords ?: label }
+
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        runCatching {
+            startActivity(Intent.createChooser(intent, getString(R.string.media_action_share)))
+        }.onFailure {
+            Toast.makeText(requireContext(), getString(R.string.media_share_error), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmDelete() {
+        if (blockId <= 0) return
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.media_action_delete)
+            .setMessage(R.string.media_delete_confirm)
+            .setPositiveButton(R.string.action_validate) { _, _ -> deleteLocation() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun deleteLocation() {
+        val ctx = requireContext()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                val repo = Injection.provideBlocksRepository(ctx)
+                runCatching {
+                    MapPreviewStorage.fileFor(ctx, blockId, type).takeIf { it.exists() }?.delete()
+                    repo.deleteBlock(blockId)
+                }.isSuccess
+            }
+            if (success) {
+                Toast.makeText(ctx, ctx.getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
+                dismissAllowingStateLoss()
+            } else {
+                Toast.makeText(ctx, ctx.getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     /** Détection de fallback : vide, "Position actuelle", "geo:…", ou "lat, lon". */
