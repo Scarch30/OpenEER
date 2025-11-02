@@ -13,4 +13,5 @@
     <color name="map_pin_selection">#FF9C27B0</color>
     <color name="map_pin_user">#FF1E88E5</color>
     <color name="viewer_toolbar_scrim">#66000000</color>
+    <color name="gray500">#FF718096</color>
 </resources>

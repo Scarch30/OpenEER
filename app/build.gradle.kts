@@ -137,4 +137,12 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.webkit:webkit:1.11.0")
+
+    // --- File viewers ---
+    implementation("com.github.barteksc:android-pdf-viewer:3.2.0-beta.1")
+    implementation("org.apache.poi:poi:5.2.5")
+    implementation("org.apache.poi:poi-ooxml:5.2.5")
+    implementation("org.apache.poi:poi-scratchpad:5.2.5")
+    implementation("fr.opensagres.xdocreport:odfdom-jnl:1.1.6")
 }
