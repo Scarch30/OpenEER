@@ -30,7 +30,6 @@ import com.example.openeer.R
 import com.example.openeer.services.WhisperService // ✅ warm-up Whisper en arrière-plan
 import com.example.openeer.ui.capture.CaptureLauncher
 import com.example.openeer.ui.editor.EditorBodyController
-import com.example.openeer.ui.injection.InjectionCoordinator
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.util.configureSystemInsets
 import com.example.openeer.ui.util.snackbar
@@ -65,19 +64,6 @@ class MainActivity : AppCompatActivity() {
                 // Revenir visuellement dans la note demandée
                 notePanel.open(noteId)
             }
-        }
-    }
-
-    private var injectReceiverRegistered = false
-    private val injectReceiver = object : BroadcastReceiver() {
-        override fun onReceive(ctx: Context?, intent: Intent?) {
-            if (intent?.action != InjectionCoordinator.ACTION_INSERT_MEDIA_TOKEN) return
-            val parentId = intent.getLongExtra(InjectionCoordinator.EXTRA_PARENT_ID, -1L)
-            val blockId = intent.getLongExtra(InjectionCoordinator.EXTRA_BLOCK_ID, -1L)
-            if (parentId <= 0L || blockId <= 0L) return
-            // Ouvre (ou focus) la mère et insère
-            notePanel.open(parentId)
-            notePanel.insertMediaTokenAtCursor(blockId, atNewLine = true)
         }
     }
 
@@ -138,9 +124,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pileUiController: PileUiController
     private lateinit var tapToFocusManager: TapToFocusManager
     private val caretPositions = mutableMapOf<Long, Int>()
-
-    val notePanelController: NotePanelController
-        get() = notePanel
 
     // Permissions micro
     private val recordPermLauncher =
@@ -207,11 +190,6 @@ class MainActivity : AppCompatActivity() {
                 micCtl.onCanonicalBodyReplaced(noteId, body)
             }
         }
-        registerReceiver(
-            injectReceiver,
-            IntentFilter(InjectionCoordinator.ACTION_INSERT_MEDIA_TOKEN)
-        )
-        injectReceiverRegistered = true
         pileUiController = PileUiController(this, b, notePanel)
         notePanel.onPileCountsChanged = { counts -> pileUiController.onPileCountsChanged(counts) }
         noteCreationHelper = NoteCreationHelper(this, repo, notePanel)
@@ -438,10 +416,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        if (injectReceiverRegistered) {
-            unregisterReceiver(injectReceiver)
-            injectReceiverRegistered = false
-        }
         if (::selectionController.isInitialized) {
             selectionController.onDestroy()
         }
