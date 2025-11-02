@@ -120,7 +120,7 @@ dependencies {
 
     implementation("com.google.code.gson:gson:2.11.0")
 
-    implementation("com.github.chrisbanes:PhotoView:2.3.0")
+    implementation("top.mankin:photoview:2.3.2")
 
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
@@ -140,9 +140,9 @@ dependencies {
     implementation("androidx.webkit:webkit:1.11.0")
 
     // --- File viewers ---
-    implementation("com.github.barteksc:android-pdf-viewer:3.2.0-beta.1")
+    implementation("com.github.mhiew:android-pdf-viewer:3.2.0-beta.3")
     implementation("org.apache.poi:poi:5.2.5")
     implementation("org.apache.poi:poi-ooxml:5.2.5")
     implementation("org.apache.poi:poi-scratchpad:5.2.5")
-    implementation("fr.opensagres.xdocreport:odfdom-jnl:1.1.6")
+    implementation("org.apache.odftoolkit:simple-odf:0.8.2-incubating")
 }
