@@ -3,8 +3,6 @@ package com.example.openeer.ui.injection
 import android.content.Context
 import android.content.Intent
 import com.example.openeer.Injection
-import com.example.openeer.data.AppDatabase
-import com.example.openeer.data.NoteRepository
 import kotlinx.coroutines.runBlocking
 
 object InjectionCoordinator {
@@ -24,18 +22,7 @@ object InjectionCoordinator {
         openNoteIdProvider: () -> Long?,
         blockId: Long
     ): Boolean {
-        val appContext = context.applicationContext
-        val db = AppDatabase.getInstance(appContext)
-        val blocksRepo = Injection.provideBlocksRepository(context)
-        val repo = NoteRepository(
-            appContext,
-            db.noteDao(),
-            db.attachmentDao(),
-            db.blockReadDao(),
-            blocksRepo,
-            db.listItemDao(),
-            database = db,
-        )
+        val repo = Injection.provideNoteRepository(context)
         val parentId: Long? = runBlocking {
             val child = childNoteId?.let { repo.noteOnce(it) }
             child?.parentId

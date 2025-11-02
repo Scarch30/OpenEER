@@ -205,28 +205,35 @@ class MediaActions(
                 MENU_RENAME -> { rename(item); true }
                 MENU_DELETE -> { confirmDelete(item); true }
                 MENU_INJECT_PARENT -> {
-                    uiScope.launch {
-                        val noteId = when (item) {
-                            is MediaStripItem.Text -> item.noteId
-                            is MediaStripItem.Image, is MediaStripItem.Audio -> withContext(Dispatchers.IO) {
-                                blocksRepo.getBlock(item.blockId)?.noteId
-                            }
-                            else -> null
+                    val noteId = when (item) {
+                        is MediaStripItem.Image -> item.noteId
+                        is MediaStripItem.Audio -> item.noteId
+                        is MediaStripItem.Text -> item.noteId
+                        is MediaStripItem.File -> item.noteId
+                        is MediaStripItem.Pile -> null
+                    }
+                    val ok = InjectionCoordinator.injectIntoParent(
+                        activity,
+                        noteId,
+                        openNoteIdProvider = { (activity as? MainActivity)?.notePanelController?.openNoteId },
+                        blockId = when (item) {
+                            is MediaStripItem.Image -> item.blockId
+                            is MediaStripItem.Audio -> item.blockId
+                            is MediaStripItem.Text -> item.blockId
+                            is MediaStripItem.File -> item.blockId
+                            is MediaStripItem.Pile -> -1
                         }
-                        val ok = if (noteId != null) {
-                            InjectionCoordinator.injectIntoParent(
-                                activity,
-                                noteId,
-                                openNoteIdProvider = { (activity as? MainActivity)?.notePanelController?.openNoteId },
-                                blockId = item.blockId
-                            )
-                        } else {
-                            false
-                        }
-                        val message = if (ok) R.string.inject_done else R.string.inject_parent_missing
+                    )
+                    if (!ok) {
                         Toast.makeText(
                             activity,
-                            activity.getString(message),
+                            activity.getString(R.string.inject_parent_missing),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            activity,
+                            activity.getString(R.string.inject_done),
                             Toast.LENGTH_SHORT
                         ).show()
                     }
