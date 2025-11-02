@@ -440,6 +440,38 @@ class NotePanelController(
         }
     }
 
+    fun insertMediaTokenAtCursor(blockId: Long, atNewLine: Boolean = true) {
+        val nid = openNoteId ?: return
+        val editor = binding.bodyEditor
+        val token = buildString {
+            if (atNewLine && editor.text.isNotEmpty() && !editor.text.endsWith("\n")) append('\n')
+            append("[[media:block:")
+            append(blockId)
+            append("]]")
+            append('\n')
+        }
+
+        val selStart = editor.selectionStart.coerceAtLeast(0)
+        val selEnd = editor.selectionEnd.coerceAtLeast(0)
+        val start = minOf(selStart, selEnd)
+        val end = maxOf(selStart, selEnd)
+
+        // Insertion en mémoire
+        val sb = StringBuilder(editor.text.toString())
+        sb.replace(start, end, token)
+        val newBody = sb.toString()
+
+        // UI immédiate
+        editor.setText(newBody)
+        editor.setSelection(minOf(start + token.length, newBody.length))
+        editor.applyMediaSpans(::handleMediaLinkClicked)
+
+        // Persistance
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            blocksRepo.updateNoteBody(nid, newBody)
+        }
+    }
+
     private fun stripTranscriptionPlaceholder(body: String): String {
         if (!body.contains(TRANSCRIPTION_PLACEHOLDER)) return body
         val cleaned = body.replace(TRANSCRIPTION_PLACEHOLDER, "")
