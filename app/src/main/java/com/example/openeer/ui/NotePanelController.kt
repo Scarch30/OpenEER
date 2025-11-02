@@ -443,8 +443,9 @@ class NotePanelController(
     fun insertMediaTokenAtCursor(blockId: Long, atNewLine: Boolean = true) {
         val nid = openNoteId ?: return
         val editor = binding.bodyEditor
+        val currentText = editor.text?.toString().orEmpty()
         val token = buildString {
-            if (atNewLine && editor.text.isNotEmpty() && !editor.text.endsWith("\n")) append('\n')
+            if (atNewLine && currentText.isNotEmpty() && !currentText.endsWith("\n")) append('\n')
             append("[[media:block:")
             append(blockId)
             append("]]")
@@ -457,7 +458,7 @@ class NotePanelController(
         val end = maxOf(selStart, selEnd)
 
         // Insertion en mémoire
-        val sb = StringBuilder(editor.text.toString())
+        val sb = StringBuilder(currentText)
         sb.replace(start, end, token)
         val newBody = sb.toString()
 
