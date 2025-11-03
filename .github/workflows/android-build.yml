@@ -12,6 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       JAVA_VERSION: '17'
+      ANDROID_API: '34'
+      BUILD_TOOLS: '34.0.0'
+      NDK_VERSION: '26.1.10909125'   # <- aligne avec app/build.gradle si besoin
+      CMAKE_VERSION: '3.22.1'
 
     steps:
       - name: Checkout
@@ -30,28 +34,19 @@ jobs:
       - name: Accept SDK licenses
         run: yes | sdkmanager --licenses
 
-      - name: Install required SDK packages
+      - name: Install required SDK packages (platform, build-tools, NDK, CMake)
         run: |
           sdkmanager "platform-tools" \
-                     "platforms;android-34" \
-                     "build-tools;34.0.0"
+                     "platforms;android-${{ env.ANDROID_API }}" \
+                     "build-tools;${{ env.BUILD_TOOLS }}" \
+                     "ndk;${{ env.NDK_VERSION }}" \
+                     "cmake;${{ env.CMAKE_VERSION }}"
 
-      # -- Optionnel : cache+download du modèle Vosk (décommente si tu publies le zip en Release) --
-      # - name: Cache Vosk model
-      #   id: voskcache
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: app/src/main/assets/vosk-small-fr
-      #     key: vosk-small-fr-0.22
-      #
-      # - name: Download Vosk model (if cache miss)
-      #   if: steps.voskcache.outputs.cache-hit != 'true'
-      #   run: |
-      #     mkdir -p app/src/main/assets
-      #     curl -L -o model.zip "https://github.com/Scarch30/OpenEER/releases/download/models-v1/vosk-model-small-fr-0.22.zip"
-      #     unzip -q model.zip -d app/src/main/assets
-      #     mv app/src/main/assets/vosk-model-small-fr-0.22 app/src/main/assets/vosk-small-fr
-      #     rm model.zip
+      - name: Show SDK dirs (debug)
+        run: |
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls -la "$ANDROID_SDK_ROOT/ndk"
+          ls -la "$ANDROID_SDK_ROOT/cmake"
 
       - name: Make gradlew executable
         run: chmod +x gradlew
@@ -62,7 +57,13 @@ jobs:
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebug
 
-      # --------- Rapports utiles pour debug (unit tests) ----------
+      - name: Upload APK (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
+
       - name: Upload unit test HTML report
         if: always()
         uses: actions/upload-artifact@v4
