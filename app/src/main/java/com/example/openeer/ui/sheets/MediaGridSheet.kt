@@ -778,7 +778,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         setPadding(padding, padding, padding, padding)
                     }
                     val icon = ImageView(ctx).apply {
-                        setImageResource(android.R.drawable.ic_menu_attachment)
+                        setImageResource(R.drawable.ic_attachment)
                         layoutParams = LinearLayout.LayoutParams(
                             dp(ctx, 36),
                             dp(ctx, 36),

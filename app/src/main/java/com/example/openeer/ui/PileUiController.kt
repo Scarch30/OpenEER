@@ -47,7 +47,8 @@ class PileUiController(
             MediaCategory.PHOTO to "Photos/Vidéos",
             MediaCategory.AUDIO to "Audios",
             MediaCategory.TEXT to "Textes",
-            MediaCategory.SKETCH to "Fichiers",
+            MediaCategory.SKETCH to "Dessins",
+            MediaCategory.FILE to "Fichiers",
             MediaCategory.LOCATION to activity.getString(R.string.pile_label_locations),
         )
         val fallbackOrder = listOf(
@@ -75,7 +76,8 @@ class PileUiController(
                     MediaCategory.PHOTO -> lastPileCounts.photos
                     MediaCategory.AUDIO -> lastPileCounts.audios
                     MediaCategory.TEXT -> lastPileCounts.textes
-                    MediaCategory.SKETCH -> lastPileCounts.files
+                    MediaCategory.SKETCH -> lastPileCounts.files // A corriger si SKETCH a son propre compteur
+                    MediaCategory.FILE -> lastPileCounts.files
                     MediaCategory.LOCATION -> lastPileCounts.locations
                 }
                 pileCountViews[i].text = (countFromPiles ?: fallbackCount).toString()
