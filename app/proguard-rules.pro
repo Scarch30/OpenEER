@@ -11,9 +11,3 @@
 -keep class com.example.openeer.data.block.RoutePayload { *; }
 -keep class com.example.openeer.ui.library.MapData { *; }
 -keep class com.example.openeer.data.block.RoutePointPayload { *; }
-
-# Apache POI / ODFDOM
--keep class org.apache.poi.** { *; }
--keep class org.openxmlformats.** { *; }
--keep class org.apache.xmlbeans.** { *; }
--keep class org.odftoolkit.** { *; }

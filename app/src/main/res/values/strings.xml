@@ -166,19 +166,6 @@
     <string name="audio_viewer_default_title">Audio</string>
     <string name="audio_viewer_missing_file">Audio introuvable</string>
     <string name="audio_viewer_artwork_cd">Illustration audio</string>
-    <string name="file_viewer_loading">Chargement du fichier…</string>
-    <string name="file_viewer_error_generic">Impossible d’afficher ce fichier.</string>
-    <string name="file_viewer_error_conversion">Conversion impossible.</string>
-    <string name="file_viewer_error_missing">Fichier introuvable ou supprimé.</string>
-    <string name="file_viewer_open_elsewhere">Ouvrir ailleurs</string>
-    <string name="file_viewer_pdf_content_cd">Document PDF</string>
-    <string name="file_viewer_text_too_large">Affichage partiel (%1$s) – fichier volumineux.</string>
-    <string name="file_viewer_open_error">Aucune application trouvée pour ouvrir ce fichier.</string>
-    <string name="file_block_open">Ouvrir</string>
-    <string name="file_block_icon_cd">Icône de fichier</string>
-    <string name="file_block_default_name">Fichier</string>
-    <string name="file_block_size_unknown">Taille inconnue</string>
-    <string name="file_block_metadata_format">%1$s • %2$s</string>
 
     <string name="media_category_photo">Photos</string>
     <string name="media_category_sketch">Croquis</string>

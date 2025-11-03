@@ -42,7 +42,7 @@ class NoteBlockRenderer(
         visibleBlocks.forEach { block ->
             val view = when (block.type) {
                 BlockType.FILE ->
-                    BlockRenderers.createFileBlockView(container.context, block, margin)
+                    BlockRenderers.createUnsupportedBlockView(container.context, block, margin)
                 else -> null
             }
 
