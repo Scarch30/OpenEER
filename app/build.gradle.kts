@@ -101,9 +101,6 @@ dependencies {
     // --- Glide ---
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
-    // --- PDFBox Android ---
-    implementation("com.tom-roush:pdfbox-android:2.0.25.0")
-
     // --- CameraX 1.5.0 ---
     val camerax = "1.5.0"
     implementation("androidx.camera:camera-core:$camerax")
