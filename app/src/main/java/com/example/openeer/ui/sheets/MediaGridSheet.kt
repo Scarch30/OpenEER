@@ -60,6 +60,7 @@ import com.example.openeer.ui.viewer.AudioViewerActivity
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
+private const val GRID_TYPE_FILE  = 4
 private const val MENU_RENAME = 1
 private const val MENU_OPEN_IN_MAPS = 2
 private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
@@ -180,6 +181,43 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
         val adapter = MediaGridAdapter(
             onClick = { item ->
+                if (category == MediaCategory.FILE) {
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(item.blockId) }
+                        if (block == null || block.mediaUri.isNullOrBlank()) {
+                            Toast.makeText(requireContext(), R.string.media_missing_file, Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+
+                        // PDF a un viewer dédié
+                        if (block.mimeType == "application/pdf") {
+                            val intent = Intent(requireContext(), com.example.openeer.ui.viewer.PdfViewerActivity::class.java).apply {
+                                putExtra(com.example.openeer.ui.viewer.PdfViewerActivity.EXTRA_URI, block.mediaUri)
+                            }
+                            startActivity(intent)
+                        } else {
+                            // Autres fichiers: "Ouvrir avec"
+                            val file = java.io.File(block.mediaUri)
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                requireContext(),
+                                "${requireContext().packageName}.provider",
+                                file
+                            )
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, block.mimeType)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            try {
+                                startActivity(intent)
+                            } catch (e: android.content.ActivityNotFoundException) {
+                                Toast.makeText(requireContext(), "Aucune application ne peut ouvrir ce type de fichier", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    return@MediaGridAdapter
+                }
+
+
                 // 🔎 Comportement spécial pour la pile Carte
                 if (category == MediaCategory.LOCATION) {
                     val img = item as? MediaStripItem.Image ?: return@MediaGridAdapter
@@ -325,6 +363,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             MediaCategory.AUDIO  -> getString(R.string.media_category_audio)
             MediaCategory.TEXT   -> getString(R.string.media_category_text)
             MediaCategory.LOCATION -> getString(R.string.pile_label_locations)
+            MediaCategory.FILE -> getString(R.string.media_category_files)
         }
 
     private fun reloadItems() {
@@ -498,6 +537,19 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             } else null
                         }
 
+                        MediaCategory.FILE -> {
+                            if (block.type == BlockType.FILE) {
+                                MediaStripItem.Text(
+                                    blockId = block.id,
+                                    noteId = block.noteId,
+                                    content = block.childName ?: block.mediaUri ?: "Fichier",
+                                    isList = false,
+                                    childOrdinal = block.childOrdinal,
+                                    childName = block.childName,
+                                )
+                            } else null
+                        }
+
                         else -> null
                     }
                 }
@@ -512,11 +564,14 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         private val onLongClick: (View, MediaStripItem) -> Unit,
     ) : ListAdapter<MediaStripItem, RecyclerView.ViewHolder>(MEDIA_GRID_DIFF) {
 
-        override fun getItemViewType(position: Int): Int = when (getItem(position)) {
-            is MediaStripItem.Image -> GRID_TYPE_IMAGE
-            is MediaStripItem.Audio -> GRID_TYPE_AUDIO
-            is MediaStripItem.Text  -> GRID_TYPE_TEXT
-            is MediaStripItem.Pile  -> error("Pile items are not supported in the grid")
+        override fun getItemViewType(position: Int): Int = when {
+            category == MediaCategory.FILE -> GRID_TYPE_FILE
+            else -> when (getItem(position)) {
+                is MediaStripItem.Image -> GRID_TYPE_IMAGE
+                is MediaStripItem.Audio -> GRID_TYPE_AUDIO
+                is MediaStripItem.Text  -> GRID_TYPE_TEXT
+                is MediaStripItem.Pile  -> error("Pile items are not supported in the grid")
+            }
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -712,6 +767,41 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     TextHolder(card, text, badge, counter, rightStrip, listBadge, label)
                 }
 
+                GRID_TYPE_FILE -> {
+                    val card = createCard(ctx)
+                    val root = FrameLayout(ctx)
+
+                    val container = LinearLayout(ctx).apply {
+                        orientation = LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER
+                        val padding = dp(ctx, 16)
+                        setPadding(padding, padding, padding, padding)
+                    }
+                    val icon = ImageView(ctx).apply {
+                        setImageResource(android.R.drawable.ic_menu_attachment)
+                        layoutParams = LinearLayout.LayoutParams(
+                            dp(ctx, 36),
+                            dp(ctx, 36),
+                        )
+                    }
+                    val text = TextView(ctx).apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        ).apply { topMargin = dp(ctx, 12) }
+                        textSize = 16f
+                        maxLines = 2
+                        ellipsize = TextUtils.TruncateAt.END
+                    }
+                    container.addView(icon)
+                    container.addView(text)
+                    val label = createChildLabel(ctx)
+                    root.addView(container)
+                    root.addView(label)
+                    card.addView(root)
+                    FileHolder(card, text, label)
+                }
+
                 else -> throw IllegalStateException("Unknown view type $viewType")
             }
         }
@@ -722,6 +812,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 is ImageHolder -> holder.bind(item as MediaStripItem.Image)
                 is AudioHolder -> holder.bind(item as MediaStripItem.Audio)
                 is TextHolder  -> holder.bind(item as MediaStripItem.Text)
+                is FileHolder  -> holder.bind(item as MediaStripItem.Text)
             }
         }
 
@@ -855,6 +946,23 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 }
 
                 listBadge.isVisible = item.isList
+                bindChildLabel(label, item)
+
+                card.setOnClickListener { onClick(item) }
+                card.setOnLongClickListener {
+                    onLongClick(it, item)
+                    true
+                }
+            }
+        }
+
+        inner class FileHolder(
+            private val card: MaterialCardView,
+            private val name: TextView,
+            private val label: TextView,
+        ) : RecyclerView.ViewHolder(card) {
+            fun bind(item: MediaStripItem.Text) {
+                name.text = item.content
                 bindChildLabel(label, item)
 
                 card.setOnClickListener { onClick(item) }

@@ -9,4 +9,5 @@ enum class MediaCategory {
     AUDIO,
     TEXT,
     LOCATION,
+    FILE,
 }

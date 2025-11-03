@@ -82,6 +82,11 @@
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
 
         <activity
+            android:name=".ui.viewer.PdfViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
+
+        <activity
             android:name=".ui.PhotoViewerActivity"
             android:exported="false"
             android:theme="@style/Theme.Material3.DayNight.NoActionBar" />
