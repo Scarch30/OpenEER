@@ -6,10 +6,10 @@ L’activité `FileViewerActivity` propose une vue immersive avec toolbar partag
 
 | Format | Délégation | Remarques |
 | --- | --- | --- |
-| PDF (`application/pdf`) | `PdfViewerFragment` (`com.github.mhiew:android-pdf-viewer`) | Les fichiers `content://` sont copiés en cache avant affichage pour la bibliothèque. |
+| PDF (`application/pdf`) | `PdfViewerFragment` (`com.github.barteksc:android-pdf-viewer`) | Les fichiers `content://` sont copiés en cache avant affichage pour la bibliothèque. |
 | Texte (`text/plain`, `text/*`) | `TextViewerFragment` | Lecture streaming (1 MiB max affiché) avec auto-détection UTF-8 → ISO-8859-1. Un toast indique les fichiers tronqués. |
 | DOC/DOCX (`application/msword`, `…document`) | `DocumentViewerFragment` + Apache POI (HWPF/XWPF) | Conversion en HTML simplifié affiché dans un `WebView`. |
-| ODT (`application/vnd.oasis.opendocument.text`) | `DocumentViewerFragment` + Apache ODF Toolkit | Extraction simple du texte avec stylage basique. |
+| ODT (`application/vnd.oasis.opendocument.text`) | `DocumentViewerFragment` + ODFDOM | Extraction simple du texte avec stylage basique. |
 | RTF (`application/rtf`, `text/rtf`) | `DocumentViewerFragment` | Parsing léger des commandes RTF pour obtenir du texte brut. |
 | Image (extensions/mime `image/*`) | Redirigé vers `PhotoViewerActivity` | Évite la duplication et conserve les interactions existantes. |
 
@@ -27,9 +27,9 @@ L’activité `FileViewerActivity` propose une vue immersive avec toolbar partag
 
 ## Dépendances
 
-* `com.github.mhiew:android-pdf-viewer:3.2.0-beta.3`
+* `com.github.barteksc:android-pdf-viewer:3.2.0-beta.1`
 * `org.apache.poi:poi`, `poi-ooxml`, `poi-scratchpad`
-* `org.apache.odftoolkit:simple-odf`
+* `fr.opensagres.xdocreport:odfdom-jnl`
 * `androidx.webkit:webkit` pour `WebViewAssetLoader`
 
 Les règles de minification correspondantes sont ajoutées dans `app/proguard-rules.pro`.

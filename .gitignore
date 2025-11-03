@@ -2,8 +2,6 @@
 *.iml
 .gradle/
 local.properties
-.android-sdk/
-android-sdk/
 .idea/
 .DS_Store
 build/
