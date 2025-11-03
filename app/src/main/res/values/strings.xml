@@ -453,12 +453,6 @@
     <string name="media_action_play">Lecture</string>
     <string name="media_action_pause">Pause</string>
 
-    <string name="doc_viewer_title">Document</string>
-    <string name="doc_unknown_type">Type de document non pris en charge</string>
-    <string name="doc_open_error">Ouverture du document impossible</string>
-    <string name="doc_share">Partager</string>
-    <string name="doc_open_with">Ouvrir avec…</string>
-    <string name="doc_pages_count">%1$d page(s)</string>
 
 
 
