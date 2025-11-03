@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.Typeface
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -19,6 +20,7 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.example.openeer.R
 import com.example.openeer.data.block.BlockType
+import com.example.openeer.ui.panel.media.MediaStripItem.File
 import com.google.android.material.card.MaterialCardView
 import java.util.concurrent.TimeUnit
 

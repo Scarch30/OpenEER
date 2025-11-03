@@ -19,6 +19,8 @@ import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.sheets.ChildPostitSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import com.example.openeer.ui.viewer.VideoPlayerActivity
+import com.example.openeer.ui.viewer.DocumentViewerActivity
+import com.example.openeer.ui.panel.media.MediaStripItem.File
 import com.google.gson.Gson
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -324,7 +326,7 @@ class MediaActions(
             is MediaStripItem.Image -> shareFile(item.mediaUri, item.mimeType ?: inferImageOrVideoMime(item))
             is MediaStripItem.Audio -> shareFile(item.mediaUri, item.mimeType ?: "audio/*")
             is MediaStripItem.Text  -> shareText(item.content)
-            is MediaStripItem.File -> shareFile(item.mediaUri, item.mimeType ?: "application/octet-stream")
+            is MediaStripItem.File -> item.mediaUri?.let { shareFile(it, item.mimeType ?: "application/octet-stream") }
         }
     }
 
@@ -397,7 +399,8 @@ class MediaActions(
                             blocksRepo.deleteBlock(item.blockId)
                         }
                         is MediaStripItem.File -> {
-                            deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
+                            item.mediaUri?.let { deleteMediaFile(it) }
+                            blocksRepo.deleteBlock(item.blockId)
                         }
                         is MediaStripItem.Pile -> Unit
                     }
