@@ -42,7 +42,8 @@ class MediaStripAdapter(
         private const val TYPE_IMAGE = 0
         private const val TYPE_AUDIO = 1
         private const val TYPE_TEXT  = 2
-        private const val TYPE_PILE  = 3
+        private const val TYPE_FILE = 3
+        private const val TYPE_PILE  = 4
 
         private val DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
             override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
@@ -63,6 +64,7 @@ class MediaStripAdapter(
         is MediaStripItem.Image -> TYPE_IMAGE
         is MediaStripItem.Audio -> TYPE_AUDIO
         is MediaStripItem.Text -> TYPE_TEXT
+        is MediaStripItem.File -> TYPE_FILE
         is MediaStripItem.Pile -> TYPE_PILE
     }
 
@@ -70,6 +72,7 @@ class MediaStripAdapter(
         when (viewType) {
             TYPE_AUDIO -> createAudioHolder(parent)
             TYPE_TEXT  -> createTextHolder(parent)
+            TYPE_FILE -> createFileHolder(parent)
             TYPE_PILE  -> createPileHolder(parent)
             else       -> createImageHolder(parent)
         }
@@ -80,6 +83,7 @@ class MediaStripAdapter(
             is ImageHolder -> holder.bind(item)
             is AudioHolder -> holder.bind(item)
             is TextHolder  -> holder.bind(item)
+            is FileHolder -> holder.bind(item)
             is PileHolder  -> holder.bind(item as MediaStripItem.Pile)
         }
     }
@@ -245,6 +249,51 @@ class MediaStripAdapter(
         return TextHolder(card, preview, badgeLabel, pileBadge, listBadge, childLabel)
     }
 
+    private fun createFileHolder(parent: ViewGroup): FileHolder {
+        val ctx = parent.context
+        val card = squareCard(ctx)
+        val container = FrameLayout(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        val column = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        val icon = ImageView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                dp(ctx, 36), dp(ctx, 36)
+            )
+            contentDescription = "File"
+        }
+        val name = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(ctx, 8) }
+            textSize = 12f
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val badge = createBadge(ctx)
+        val label = createChildLabel(ctx)
+
+        column.addView(icon)
+        column.addView(name)
+        container.addView(column)
+        container.addView(badge)
+        container.addView(label)
+        card.addView(container)
+
+        return FileHolder(card, icon, name, badge, label)
+    }
+
     private fun createPileHolder(parent: ViewGroup): PileHolder {
         val ctx = parent.context
         val card = squareCard(ctx)
@@ -332,6 +381,33 @@ class MediaStripAdapter(
         textLayout.addView(textLabel)
         textLayout.addView(textPreview)
 
+        val fileLayout = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            isVisible = false
+        }
+        val fileIcon = ImageView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                dp(ctx, 36), dp(ctx, 36)
+            )
+            contentDescription = "File"
+        }
+        val fileName = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(ctx, 8) }
+            textSize = 12f
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        fileLayout.addView(fileIcon)
+        fileLayout.addView(fileName)
+
         val badge = createBadge(ctx)
         val play = createPlayOverlay(ctx) // ▶ overlay si cover est vidéo
         val label = createChildLabel(ctx)
@@ -339,12 +415,13 @@ class MediaStripAdapter(
         container.addView(image)
         container.addView(audioLayout)
         container.addView(textLayout)
+        container.addView(fileLayout)
         container.addView(badge)
         container.addView(play)
         container.addView(label)
         card.addView(container)
 
-        return PileHolder(card, image, audioLayout, audioDuration, textLayout, textPreview, badge, play, label)
+        return PileHolder(card, image, audioLayout, audioDuration, textLayout, textPreview, fileLayout, fileIcon, fileName, badge, play, label)
     }
 
     // --- View holders ---
@@ -371,6 +448,38 @@ class MediaStripAdapter(
 
             bindBadge(badge, item)
             play.isVisible = display.type == BlockType.VIDEO
+            bindChildLabel(label, item)
+
+            card.setOnClickListener { onClick(item) }
+            card.setOnLongClickListener {
+                onLongPress(it, item)
+                true
+            }
+        }
+    }
+
+    inner class FileHolder(
+        val card: MaterialCardView,
+        private val icon: ImageView,
+        private val name: TextView,
+        private val badge: TextView,
+        private val label: TextView,
+    ) : RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem) {
+            val display = when (item) {
+                is MediaStripItem.File -> item
+                is MediaStripItem.Pile -> item.cover as? MediaStripItem.File
+                else -> null
+            } ?: return
+
+            name.text = display.childName ?: "Fichier"
+            val iconRes = if (display.mimeType == "application/pdf") {
+                R.drawable.ic_file_pdf
+            } else {
+                R.drawable.ic_file_text
+            }
+            icon.setImageResource(iconRes)
+            bindBadge(badge, item)
             bindChildLabel(label, item)
 
             card.setOnClickListener { onClick(item) }
@@ -457,6 +566,9 @@ class MediaStripAdapter(
         private val audioText: TextView,
         private val textLayout: LinearLayout,
         private val textPreview: TextView,
+        private val fileLayout: LinearLayout,
+        private val fileIcon: ImageView,
+        private val fileName: TextView,
         private val badge: TextView,
         private val play: ImageView,
         private val label: TextView,
@@ -469,6 +581,7 @@ class MediaStripAdapter(
             image.isVisible = false
             audioLayout.isVisible = false
             textLayout.isVisible = false
+            fileLayout.isVisible = false
             play.isVisible = false
 
             when (val cover = item.cover) {
@@ -488,6 +601,16 @@ class MediaStripAdapter(
                 is MediaStripItem.Text -> {
                     textLayout.isVisible = true
                     textPreview.text = cover.preview.ifBlank { "…" }
+                }
+                is MediaStripItem.File -> {
+                    fileLayout.isVisible = true
+                    fileName.text = cover.childName ?: "Fichier"
+                    val iconRes = if (cover.mimeType == "application/pdf") {
+                        R.drawable.ic_file_pdf
+                    } else {
+                        R.drawable.ic_file_text
+                    }
+                    fileIcon.setImageResource(iconRes)
                 }
                 is MediaStripItem.Pile -> Unit
             }
