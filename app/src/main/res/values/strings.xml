@@ -167,7 +167,7 @@
     <string name="audio_viewer_missing_file">Audio introuvable</string>
     <string name="audio_viewer_artwork_cd">Illustration audio</string>
 
-    <string name="document_viewer_error_open">Impossible d’ouvrir le document.</string>
+    <string name="document_viewer_error_open">Impossible d&#39;ouvrir le document.</string>
     <string name="document_viewer_default_title">Document</string>
     <string name="document_viewer_page_label">Page %1$d / %2$d</string>
     <string name="document_viewer_page_content_description">Page %1$d sur %2$d</string>
@@ -201,7 +201,7 @@
     <string name="sketch_shape_triangle">Triangle</string>
     <string name="sketch_shape_star">Étoile</string>
     <string name="sketch_shape_filled">Remplir la forme</string>
-    <string name="sketch_eraser_hint">Ajustez l’épaisseur de la gomme</string>
+    <string name="sketch_eraser_hint">Ajustez l\u0027épaisseur de la gomme</string>
     <string name="sketch_color_picker_title">Choisir une couleur</string>
     <string name="sketch_hue">Teinte</string>
     <string name="sketch_saturation">Saturation</string>
