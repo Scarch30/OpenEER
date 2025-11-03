@@ -60,7 +60,6 @@ import com.example.openeer.ui.viewer.AudioViewerActivity
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
-private const val GRID_TYPE_FILE = 4
 private const val MENU_RENAME = 1
 private const val MENU_OPEN_IN_MAPS = 2
 private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
@@ -280,21 +279,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             mediaActions.handleClick(item)
                         }
                     }
-                    is MediaStripItem.File -> {
-                        val uriStr = item.mediaUri
-                        if (uriStr.isBlank()) {
-                            Toast.makeText(requireContext(), R.string.media_missing_file, Toast.LENGTH_SHORT).show()
-                        } else {
-                            val intent = Intent(requireContext(), com.example.openeer.ui.viewer.DocumentViewerActivity::class.java).apply {
-                                data = Uri.parse(uriStr)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            startActivity(intent)
-                        }
-                    }
-                    is MediaStripItem.Text -> {
-                        mediaActions.handleClick(item)
-                    }
                     else -> mediaActions.handleClick(item)
                 }
             },
@@ -341,7 +325,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             MediaCategory.AUDIO  -> getString(R.string.media_category_audio)
             MediaCategory.TEXT   -> getString(R.string.media_category_text)
             MediaCategory.LOCATION -> getString(R.string.pile_label_locations)
-            MediaCategory.FILES -> "Fichiers"
         }
 
     private fun reloadItems() {
@@ -515,20 +498,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             } else null
                         }
 
-                        MediaCategory.FILES -> {
-                            if (block.type == BlockType.FILE) {
-                                block.mediaUri?.takeIf { it.isNotBlank() }?.let { uri ->
-                                    MediaStripItem.File(
-                                        blockId = block.id,
-                                        mediaUri = uri,
-                                        mimeType = block.mimeType,
-                                        childOrdinal = block.childOrdinal,
-                                        childName = block.childName,
-                                    )
-                                }
-                            } else null
-                        }
-
                         else -> null
                     }
                 }
@@ -547,43 +516,12 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             is MediaStripItem.Image -> GRID_TYPE_IMAGE
             is MediaStripItem.Audio -> GRID_TYPE_AUDIO
             is MediaStripItem.Text  -> GRID_TYPE_TEXT
-            is MediaStripItem.File -> GRID_TYPE_FILE
             is MediaStripItem.Pile  -> error("Pile items are not supported in the grid")
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val ctx = parent.context
             return when (viewType) {
-                GRID_TYPE_FILE -> {
-                    val card = createCard(ctx)
-                    val root = FrameLayout(ctx)
-                    val container = LinearLayout(ctx).apply {
-                        orientation = LinearLayout.VERTICAL
-                        gravity = Gravity.CENTER
-                        val padding = dp(ctx, 16)
-                        setPadding(padding, padding, padding, padding)
-                    }
-                    val icon = ImageView(ctx).apply {
-                        layoutParams = LinearLayout.LayoutParams(
-                            dp(ctx, 48),
-                            dp(ctx, 48),
-                        )
-                    }
-                    val text = TextView(ctx).apply {
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                        ).apply { topMargin = dp(ctx, 12) }
-                        textSize = 14f
-                        maxLines = 2
-                        ellipsize = TextUtils.TruncateAt.END
-                    }
-                    container.addView(icon)
-                    container.addView(text)
-                    root.addView(container)
-                    card.addView(root)
-                    FileHolder(card, icon, text)
-                }
                 GRID_TYPE_IMAGE -> {
                     val card = createCard(ctx)
                     val root = FrameLayout(ctx)
@@ -784,29 +722,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 is ImageHolder -> holder.bind(item as MediaStripItem.Image)
                 is AudioHolder -> holder.bind(item as MediaStripItem.Audio)
                 is TextHolder  -> holder.bind(item as MediaStripItem.Text)
-                is FileHolder -> holder.bind(item as MediaStripItem.File)
-            }
-        }
-
-        inner class FileHolder(
-            private val card: MaterialCardView,
-            private val icon: ImageView,
-            private val name: TextView,
-        ) : RecyclerView.ViewHolder(card) {
-            fun bind(item: MediaStripItem.File) {
-                name.text = item.childName ?: "Fichier"
-                val iconRes = if (item.mimeType == "application/pdf") {
-                    R.drawable.ic_file_pdf
-                } else {
-                    R.drawable.ic_file_text
-                }
-                icon.setImageResource(iconRes)
-
-                card.setOnClickListener { onClick(item) }
-                card.setOnLongClickListener {
-                    onLongClick(it, item)
-                    true
-                }
             }
         }
 
