@@ -81,6 +81,7 @@ class NotePanelMediaController(
         val sketchItems = mutableListOf<MediaStripItem.Image>()
         val audioItems = mutableListOf<MediaStripItem.Audio>()
         val textItems = mutableListOf<MediaStripItem.Text>()
+        val fileItems = mutableListOf<MediaStripItem.Text>()
         val mapBlocks = blocks.filter { it.type == BlockType.LOCATION || it.type == BlockType.ROUTE }
 
         var transcriptsLinkedToAudio = 0
@@ -147,6 +148,16 @@ class NotePanelMediaController(
                         }
                     }
                 }
+                BlockType.FILE -> {
+                    fileItems += MediaStripItem.Text(
+                        blockId = block.id,
+                        noteId = block.noteId,
+                        content = block.childName ?: block.mediaUri ?: "Fichier",
+                        isList = false,
+                        childOrdinal = block.childOrdinal,
+                        childName = block.childName,
+                    )
+                }
                 else -> Unit
             }
         }
@@ -169,6 +180,10 @@ class NotePanelMediaController(
             if (textItems.isNotEmpty()) {
                 val sortedStandalone = textItems.sortedByDescending { it.blockId }
                 add(MediaStripItem.Pile(MediaCategory.TEXT, sortedStandalone.size, sortedStandalone.first()))
+            }
+            if (fileItems.isNotEmpty()) {
+                val sorted = fileItems.sortedByDescending { it.blockId }
+                add(MediaStripItem.Pile(MediaCategory.FILE, sorted.size, sorted.first()))
             }
             if (mapBlocks.isNotEmpty()) {
                 val sorted = mapBlocks.sortedByDescending { it.id }

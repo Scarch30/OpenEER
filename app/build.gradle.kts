@@ -137,4 +137,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // PDF viewer
+    implementation("com.github.mhiew:android-pdf-viewer:3.2.0-beta.1")
 }

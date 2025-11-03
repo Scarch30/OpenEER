@@ -171,6 +171,7 @@
     <string name="media_category_sketch">Croquis</string>
     <string name="media_category_audio">Audios</string>
     <string name="media_category_text">Post-it</string>
+    <string name="media_category_files">Fichiers</string>
     <string name="media_grid_title_format">%1$s (%2$d)</string>
 
     <string name="sketch_tool_pen">Stylo</string>
