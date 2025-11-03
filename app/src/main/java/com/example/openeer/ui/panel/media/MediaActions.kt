@@ -18,6 +18,7 @@ import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.sheets.ChildPostitSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
+import com.example.openeer.ui.viewer.DocumentViewerActivity
 import com.example.openeer.ui.viewer.VideoPlayerActivity
 import com.google.gson.Gson
 import kotlinx.coroutines.*
@@ -151,6 +152,26 @@ class MediaActions(
 
                             activity.startActivity(intent)
                         }
+                    }
+
+                    BlockType.FILE -> {
+                        val mime = item.mimeType
+                        val uri = item.mediaUri
+                        if (!isPdfMime(mime, uri)) {
+                            Toast.makeText(
+                                activity,
+                                activity.getString(R.string.media_open_failed),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return
+                        }
+
+                        val intent = DocumentViewerActivity.newIntent(
+                            activity,
+                            uri,
+                            item.childName
+                        )
+                        activity.startActivity(intent)
                     }
 
 
@@ -432,5 +453,15 @@ class MediaActions(
         const val MENU_DELETE = 2
         const val MENU_RENAME = 3
         const val MENU_OPEN_IN_MAPS = 4
+    }
+
+    private fun isPdfMime(mimeType: String?, uri: String?): Boolean {
+        if (mimeType?.startsWith("application/pdf", ignoreCase = true) == true) return true
+        val sanitized = uri
+            ?.substringBefore('#')
+            ?.substringBefore('?')
+            ?.substringAfterLast('/')
+        val extension = sanitized?.substringAfterLast('.', "")
+        return extension.equals("pdf", ignoreCase = true)
     }
 }

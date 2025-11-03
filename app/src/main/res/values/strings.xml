@@ -167,6 +167,15 @@
     <string name="audio_viewer_missing_file">Audio introuvable</string>
     <string name="audio_viewer_artwork_cd">Illustration audio</string>
 
+    <string name="document_viewer_error_open">Impossible d&#39;ouvrir le document.</string>
+    <string name="document_viewer_default_title">Document</string>
+    <string name="document_viewer_page_label">Page %1$d / %2$d</string>
+    <string name="document_viewer_page_content_description">Page %1$d sur %2$d</string>
+    <plurals name="document_viewer_page_count">
+        <item quantity="one">%d page</item>
+        <item quantity="other">%d pages</item>
+    </plurals>
+
     <string name="media_category_photo">Photos</string>
     <string name="media_category_sketch">Croquis</string>
     <string name="media_category_audio">Audios</string>
