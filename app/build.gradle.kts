@@ -139,5 +139,5 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // PDF viewer
-    implementation("com.github.barteksc:android-pdf-viewer:2.8.2")
+    implementation("com.github.mhiew:android-pdf-viewer:3.2.0-beta.1")
 }

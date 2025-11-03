@@ -12,7 +12,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        jcenter()
         maven(url = "https://jitpack.io")
         // Dépôts Maven habituels uniquement, le modèle Vosk est fourni via assets.
     }
