@@ -47,14 +47,14 @@ class PileUiController(
             MediaCategory.PHOTO to "Photos/Vidéos",
             MediaCategory.AUDIO to "Audios",
             MediaCategory.TEXT to "Textes",
-            MediaCategory.SKETCH to "Fichiers",
+            MediaCategory.FILES to "Fichiers",
             MediaCategory.LOCATION to activity.getString(R.string.pile_label_locations),
         )
         val fallbackOrder = listOf(
             MediaCategory.PHOTO,
             MediaCategory.AUDIO,
             MediaCategory.TEXT,
-            MediaCategory.SKETCH,
+            MediaCategory.FILES,
             MediaCategory.LOCATION,
         )
         val orderedCategories = buildList {
@@ -75,8 +75,9 @@ class PileUiController(
                     MediaCategory.PHOTO -> lastPileCounts.photos
                     MediaCategory.AUDIO -> lastPileCounts.audios
                     MediaCategory.TEXT -> lastPileCounts.textes
-                    MediaCategory.SKETCH -> lastPileCounts.files
+                    MediaCategory.FILES -> lastPileCounts.files
                     MediaCategory.LOCATION -> lastPileCounts.locations
+                    else -> 0
                 }
                 pileCountViews[i].text = (countFromPiles ?: fallbackCount).toString()
             }
