@@ -5,13 +5,13 @@ import android.os.Bundle
 import androidx.annotation.LayoutRes
 import androidx.fragment.app.Fragment
 
-internal interface FileViewerHost {
+interface FileViewerHost {
     fun onViewerLoading(message: CharSequence? = null)
     fun onViewerReady(secondaryMessage: CharSequence? = null)
     fun onViewerError(message: CharSequence?, throwable: Throwable? = null)
 }
 
-internal abstract class FileViewerFragment(@LayoutRes layoutId: Int) : Fragment(layoutId) {
+abstract class FileViewerFragment(@LayoutRes layoutId: Int) : Fragment(layoutId) {
 
     protected fun fileUri(): Uri = Uri.parse(requireArguments().getString(ARG_URI))
     protected fun displayName(): String? = requireArguments().getString(ARG_DISPLAY_NAME)
