@@ -14,9 +14,6 @@ import org.odftoolkit.odfdom.doc.OdfTextDocument
 import java.io.InputStream
 import org.apache.poi.hwpf.extractor.WordExtractor
 import java.lang.Exception
-import org.apache.tika.parser.rtf.RTFParser
-import org.apache.tika.metadata.Metadata
-import org.apache.tika.sax.BodyContentHandler
 
 
 class TextViewerActivity : AppCompatActivity() {
@@ -56,7 +53,7 @@ class TextViewerActivity : AppCompatActivity() {
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> extractTextFromDocx(stream)
                     "application/msword" -> extractTextFromDoc(stream)
                     "application/vnd.oasis.opendocument.text" -> extractTextFromOdt(stream)
-                    "application/rtf" -> extractTextFromRtf(stream)
+                    "application/rtf" -> extractTextFromDoc(stream)
                     else -> "Unsupported file type: ${intent.type}"
                 }
             } ?: "Error: Could not open file."
@@ -91,23 +88,14 @@ class TextViewerActivity : AppCompatActivity() {
     private fun extractTextFromOdt(inputStream: InputStream): String {
         return try {
             val doc = OdfTextDocument.loadDocument(inputStream)
-            doc.getVariableContainer().getVariableDeclarations(true).toString()
+            val sb = StringBuilder()
+            doc.textRoot.textContent.lines().forEach { line ->
+                sb.append(line).append("\n")
+            }
+            sb.toString()
         } catch (e: Exception) {
             Log.e("TextViewerActivity", "Error reading odt", e)
             "Error: Could not read odt file."
-        }
-    }
-
-    private fun extractTextFromRtf(inputStream: InputStream): String {
-        return try {
-            val handler = BodyContentHandler()
-            val parser = RTFParser()
-            val metadata = Metadata()
-            parser.parse(inputStream, handler, metadata, org.apache.tika.parser.ParseContext())
-            handler.toString()
-        } catch (e: Exception) {
-            Log.e("TextViewerActivity", "Error reading rtf", e)
-            "Error: Could not read rtf file."
         }
     }
 }
