@@ -539,11 +539,10 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
                         MediaCategory.FILE -> {
                             if (block.type == BlockType.FILE) {
-                                MediaStripItem.Text(
+                                MediaStripItem.File(
                                     blockId = block.id,
                                     noteId = block.noteId,
-                                    content = block.childName ?: block.mediaUri ?: "Fichier",
-                                    isList = false,
+                                    displayName = block.childName ?: "Fichier",
                                     childOrdinal = block.childOrdinal,
                                     childName = block.childName,
                                 )
@@ -564,14 +563,12 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         private val onLongClick: (View, MediaStripItem) -> Unit,
     ) : ListAdapter<MediaStripItem, RecyclerView.ViewHolder>(MEDIA_GRID_DIFF) {
 
-        override fun getItemViewType(position: Int): Int = when {
-            category == MediaCategory.FILE -> GRID_TYPE_FILE
-            else -> when (getItem(position)) {
-                is MediaStripItem.Image -> GRID_TYPE_IMAGE
-                is MediaStripItem.Audio -> GRID_TYPE_AUDIO
-                is MediaStripItem.Text  -> GRID_TYPE_TEXT
-                is MediaStripItem.Pile  -> error("Pile items are not supported in the grid")
-            }
+        override fun getItemViewType(position: Int): Int = when (getItem(position)) {
+            is MediaStripItem.Image -> GRID_TYPE_IMAGE
+            is MediaStripItem.Audio -> GRID_TYPE_AUDIO
+            is MediaStripItem.Text -> GRID_TYPE_TEXT
+            is MediaStripItem.File -> GRID_TYPE_FILE
+            is MediaStripItem.Pile -> error("Pile items are not supported in the grid")
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -811,8 +808,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             when (holder) {
                 is ImageHolder -> holder.bind(item as MediaStripItem.Image)
                 is AudioHolder -> holder.bind(item as MediaStripItem.Audio)
-                is TextHolder  -> holder.bind(item as MediaStripItem.Text)
-                is FileHolder  -> holder.bind(item as MediaStripItem.Text)
+                is TextHolder -> holder.bind(item as MediaStripItem.Text)
+                is FileHolder -> holder.bind(item as MediaStripItem.File)
             }
         }
 

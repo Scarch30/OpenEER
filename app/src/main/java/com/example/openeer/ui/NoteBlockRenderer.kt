@@ -40,9 +40,10 @@ class NoteBlockRenderer(
         var hasRenderable = false
 
         visibleBlocks.forEach { block ->
-            val view = when (block.type) {
-                BlockType.FILE -> null
-                else -> null
+            val view = if (block.type == BlockType.FILE) {
+                null
+            } else {
+                BlockRenderers.render(container.context, block, margin)
             }
 
             if (view != null) {
