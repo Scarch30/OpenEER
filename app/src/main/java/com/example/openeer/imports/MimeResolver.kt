@@ -59,15 +59,29 @@ object MimeResolver {
 
     private const val PDF_MIME = "application/pdf"
 
-    fun kindOf(mime: String?): MediaKind {
+    fun kindOf(mime: String?, uri: Uri? = null): MediaKind {
         val normalized = mime?.lowercase()?.trim()
-        return when {
+        val fromMime = when {
             normalized == null -> MediaKind.UNKNOWN
             normalized in IMAGE_MIMES -> MediaKind.IMAGE
             normalized in VIDEO_MIMES -> MediaKind.VIDEO
             normalized in AUDIO_MIMES -> MediaKind.AUDIO
             normalized in TEXT_MIMES -> MediaKind.TEXT
             normalized == PDF_MIME -> MediaKind.PDF
+            normalized == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> MediaKind.TEXT
+            normalized == "application/msword" -> MediaKind.TEXT
+            normalized == "application/vnd.oasis.opendocument.text" -> MediaKind.TEXT
+            normalized == "application/rtf" -> MediaKind.TEXT
+            else -> MediaKind.UNKNOWN
+        }
+
+        if (fromMime != MediaKind.UNKNOWN) {
+            return fromMime
+        }
+
+        val extension = uri?.let { MimeTypeMap.getFileExtensionFromUrl(it.toString())?.lowercase() }
+        return when (extension) {
+            "doc", "docx", "odt", "rtf", "txt", "md" -> MediaKind.TEXT
             else -> MediaKind.UNKNOWN
         }
     }
