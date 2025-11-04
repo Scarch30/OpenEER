@@ -1,7 +1,6 @@
 package com.example.openeer.ui
 
 import android.view.View
-import android.view.View
 import androidx.core.view.isGone
 import androidx.lifecycle.LifecycleOwner
 import androidx.recyclerview.widget.LinearLayoutManager
