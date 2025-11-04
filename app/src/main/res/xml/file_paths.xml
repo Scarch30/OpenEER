@@ -22,4 +22,9 @@
     <external-files-path
         name="recordings_external"
         path="recordings/" />
+
+    <!-- Documents importés -->
+    <files-path
+        name="imports"
+        path="imports/" />
 </paths>
