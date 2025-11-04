@@ -41,8 +41,9 @@ class MediaStripAdapter(
     companion object {
         private const val TYPE_IMAGE = 0
         private const val TYPE_AUDIO = 1
-        private const val TYPE_TEXT  = 2
-        private const val TYPE_PILE  = 3
+        private const val TYPE_TEXT = 2
+        private const val TYPE_PILE = 3
+        private const val TYPE_FILE = 4
 
         private val DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
             override fun areItemsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
@@ -50,6 +51,38 @@ class MediaStripAdapter(
 
             override fun areContentsTheSame(oldItem: MediaStripItem, newItem: MediaStripItem): Boolean =
                 oldItem == newItem
+        }
+    }
+
+    inner class FileHolder(
+        val card: MaterialCardView,
+        private val preview: TextView,
+        private val badge: TextView,
+        private val childLabel: TextView,
+    ) : RecyclerView.ViewHolder(card) {
+        fun bind(item: MediaStripItem) {
+            val display = when (item) {
+                is MediaStripItem.File -> item
+                is MediaStripItem.Pile -> item.cover as? MediaStripItem.File
+                else -> null
+            }
+
+            if (display == null) {
+                preview.text = ""
+                bindBadge(badge, item)
+                bindChildLabel(childLabel, item)
+                return
+            }
+
+            preview.text = display.displayName.ifBlank { "…" }
+            bindBadge(badge, item)
+            bindChildLabel(childLabel, item)
+
+            card.setOnClickListener { onClick(item) }
+            card.setOnLongClickListener {
+                onLongPress(it, item)
+                true
+            }
         }
     }
 
@@ -63,15 +96,17 @@ class MediaStripAdapter(
         is MediaStripItem.Image -> TYPE_IMAGE
         is MediaStripItem.Audio -> TYPE_AUDIO
         is MediaStripItem.Text -> TYPE_TEXT
+        is MediaStripItem.File -> TYPE_FILE
         is MediaStripItem.Pile -> TYPE_PILE
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
         when (viewType) {
             TYPE_AUDIO -> createAudioHolder(parent)
-            TYPE_TEXT  -> createTextHolder(parent)
-            TYPE_PILE  -> createPileHolder(parent)
-            else       -> createImageHolder(parent)
+            TYPE_TEXT -> createTextHolder(parent)
+            TYPE_FILE -> createFileHolder(parent)
+            TYPE_PILE -> createPileHolder(parent)
+            else -> createImageHolder(parent)
         }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
@@ -79,8 +114,9 @@ class MediaStripAdapter(
         when (holder) {
             is ImageHolder -> holder.bind(item)
             is AudioHolder -> holder.bind(item)
-            is TextHolder  -> holder.bind(item)
-            is PileHolder  -> holder.bind(item as MediaStripItem.Pile)
+            is TextHolder -> holder.bind(item)
+            is FileHolder -> holder.bind(item)
+            is PileHolder -> holder.bind(item as MediaStripItem.Pile)
         }
     }
 
@@ -243,6 +279,62 @@ class MediaStripAdapter(
         card.addView(container)
 
         return TextHolder(card, preview, badgeLabel, pileBadge, listBadge, childLabel)
+    }
+
+    private fun createFileHolder(parent: ViewGroup): FileHolder {
+        val ctx = parent.context
+        val card = squareCard(ctx)
+        val container = FrameLayout(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        val column = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setPadding(dp(ctx, 8), dp(ctx, 8), dp(ctx, 8), dp(ctx, 8))
+        }
+
+        val badgeLabel = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            text = ctx.getString(R.string.media_text_badge_import)
+            textSize = 10f
+            setPadding(dp(ctx, 6), dp(ctx, 2), dp(ctx, 6), dp(ctx, 2))
+            setBackgroundColor(0xFF9E9E9E.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        val preview = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            ).apply { topMargin = dp(ctx, 6) }
+            textSize = 13f
+            maxLines = 3
+            isSingleLine = false
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+
+        val pileBadge = createBadge(ctx)
+        val childLabel = createChildLabel(ctx)
+
+        column.addView(badgeLabel)
+        column.addView(preview)
+        container.addView(column)
+        container.addView(pileBadge)
+        container.addView(childLabel)
+        card.addView(container)
+
+        return FileHolder(card, preview, pileBadge, childLabel)
     }
 
     private fun createPileHolder(parent: ViewGroup): PileHolder {
@@ -488,6 +580,10 @@ class MediaStripAdapter(
                 is MediaStripItem.Text -> {
                     textLayout.isVisible = true
                     textPreview.text = cover.preview.ifBlank { "…" }
+                }
+                is MediaStripItem.File -> {
+                    textLayout.isVisible = true
+                    textPreview.text = cover.displayName.ifBlank { "…" }
                 }
                 is MediaStripItem.Pile -> Unit
             }

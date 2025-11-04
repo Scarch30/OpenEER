@@ -66,4 +66,15 @@ sealed class MediaStripItem {
                 ?.let { line -> if (isList && line.isNotEmpty()) "• $line" else line }
                 .orEmpty()
     }
+
+    data class File(
+        override val blockId: Long,
+        val noteId: Long,
+        val displayName: String,
+        override val childOrdinal: Int? = null,
+        override val childName: String? = null,
+    ) : MediaStripItem() {
+        override val mediaUri: String? = null
+        override val mimeType: String? = null
+    }
 }
