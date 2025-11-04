@@ -8,6 +8,7 @@ build/
 captures/
 .externalNativeBuild/
 .cxx/
+android_sdk/
 
 # --- OpenEER : dossiers lourds ---
 app/src/main/assets/vosk-small-fr/
