@@ -275,7 +275,7 @@ class ImportCoordinator(
             name = uri.lastPathSegment
         }
         val mime = MimeResolver.guessMime(resolver, uri)
-        val kind = MimeResolver.kindOf(mime)
+        val kind = MimeResolver.kindOf(mime, uri)
         return Meta(name, size, mime, kind)
     }
 
