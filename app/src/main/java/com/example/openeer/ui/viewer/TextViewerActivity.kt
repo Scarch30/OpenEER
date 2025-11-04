@@ -14,8 +14,9 @@ import org.odftoolkit.odfdom.doc.OdfTextDocument
 import java.io.InputStream
 import org.apache.poi.hwpf.extractor.WordExtractor
 import java.lang.Exception
-import javax.swing.text.rtf.RTFEditorKit
-import java.io.StringWriter
+import org.apache.tika.parser.rtf.RTFParser
+import org.apache.tika.metadata.Metadata
+import org.apache.tika.sax.BodyContentHandler
 
 
 class TextViewerActivity : AppCompatActivity() {
@@ -90,12 +91,7 @@ class TextViewerActivity : AppCompatActivity() {
     private fun extractTextFromOdt(inputStream: InputStream): String {
         return try {
             val doc = OdfTextDocument.loadDocument(inputStream)
-            val stringBuilder = StringBuilder()
-            doc.textContent.forEach { paragraph ->
-                stringBuilder.append(paragraph.textContent)
-                stringBuilder.append("\n")
-            }
-            stringBuilder.toString()
+            doc.getVariableContainer().getVariableDeclarations(true).toString()
         } catch (e: Exception) {
             Log.e("TextViewerActivity", "Error reading odt", e)
             "Error: Could not read odt file."
@@ -104,10 +100,11 @@ class TextViewerActivity : AppCompatActivity() {
 
     private fun extractTextFromRtf(inputStream: InputStream): String {
         return try {
-            val rtfEditorKit = RTFEditorKit()
-            val document = rtfEditorKit.createDefaultDocument()
-            rtfEditorKit.read(inputStream, document, 0)
-            document.getText(0, document.length)
+            val handler = BodyContentHandler()
+            val parser = RTFParser()
+            val metadata = Metadata()
+            parser.parse(inputStream, handler, metadata, org.apache.tika.parser.ParseContext())
+            handler.toString()
         } catch (e: Exception) {
             Log.e("TextViewerActivity", "Error reading rtf", e)
             "Error: Could not read rtf file."
