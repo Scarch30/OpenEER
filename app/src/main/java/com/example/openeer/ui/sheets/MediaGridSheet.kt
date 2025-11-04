@@ -54,6 +54,7 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import com.example.openeer.ui.library.MapSnapshotViewerActivity
 import com.example.openeer.ui.viewer.AudioViewerActivity
+import com.example.openeer.ui.viewer.TextViewerActivity
 
 
 
@@ -193,6 +194,18 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                         if (block.mimeType == "application/pdf") {
                             val intent = Intent(requireContext(), com.example.openeer.ui.viewer.PdfViewerActivity::class.java).apply {
                                 putExtra(com.example.openeer.ui.viewer.PdfViewerActivity.EXTRA_URI, block.mediaUri)
+                            }
+                            startActivity(intent)
+                        } else if (TextViewerActivity.isTextMimeType(block.mimeType ?: "")) {
+                            val file = java.io.File(block.mediaUri)
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                requireContext(),
+                                "${requireContext().packageName}.provider",
+                                file
+                            )
+                            val intent = Intent(requireContext(), TextViewerActivity::class.java).apply {
+                                data = uri
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             startActivity(intent)
                         } else {
