@@ -10,6 +10,7 @@ data class PileCounts(
     val textes: Int = 0,
     val files: Int = 0,
     val locations: Int = 0,
+    val sketches: Int = 0,
 ) {
     fun increment(kind: MediaKind): PileCounts = when (kind) {
         MediaKind.IMAGE, MediaKind.VIDEO -> copy(photos = photos + 1)

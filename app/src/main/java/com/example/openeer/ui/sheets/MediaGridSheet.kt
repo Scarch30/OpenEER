@@ -539,11 +539,11 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
                         MediaCategory.FILE -> {
                             if (block.type == BlockType.FILE) {
-                                MediaStripItem.Text(
+                                MediaStripItem.File(
                                     blockId = block.id,
                                     noteId = block.noteId,
-                                    content = block.childName ?: block.mediaUri ?: "Fichier",
-                                    isList = false,
+                                    displayName = block.childName ?: "Fichier",
+                                    mimeType = block.mimeType,
                                     childOrdinal = block.childOrdinal,
                                     childName = block.childName,
                                 )
@@ -812,7 +812,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 is ImageHolder -> holder.bind(item as MediaStripItem.Image)
                 is AudioHolder -> holder.bind(item as MediaStripItem.Audio)
                 is TextHolder  -> holder.bind(item as MediaStripItem.Text)
-                is FileHolder  -> holder.bind(item as MediaStripItem.Text)
+                is FileHolder  -> holder.bind(item as MediaStripItem.File)
             }
         }
 
@@ -961,8 +961,8 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             private val name: TextView,
             private val label: TextView,
         ) : RecyclerView.ViewHolder(card) {
-            fun bind(item: MediaStripItem.Text) {
-                name.text = item.content
+            fun bind(item: MediaStripItem.File) {
+                name.text = item.displayName
                 bindChildLabel(label, item)
 
                 card.setOnClickListener { onClick(item) }

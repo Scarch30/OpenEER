@@ -62,6 +62,7 @@ class NotePanelMediaController(
             textes = blocks.count { it.type == BlockType.TEXT },
             files = blocks.count { it.type == BlockType.FILE },
             locations = blocks.count { it.type == BlockType.LOCATION },
+            sketches = blocks.count { it.type == BlockType.SKETCH },
         )
         onPileCountsChanged?.invoke(counts)
         updateMediaStrip(blocks)
@@ -81,7 +82,7 @@ class NotePanelMediaController(
         val sketchItems = mutableListOf<MediaStripItem.Image>()
         val audioItems = mutableListOf<MediaStripItem.Audio>()
         val textItems = mutableListOf<MediaStripItem.Text>()
-        val fileItems = mutableListOf<MediaStripItem.Text>()
+        val fileItems = mutableListOf<MediaStripItem.File>()
         val mapBlocks = blocks.filter { it.type == BlockType.LOCATION || it.type == BlockType.ROUTE }
 
         var transcriptsLinkedToAudio = 0
@@ -149,11 +150,11 @@ class NotePanelMediaController(
                     }
                 }
                 BlockType.FILE -> {
-                    fileItems += MediaStripItem.Text(
+                    fileItems += MediaStripItem.File(
                         blockId = block.id,
                         noteId = block.noteId,
-                        content = block.childName ?: block.mediaUri ?: "Fichier",
-                        isList = false,
+                        displayName = block.childName ?: "Fichier",
+                        mimeType = block.mimeType,
                         childOrdinal = block.childOrdinal,
                         childName = block.childName,
                     )

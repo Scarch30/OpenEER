@@ -38,7 +38,8 @@ class PileUiController(
 
     fun increment(kind: MediaKind) {
         if (notePanel.openNoteId == null) return
-        onPileCountsChanged(lastPileCounts.increment(kind))
+        val updatedCounts = lastPileCounts.increment(kind)
+        onPileCountsChanged(updatedCounts)
     }
 
     fun renderPiles(piles: List<PileUi>) {
@@ -76,7 +77,7 @@ class PileUiController(
                     MediaCategory.PHOTO -> lastPileCounts.photos
                     MediaCategory.AUDIO -> lastPileCounts.audios
                     MediaCategory.TEXT -> lastPileCounts.textes
-                    MediaCategory.SKETCH -> lastPileCounts.files // A corriger si SKETCH a son propre compteur
+                    MediaCategory.SKETCH -> lastPileCounts.sketches
                     MediaCategory.FILE -> lastPileCounts.files
                     MediaCategory.LOCATION -> lastPileCounts.locations
                 }

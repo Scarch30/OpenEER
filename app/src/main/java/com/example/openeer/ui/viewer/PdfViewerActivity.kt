@@ -5,7 +5,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.openeer.R
-import com.github.barteksc.pdfviewer.PDFView
+import com.github.mhiew.android_pdf_viewer.PDFView
 import java.io.File
 
 class PdfViewerActivity : AppCompatActivity() {
