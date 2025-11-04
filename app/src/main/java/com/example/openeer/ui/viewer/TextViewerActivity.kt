@@ -26,7 +26,8 @@ class TextViewerActivity : AppCompatActivity() {
             "application/msword",
             "application/vnd.oasis.opendocument.text",
             "application/rtf",
-            "text/markdown"
+            "text/markdown",
+            "application/octet-stream"
         )
 
         fun isTextMimeType(mimeType: String): Boolean {
@@ -50,7 +51,7 @@ class TextViewerActivity : AppCompatActivity() {
             val inputStream = contentResolver.openInputStream(uri)
             val text = inputStream?.let { stream ->
                 when (intent.type) {
-                    "text/plain", "text/markdown" -> stream.bufferedReader().use { it.readText() }
+                    "text/plain", "text/markdown", "application/octet-stream" -> stream.bufferedReader().use { it.readText() }
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> extractTextFromDocx(stream)
                     "application/msword" -> extractTextFromDoc(stream)
                     "application/vnd.oasis.opendocument.text" -> extractTextFromOdt(stream)
