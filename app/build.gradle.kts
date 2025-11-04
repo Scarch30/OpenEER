@@ -152,5 +152,5 @@ dependencies {
     }
     // Pour l'extraction de texte (utilisé pour RTF)
     implementation("org.apache.tika:tika-core:2.4.1")
-    implementation("org.apache.tika:tika-parser-rtf:2.4.1")
+    implementation("org.apache.tika:tika-parsers-standard-package:2.4.1")
 }
