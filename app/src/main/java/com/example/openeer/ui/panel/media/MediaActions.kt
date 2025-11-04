@@ -26,6 +26,7 @@ import java.io.File
 import java.util.Locale
 import com.example.openeer.ui.library.MapSnapshotViewerActivity
 import com.example.openeer.ui.viewer.AudioViewerActivity
+import com.example.openeer.ui.viewer.TextViewerActivity
 
 
 class MediaActions(
@@ -185,11 +186,22 @@ class MediaActions(
                         Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
                         return@launch
                     }
+
                     val uri = resolveShareUri(block.mediaUri!!)
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, block.mimeType ?: "application/octet-stream")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    val mimeType = block.mimeType ?: "application/octet-stream"
+
+                    val intent = if (TextViewerActivity.isTextMimeType(mimeType)) {
+                        Intent(activity, TextViewerActivity::class.java).apply {
+                            setDataAndType(uri, mimeType)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                    } else {
+                        Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, mimeType)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
                     }
+
                     try {
                         activity.startActivity(intent)
                     } catch (e: Exception) {

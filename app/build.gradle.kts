@@ -140,4 +140,20 @@ dependencies {
 
     // PDF viewer
     implementation("com.github.mhiew:android-pdf-viewer:3.2.0-beta.1")
+
+    // --- Text extraction ---
+    // tika-core is needed for BodyContentHandler, Metadata, etc.
+    implementation("org.apache.tika:tika-core:2.4.1")
+
+    // Pour .docx and .doc/.rtf (via poi-scratchpad)
+    implementation("org.apache.poi:poi-ooxml:5.2.3") {
+        exclude(group = "commons-logging", module = "commons-logging")
+    }
+    implementation("org.apache.poi:poi-scratchpad:5.2.3") {
+        exclude(group = "commons-logging", module = "commons-logging")
+    }
+    // Pour .odt
+    implementation("org.odftoolkit:odfdom-java:0.9.0") {
+        exclude(group = "org.slf4j")
+    }
 }
