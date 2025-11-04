@@ -194,13 +194,14 @@ class ImportCoordinator(
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)
         val file = localUri.toFile()
         val safeName = resolveSafeDisplayName(meta.displayName, uri)
-        val content = file.readBytes()
-        val text = decodeText(content)
-        val finalText = buildTextWithProvenance(safeName, text)
-        blocksRepository.appendText(
+        val safeMime = resolveSafeMime(meta.mime)
+        blocksRepository.appendFile(
             noteId = noteId,
-            text = finalText,
-            groupId = null
+            fileUri = file.absolutePath,
+            displayName = safeName,
+            mimeType = safeMime,
+            groupId = null,
+            extra = null
         )
         _events.emit(ImportEvent.ItemOk(MediaKind.TEXT))
         true
@@ -212,21 +213,15 @@ class ImportCoordinator(
         val safeName = resolveSafeDisplayName(meta.displayName, uri)
         val safeMime = resolveSafeMime(meta.mime, "application/pdf")
         val groupId = generateGroupId()
-        val awaitingExtra = "{\"awaitingOcr\":true}"
-        val extractedText = runCatching { extractPdfText(file) }.getOrNull()
-        val awaiting = extractedText.isNullOrBlank()
         blocksRepository.appendFile(
             noteId = noteId,
             fileUri = file.absolutePath,
             displayName = safeName,
             mimeType = safeMime,
             groupId = groupId,
-            extra = if (awaiting) awaitingExtra else null
+            extra = null
         )
         _events.emit(ImportEvent.ItemOk(MediaKind.PDF))
-        if (awaiting) {
-            _events.emit(ImportEvent.OcrAwaiting(safeName))
-        }
         true
     }
 
@@ -264,33 +259,6 @@ class ImportCoordinator(
         }
     }
 
-    private fun buildTextWithProvenance(displayName: String?, text: String): String {
-        val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-        val header = buildString {
-            append("📥 ")
-            append(displayName ?: "Fichier texte importé")
-            append(" — ")
-            append(sdf.format(Date()))
-        }
-        return header + "\n\n" + text.trimEnd()
-    }
-
-    private fun extractPdfText(file: File): String? {
-        val content = file.readText(Charsets.ISO_8859_1)
-        val regex = Regex("\\(([^\\)]+)\\)\\s*(?:Tj|'|TJ)")
-        val sb = StringBuilder()
-        for (match in regex.findAll(content)) {
-            val raw = match.groupValues[1]
-            val cleaned = raw
-                .replace("\\\\", "\\")
-                .replace("\\(", "(")
-                .replace("\\)", ")")
-            sb.append(cleaned)
-            sb.append('\n')
-        }
-        val text = sb.toString().trim()
-        return text.takeIf { it.isNotEmpty() }
-    }
 
     private fun readMeta(uri: Uri): Meta {
         var name: String? = null

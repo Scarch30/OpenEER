@@ -140,4 +140,14 @@ dependencies {
 
     // PDF viewer
     implementation("com.github.mhiew:android-pdf-viewer:3.2.0-beta.1")
+
+    // --- Text extraction ---
+    // Pour .docx
+    implementation("org.apache.poi:poi-ooxml:5.2.3")
+    // Pour .rtf
+    implementation("org.apache.poi:poi-scratchpad:5.2.3")
+    // Pour .odt
+    implementation("com.github.livesafetech:odf-report:1.0.2") {
+        exclude(group = "org.slf4j")
+    }
 }
