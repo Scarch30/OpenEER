@@ -147,7 +147,7 @@ dependencies {
     // Pour .rtf
     implementation("org.apache.poi:poi-scratchpad:5.2.3")
     // Pour .odt
-    implementation("com.github.livesafetech:odf-report:1.0.2") {
+    implementation("org.odftoolkit:odfdom-java:0.9.0") {
         exclude(group = "org.slf4j")
     }
 }

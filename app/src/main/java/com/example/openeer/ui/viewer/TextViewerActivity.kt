@@ -10,7 +10,7 @@ import java.io.File
 import java.io.FileInputStream
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor
 import org.apache.poi.xwpf.usermodel.XWPFDocument
-import org.odftoolkit.simple.TextDocument
+import org.odftoolkit.odfdom.doc.OdfTextDocument
 import java.io.InputStream
 import org.apache.poi.hwpf.extractor.WordExtractor
 import java.lang.Exception
@@ -89,8 +89,13 @@ class TextViewerActivity : AppCompatActivity() {
 
     private fun extractTextFromOdt(inputStream: InputStream): String {
         return try {
-            val doc = TextDocument.loadDocument(inputStream)
-            doc.textContent
+            val doc = OdfTextDocument.loadDocument(inputStream)
+            val stringBuilder = StringBuilder()
+            doc.textContent.forEach { paragraph ->
+                stringBuilder.append(paragraph.textContent)
+                stringBuilder.append("\n")
+            }
+            stringBuilder.toString()
         } catch (e: Exception) {
             Log.e("TextViewerActivity", "Error reading odt", e)
             "Error: Could not read odt file."
