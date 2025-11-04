@@ -87,6 +87,7 @@
     <string name="block_convert_menu_content_description">Options de conversion</string>
     <string name="media_text_badge_note">POST-IT</string>
     <string name="media_text_badge_list">LISTE</string>
+    <string name="media_text_badge_import">IMPORT</string>
     <string name="note_list_add_placeholder">+ Ajouter un élément</string>
     <string name="note_list_empty_placeholder">Aucune entrée. Ajoutez un élément…</string>
     <string name="block_checklist_add_item">+ Ajouter un élément…</string>

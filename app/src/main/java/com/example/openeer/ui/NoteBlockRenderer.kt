@@ -2,6 +2,7 @@ package com.example.openeer.ui
 
 import android.view.View
 import androidx.core.view.isGone
+import androidx.lifecycle.LifecycleOwner
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.data.block.BlockEntity
@@ -39,11 +40,21 @@ class NoteBlockRenderer(
         val margin = (8 * container.resources.displayMetrics.density).toInt()
         var hasRenderable = false
 
+        val lifecycleOwner = container.context as LifecycleOwner
         visibleBlocks.forEach { block ->
-            val view = when (block.type) {
-                BlockType.FILE ->
-                    BlockRenderers.createUnsupportedBlockView(container.context, block, margin)
-                else -> null
+            val view: View? = when (block.type) {
+                BlockType.TEXT -> BlockRenderers.createTextBlockView(
+                    container.context,
+                    block,
+                    margin,
+                    lifecycleOwner,
+                )
+                BlockType.FILE -> null // Explicitly skip FILE blocks
+                else -> BlockRenderers.createUnsupportedBlockView(
+                    container.context,
+                    block,
+                    margin,
+                )
             }
 
             if (view != null) {

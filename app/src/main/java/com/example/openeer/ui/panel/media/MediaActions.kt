@@ -178,6 +178,25 @@ class MediaActions(
                 ChildPostitSheet.open(item.noteId, item.blockId)
                     .show(activity.supportFragmentManager, "child_text_edit_${item.blockId}")
             }
+            is MediaStripItem.File -> {
+                uiScope.launch {
+                    val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(item.blockId) }
+                    if (block?.mediaUri == null) {
+                        Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    val uri = resolveShareUri(block.mediaUri!!)
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, block.mimeType ?: "application/octet-stream")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    try {
+                        activity.startActivity(intent)
+                    } catch (e: Exception) {
+                        Toast.makeText(activity, activity.getString(R.string.media_open_failed), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
         }
     }
 
@@ -311,12 +330,24 @@ class MediaActions(
             is MediaStripItem.Pile -> share(item.cover)
             is MediaStripItem.Image -> shareFile(item.mediaUri, item.mimeType ?: inferImageOrVideoMime(item))
             is MediaStripItem.Audio -> shareFile(item.mediaUri, item.mimeType ?: "audio/*")
-            is MediaStripItem.Text  -> shareText(item.content)
+            is MediaStripItem.Text -> shareText(item.content)
+            is MediaStripItem.File -> shareBlockFile(item.blockId)
         }
     }
 
     private fun inferImageOrVideoMime(item: MediaStripItem.Image): String {
         return if (item.type == BlockType.VIDEO) "video/*" else "image/*"
+    }
+
+    private fun shareBlockFile(blockId: Long) {
+        uiScope.launch {
+            val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(blockId) }
+            if (block?.mediaUri == null) {
+                Toast.makeText(activity, activity.getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            shareFile(block.mediaUri!!, block.mimeType ?: "application/octet-stream")
+        }
     }
 
     private fun shareFile(rawPathOrUri: String, mime: String) {
@@ -381,6 +412,11 @@ class MediaActions(
                             deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
                         }
                         is MediaStripItem.Text -> {
+                            blocksRepo.deleteBlock(item.blockId)
+                        }
+                        is MediaStripItem.File -> {
+                            val block = blocksRepo.getBlock(item.blockId)
+                            block?.mediaUri?.let { deleteMediaFile(it) }
                             blocksRepo.deleteBlock(item.blockId)
                         }
                         is MediaStripItem.Pile -> Unit

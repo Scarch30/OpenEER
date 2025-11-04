@@ -226,14 +226,6 @@ class ImportCoordinator(
         _events.emit(ImportEvent.ItemOk(MediaKind.PDF))
         if (awaiting) {
             _events.emit(ImportEvent.OcrAwaiting(safeName))
-        } else {
-            extractedText?.let { textContent ->
-                blocksRepository.appendTranscription(
-                    noteId = noteId,
-                    text = textContent,
-                    groupId = groupId
-                )
-            }
         }
         true
     }
