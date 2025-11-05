@@ -49,8 +49,12 @@ class NoteBlockRenderer(
                     margin,
                     lifecycleOwner,
                 )
-                // All other block types should not be rendered in the main note view.
-                else -> null
+                BlockType.FILE -> null // Explicitly skip FILE blocks
+                else -> BlockRenderers.createUnsupportedBlockView(
+                    container.context,
+                    block,
+                    margin,
+                )
             }
 
             if (view != null) {
