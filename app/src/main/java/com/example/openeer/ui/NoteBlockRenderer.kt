@@ -36,27 +36,9 @@ class NoteBlockRenderer(
             return
         }
 
-        val margin = (8 * container.resources.displayMetrics.density).toInt()
-        var hasRenderable = false
-
-        visibleBlocks.forEach { block ->
-            val view = when (block.type) {
-                BlockType.FILE ->
-                    BlockRenderers.createUnsupportedBlockView(container.context, block, margin)
-                else -> null
-            }
-
-            if (view != null) {
-                hasRenderable = true
-                container.addView(view)
-                blockViews[block.id] = view
-            }
-        }
-
-        container.isGone = !hasRenderable
-        if (hasRenderable) {
-            pendingHighlightBlockId?.let { tryHighlightBlock(it) }
-        }
+        // There are no child blocks to render in the main body for now.
+        // The container is reset above, so we just need to ensure it's gone.
+        container.isGone = true
     }
 
     fun highlightBlock(blockId: Long) {
