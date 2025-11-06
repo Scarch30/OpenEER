@@ -63,6 +63,7 @@ class MediaStripAdapter(
         is MediaStripItem.Image -> TYPE_IMAGE
         is MediaStripItem.Audio -> TYPE_AUDIO
         is MediaStripItem.Text -> TYPE_TEXT
+        is MediaStripItem.File  -> TYPE_TEXT   // NEW: fallback provisoire (pas de TYPE_FILE encore)
         is MediaStripItem.Pile -> TYPE_PILE
     }
 
@@ -489,10 +490,16 @@ class MediaStripAdapter(
                     textLayout.isVisible = true
                     textPreview.text = cover.preview.ifBlank { "…" }
                 }
+                is MediaStripItem.File -> {
+                    // on affiche l’icône générique de doc + le label de fichier
+                    image.isVisible = true
+                    image.setImageResource(R.drawable.ic_document_generic)
+                    play.isVisible = false
+                }
                 is MediaStripItem.Pile -> Unit
             }
 
-            bindChildLabel(label, item)
+            bindPileLabel(label, item)
 
             card.setOnClickListener { onPileClick(item.category) }
             card.setOnLongClickListener {
@@ -563,6 +570,18 @@ class MediaStripAdapter(
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
         isVisible = false
+    }
+
+    private fun bindPileLabel(label: TextView, pile: MediaStripItem.Pile) {
+        label.isVisible = true
+        label.text = when (pile.category) {
+            MediaCategory.PHOTO    -> label.context.getString(R.string.media_category_photo)
+            MediaCategory.SKETCH   -> label.context.getString(R.string.media_category_sketch)
+            MediaCategory.AUDIO    -> label.context.getString(R.string.media_category_audio)
+            MediaCategory.TEXT     -> label.context.getString(R.string.media_category_text)
+            MediaCategory.FILES    -> label.context.getString(R.string.media_category_files)  // ✅ ajouté
+            MediaCategory.LOCATION -> label.context.getString(R.string.pile_label_locations)
+        }
     }
 
     private fun bindBadge(badge: TextView, item: MediaStripItem) {

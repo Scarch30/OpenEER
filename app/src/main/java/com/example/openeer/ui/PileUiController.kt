@@ -77,6 +77,7 @@ class PileUiController(
                     MediaCategory.TEXT -> lastPileCounts.textes
                     MediaCategory.SKETCH -> lastPileCounts.files
                     MediaCategory.LOCATION -> lastPileCounts.locations
+                    MediaCategory.FILES    -> R.drawable.ic_document_generic
                 }
                 pileCountViews[i].text = (countFromPiles ?: fallbackCount).toString()
             }

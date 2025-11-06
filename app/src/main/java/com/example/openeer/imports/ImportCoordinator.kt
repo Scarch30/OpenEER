@@ -194,49 +194,42 @@ class ImportCoordinator(
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)
         val file = localUri.toFile()
         val safeName = resolveSafeDisplayName(meta.displayName, uri)
-        val content = file.readBytes()
-        val text = decodeText(content)
-        val finalText = buildTextWithProvenance(safeName, text)
-        blocksRepository.appendText(
+        val safeMime = resolveSafeMime(meta.mime, "text/plain")
+
+        // ✅ Import = on stocke le fichier (txt/md/html) comme FILE
+        blocksRepository.appendFile(
             noteId = noteId,
-            text = finalText,
-            groupId = null
+            fileUri = file.absolutePath,
+            displayName = safeName,
+            mimeType = safeMime,
+            groupId = null,
+            extra = null
         )
         _events.emit(ImportEvent.ItemOk(MediaKind.TEXT))
         true
     }
+
+
 
     private suspend fun handlePdf(noteId: Long, uri: Uri, meta: Meta): Boolean = withContext(Dispatchers.IO) {
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)
         val file = localUri.toFile()
         val safeName = resolveSafeDisplayName(meta.displayName, uri)
         val safeMime = resolveSafeMime(meta.mime, "application/pdf")
-        val groupId = generateGroupId()
-        val awaitingExtra = "{\"awaitingOcr\":true}"
-        val extractedText = runCatching { extractPdfText(file) }.getOrNull()
-        val awaiting = extractedText.isNullOrBlank()
+
+        // ✅ Import = on stocke le fichier seulement (pas d’extraction texte à l’import)
         blocksRepository.appendFile(
             noteId = noteId,
             fileUri = file.absolutePath,
             displayName = safeName,
             mimeType = safeMime,
-            groupId = groupId,
-            extra = if (awaiting) awaitingExtra else null
+            groupId = null,
+            extra = null
         )
         _events.emit(ImportEvent.ItemOk(MediaKind.PDF))
-        if (awaiting) {
-            _events.emit(ImportEvent.OcrAwaiting(safeName))
-        } else {
-            extractedText?.let { textContent ->
-                blocksRepository.appendTranscription(
-                    noteId = noteId,
-                    text = textContent,
-                    groupId = groupId
-                )
-            }
-        }
         true
     }
+
 
     private suspend fun handleFile(noteId: Long, uri: Uri, meta: Meta): Boolean = withContext(Dispatchers.IO) {
         val localUri = FileCopy.toAppSandbox(context, resolver, uri, meta.displayName)

@@ -1,16 +1,25 @@
-<?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- URI pour /data/data/<package>/cache/images/... -->
     <cache-path
         name="images_cache"
         path="images/" />
 
-    <!-- URI pour /data/data/<package>/files/images/... (si tu l'utilises ailleurs) -->
+    <!-- URI pour /data/data/<package>/files/images/... -->
     <files-path
         name="images_files"
         path="images/" />
 
-    <!-- URI pour /storage/.../Android/data/<package>/cache/images/... (si jamais) -->
+    <!-- ✅ Couvre TOUT /data/data/<package>/files/... (inclut imports/) -->
+    <files-path
+        name="app_files"
+        path="." />
+
+    <!-- (Optionnel) Couvre explicitement /data/data/<package>/files/imports/... -->
+    <files-path
+        name="imports_files"
+        path="imports/" />
+
+    <!-- URI pour /storage/.../Android/data/<package>/cache/images/... -->
     <external-cache-path
         name="images_external_cache"
         path="images/" />
@@ -23,3 +32,4 @@
         name="recordings_external"
         path="recordings/" />
 </paths>
+

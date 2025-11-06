@@ -54,12 +54,15 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import com.example.openeer.ui.library.MapSnapshotViewerActivity
 import com.example.openeer.ui.viewer.AudioViewerActivity
+import androidx.core.view.isVisible
+
 
 
 
 private const val GRID_TYPE_IMAGE = 1
 private const val GRID_TYPE_AUDIO = 2
 private const val GRID_TYPE_TEXT  = 3
+private const val GRID_TYPE_FILE  = 4 // NEW
 private const val MENU_RENAME = 1
 private const val MENU_OPEN_IN_MAPS = 2
 private val MEDIA_GRID_DIFF = object : DiffUtil.ItemCallback<MediaStripItem>() {
@@ -312,6 +315,12 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         mediaGridAdapter = null
     }
 
+    private fun bindChildLabel(label: TextView, item: MediaStripItem) {
+        val name = item.childName?.trim().takeUnless { it.isNullOrEmpty() }
+        val text = name ?: item.childOrdinal?.takeIf { it > 0 }?.let { "#$it" } ?: ""
+        label.text = text
+        label.isVisible = text.isNotEmpty()
+    }
     private fun computeSpanCount(): Int {
         val metrics = resources.displayMetrics
         val widthDp = metrics.widthPixels / metrics.density
@@ -320,12 +329,14 @@ class MediaGridSheet : BottomSheetDialogFragment() {
 
     private fun categoryTitle(category: MediaCategory): String =
         when (category) {
-            MediaCategory.PHOTO -> getString(R.string.media_category_photo)
-            MediaCategory.SKETCH -> getString(R.string.media_category_sketch)
-            MediaCategory.AUDIO  -> getString(R.string.media_category_audio)
-            MediaCategory.TEXT   -> getString(R.string.media_category_text)
+            MediaCategory.PHOTO    -> getString(R.string.media_category_photo)
+            MediaCategory.SKETCH   -> getString(R.string.media_category_sketch)
+            MediaCategory.AUDIO    -> getString(R.string.media_category_audio)
+            MediaCategory.TEXT     -> getString(R.string.media_category_text)
             MediaCategory.LOCATION -> getString(R.string.pile_label_locations)
+            MediaCategory.FILES    -> getString(R.string.media_category_files) // ✅ ajout
         }
+
 
     private fun reloadItems() {
         val adapter = mediaGridAdapter ?: return
@@ -397,7 +408,6 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 val items = candidates.mapNotNull { block ->
                     val file = MapPreviewStorage.fileFor(ctx, block.id, block.type)
                     if (file.exists()) {
-                        // On encode en "image" pour l'adapter (pas d'overlay ▶ car type != VIDEO)
                         MediaStripItem.Image(
                             blockId = block.id,
                             mediaUri = file.absolutePath,
@@ -406,9 +416,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             childOrdinal = block.childOrdinal,
                             childName = block.childName,
                         )
-                    } else {
-                        null // pas de snapshot : on n’affiche pas (fallback recapture géré ailleurs)
-                    }
+                    } else null
                 }
                 items.sortedForGrid()
             }
@@ -498,6 +506,25 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                             } else null
                         }
 
+                        MediaCategory.FILES -> {
+                            if (block.type == BlockType.FILE) {
+                                val uri = block.mediaUri?.takeIf { it.isNotBlank() }
+                                if (uri != null) {
+                                    val name = (block.childName?.takeIf { it.isNotBlank() }
+                                        ?: runCatching { java.io.File(uri).name }.getOrNull()
+                                        ?: "fichier")
+                                    MediaStripItem.File(
+                                        blockId = block.id,
+                                        mediaUri = uri,
+                                        mimeType = block.mimeType,
+                                        displayName = name,
+                                        childOrdinal = block.childOrdinal,
+                                        childName = block.childName,
+                                    )
+                                } else null
+                            } else null
+                        }
+
                         else -> null
                     }
                 }
@@ -505,6 +532,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             }
         }
     }
+
 
     // --- Adapter grille ---
     private inner class MediaGridAdapter(
@@ -516,6 +544,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
             is MediaStripItem.Image -> GRID_TYPE_IMAGE
             is MediaStripItem.Audio -> GRID_TYPE_AUDIO
             is MediaStripItem.Text  -> GRID_TYPE_TEXT
+            is MediaStripItem.File  -> GRID_TYPE_FILE   // NEW
             is MediaStripItem.Pile  -> error("Pile items are not supported in the grid")
         }
 
@@ -711,8 +740,56 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                     card.addView(root)
                     TextHolder(card, text, badge, counter, rightStrip, listBadge, label)
                 }
+                GRID_TYPE_FILE  -> { // NEW
+                    val card = createCard(ctx)
+                    val root = FrameLayout(ctx)
 
+                    val container = LinearLayout(ctx).apply {
+                        orientation = LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER
+                        val pad = dp(ctx, 16)
+                        setPadding(pad, pad, pad, pad)
+                    }
+                    val icon = ImageView(ctx).apply {
+                        setImageResource(R.drawable.ic_document_generic) // icône générique (à toi de choisir)
+                        layoutParams = LinearLayout.LayoutParams(dp(ctx, 36), dp(ctx, 36))
+                    }
+                    val name = TextView(ctx).apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        ).apply { topMargin = dp(ctx, 8) }
+                        textSize = 14f
+                        maxLines = 2
+                        ellipsize = TextUtils.TruncateAt.END
+                    }
+                    container.addView(icon)
+                    container.addView(name)
+
+                    val label = createChildLabel(ctx)
+
+                    root.addView(container)
+                    root.addView(label)
+                    card.addView(root)
+                    FileHolder(card, name, label)
+                }
                 else -> throw IllegalStateException("Unknown view type $viewType")
+            }
+        }
+
+        private inner class FileHolder(
+            val card: MaterialCardView,
+            val nameView: TextView,
+            val childLabel: TextView,
+        ) : RecyclerView.ViewHolder(card) {
+            fun bind(item: MediaStripItem.File) {
+                nameView.text = item.displayName
+                bindChildLabel(childLabel, item)
+                card.setOnClickListener { onClick(item) }
+                card.setOnLongClickListener {
+                    onLongClick(it, item)
+                    true
+                }
             }
         }
 
@@ -722,6 +799,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
                 is ImageHolder -> holder.bind(item as MediaStripItem.Image)
                 is AudioHolder -> holder.bind(item as MediaStripItem.Audio)
                 is TextHolder  -> holder.bind(item as MediaStripItem.Text)
+                is FileHolder  -> holder.bind(item as MediaStripItem.File)
             }
         }
 

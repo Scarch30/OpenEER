@@ -66,4 +66,13 @@ sealed class MediaStripItem {
                 ?.let { line -> if (isList && line.isNotEmpty()) "• $line" else line }
                 .orEmpty()
     }
+    /** Nouveau : tuile “Fichier” générique (txt, docx, odt, pdf, etc.). */
+    data class File(
+        override val blockId: Long,
+        override val mediaUri: String,   // chemin local du fichier
+        override val mimeType: String?,
+        val displayName: String,         // libellé à montrer (childName ou nom de fichier)
+        override val childOrdinal: Int? = null,
+        override val childName: String? = null,
+    ) : MediaStripItem()
 }

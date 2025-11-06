@@ -81,6 +81,7 @@ class NotePanelMediaController(
         val sketchItems = mutableListOf<MediaStripItem.Image>()
         val audioItems = mutableListOf<MediaStripItem.Audio>()
         val textItems = mutableListOf<MediaStripItem.Text>()
+        val fileItems  = mutableListOf<MediaStripItem.File>()
         val mapBlocks = blocks.filter { it.type == BlockType.LOCATION || it.type == BlockType.ROUTE }
 
         var transcriptsLinkedToAudio = 0
@@ -147,6 +148,22 @@ class NotePanelMediaController(
                         }
                     }
                 }
+                BlockType.FILE -> {
+                    val uri = block.mediaUri?.takeIf { it.isNotBlank() }
+                    if (uri != null) {
+                        val name = (block.childName?.takeIf { it.isNotBlank() }
+                            ?: runCatching { java.io.File(uri).name }.getOrNull()
+                            ?: "fichier")
+                        fileItems += MediaStripItem.File(
+                            blockId = block.id,
+                            mediaUri = uri,
+                            mimeType = block.mimeType,
+                            displayName = name,
+                            childOrdinal = block.childOrdinal,
+                            childName = block.childName,
+                        )
+                    }
+                }
                 else -> Unit
             }
         }
@@ -166,9 +183,29 @@ class NotePanelMediaController(
                 val countWithTranscripts = sorted.size + transcriptsLinkedToAudio
                 add(MediaStripItem.Pile(MediaCategory.AUDIO, countWithTranscripts, sorted.first()))
             }
+
+            // ✅ NOUVEAU : pile TEXT = uniquement post-it (BlockType.TEXT non liés)
             if (textItems.isNotEmpty()) {
                 val sortedStandalone = textItems.sortedByDescending { it.blockId }
-                add(MediaStripItem.Pile(MediaCategory.TEXT, sortedStandalone.size, sortedStandalone.first()))
+                add(
+                    MediaStripItem.Pile(
+                        MediaCategory.TEXT,
+                        sortedStandalone.size,
+                        sortedStandalone.first()
+                    )
+                )
+            }
+
+            // ✅ NOUVEAU : pile FILES = tous les fichiers (pdf, txt, md, html, …)
+            if (fileItems.isNotEmpty()) {
+                val sortedFiles = fileItems.sortedByDescending { it.blockId }
+                add(
+                    MediaStripItem.Pile(
+                        MediaCategory.FILES,
+                        sortedFiles.size,
+                        sortedFiles.first()
+                    )
+                )
             }
             if (mapBlocks.isNotEmpty()) {
                 val sorted = mapBlocks.sortedByDescending { it.id }

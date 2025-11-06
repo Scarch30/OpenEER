@@ -178,6 +178,18 @@ class MediaActions(
                 ChildPostitSheet.open(item.noteId, item.blockId)
                     .show(activity.supportFragmentManager, "child_text_edit_${item.blockId}")
             }
+            is MediaStripItem.File -> {
+                // Ouvre la visionneuse interne (MVP TXT ; PDF & co viendront après)
+                val intent = Intent(activity, com.example.openeer.ui.viewer.DocumentViewerActivity::class.java).apply {
+                    putExtra("path", item.mediaUri)
+                    putExtra("mime", item.mimeType)
+                    putExtra("title", item.displayName)
+                    putExtra("blockId", item.blockId)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                activity.startActivity(intent)
+            }
+
         }
     }
 
@@ -312,6 +324,7 @@ class MediaActions(
             is MediaStripItem.Image -> shareFile(item.mediaUri, item.mimeType ?: inferImageOrVideoMime(item))
             is MediaStripItem.Audio -> shareFile(item.mediaUri, item.mimeType ?: "audio/*")
             is MediaStripItem.Text  -> shareText(item.content)
+            is MediaStripItem.File  -> shareFile(item.mediaUri, item.mimeType ?: "*/*") // NEW
         }
     }
 
@@ -382,6 +395,9 @@ class MediaActions(
                         }
                         is MediaStripItem.Text -> {
                             blocksRepo.deleteBlock(item.blockId)
+                        }
+                        is MediaStripItem.File -> {                         // NEW
+                            deleteMediaFile(item.mediaUri); blocksRepo.deleteBlock(item.blockId)
                         }
                         is MediaStripItem.Pile -> Unit
                     }

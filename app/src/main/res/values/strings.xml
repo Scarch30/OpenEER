@@ -452,6 +452,12 @@
     <string name="audio_open_transcript">Ouvrir la transcription liée</string>
     <string name="media_action_play">Lecture</string>
     <string name="media_action_pause">Pause</string>
+    <string name="media_no_viewer_app">Pas de vue</string>
+
+    <string name="document_viewer_title">Document</string>
+    <string name="document_viewer_unsupported">Format non pris en charge (%1$s)</string>
+    <string name="document_viewer_read_error">Erreur de lecture du fichier</string>
+    <string name="media_category_files">Fichiers</string>
 
 
 
