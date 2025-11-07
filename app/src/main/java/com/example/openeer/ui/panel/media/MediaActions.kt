@@ -194,10 +194,23 @@ class MediaActions(
         }
     }
 
-    fun showMenu(anchor: View, item: MediaStripItem) {
+    fun showMenu(
+    anchor: View,
+    item: MediaStripItem,
+    onConvertToList: (() -> Unit)? = null,
+    onConvertToText: (() -> Unit)? = null
+) {
         uiScope.launch {
             val popup = PopupMenu(activity, anchor)
             val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(item.blockId) }
+
+            if (item is MediaStripItem.Text) {
+                if (item.isList) {
+                    popup.menu.add(0, MENU_CONVERT_TO_TEXT, 0, activity.getString(R.string.note_menu_convert_to_text))
+                } else {
+                    popup.menu.add(0, MENU_CONVERT_TO_LIST, 0, activity.getString(R.string.note_menu_convert_to_list))
+                }
+            }
 
             popup.menu.add(0, MENU_SHARE, 0, activity.getString(R.string.media_action_share))
 
@@ -231,6 +244,8 @@ class MediaActions(
                     MENU_LINK_TO_CHILD -> { block?.let { pickTargetAndLink(it.noteId, it.id) }; true }
                     MENU_GO_TO_LINK -> { block?.let { openLinkedTarget(it.id) }; true }
                     MENU_UNLINK_CHILD -> { block?.let { unlinkSource(it.id) }; true }
+                    MENU_CONVERT_TO_LIST -> { onConvertToList?.invoke(); true }
+                    MENU_CONVERT_TO_TEXT -> { onConvertToText?.invoke(); true }
                     else -> false
                 }
             }
@@ -516,6 +531,8 @@ class MediaActions(
         private const val MENU_LINK_TO_CHILD = 5
         private const val MENU_GO_TO_LINK = 6
         private const val MENU_UNLINK_CHILD = 7
+        private const val MENU_CONVERT_TO_LIST = 8
+        private const val MENU_CONVERT_TO_TEXT = 9
 
 
         fun openBlock(activity: AppCompatActivity, block: BlockEntity): Boolean {
