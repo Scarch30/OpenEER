@@ -17,6 +17,7 @@ import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.ui.PhotoViewerActivity
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.sheets.ChildPostitSheet
+import com.example.openeer.ui.sheets.LinkTargetSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
 import com.example.openeer.ui.viewer.VideoPlayerActivity
 import com.google.gson.Gson
@@ -194,31 +195,95 @@ class MediaActions(
     }
 
     fun showMenu(anchor: View, item: MediaStripItem) {
-        val popup = PopupMenu(activity, anchor)
-        popup.menu.add(0, MENU_SHARE, 0, activity.getString(R.string.media_action_share))
-        popup.menu.add(0, MENU_RENAME, 1, activity.getString(R.string.media_action_rename))
-        popup.menu.add(0, MENU_DELETE, 2, activity.getString(R.string.media_action_delete))
+        uiScope.launch {
+            val popup = PopupMenu(activity, anchor)
+            val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(item.blockId) }
 
-        // 🗺️ Option spéciale pour la pile Carte : “Ouvrir dans Google Maps”
-        val mapsEnabledForPile = (item as? MediaStripItem.Pile)?.category == MediaCategory.LOCATION
-        if (mapsEnabledForPile) {
-            popup.menu.add(0, MENU_OPEN_IN_MAPS, 2, activity.getString(R.string.block_open_in_google_maps))
-        }
+            popup.menu.add(0, MENU_SHARE, 0, activity.getString(R.string.media_action_share))
 
-        popup.setOnMenuItemClickListener { menuItem ->
-            when (menuItem.itemId) {
-                MENU_SHARE -> { share(item); true }
-                MENU_RENAME -> { rename(item); true }
-                MENU_DELETE -> { confirmDelete(item); true }
-                MENU_OPEN_IN_MAPS -> {
-                    val pile = item as? MediaStripItem.Pile
-                    if (pile != null) openLocationPileCoverInMaps(pile) else Unit
-                    true
+            if (block?.childRefTargetId == null) {
+                popup.menu.add(0, MENU_LINK_TO_CHILD, 1, activity.getString(R.string.media_action_link_to_child))
+            } else {
+                popup.menu.add(0, MENU_GO_TO_LINK, 1, activity.getString(R.string.media_action_go_to_link))
+                popup.menu.add(0, MENU_UNLINK_CHILD, 1, activity.getString(R.string.media_action_unlink_child))
+            }
+
+            popup.menu.add(0, MENU_RENAME, 2, activity.getString(R.string.media_action_rename))
+            popup.menu.add(0, MENU_DELETE, 3, activity.getString(R.string.media_action_delete))
+
+
+            // 🗺️ Option spéciale pour la pile Carte : “Ouvrir dans Google Maps”
+            val mapsEnabledForPile = (item as? MediaStripItem.Pile)?.category == MediaCategory.LOCATION
+            if (mapsEnabledForPile) {
+                popup.menu.add(0, MENU_OPEN_IN_MAPS, 2, activity.getString(R.string.block_open_in_google_maps))
+            }
+
+            popup.setOnMenuItemClickListener { menuItem ->
+                when (menuItem.itemId) {
+                    MENU_SHARE -> { share(item); true }
+                    MENU_RENAME -> { rename(item); true }
+                    MENU_DELETE -> { confirmDelete(item); true }
+                    MENU_OPEN_IN_MAPS -> {
+                        val pile = item as? MediaStripItem.Pile
+                        if (pile != null) openLocationPileCoverInMaps(pile) else Unit
+                        true
+                    }
+                    MENU_LINK_TO_CHILD -> { block?.let { pickTargetAndLink(it.noteId, it.id) }; true }
+                    MENU_GO_TO_LINK -> { block?.let { openLinkedTarget(it.id) }; true }
+                    MENU_UNLINK_CHILD -> { block?.let { unlinkSource(it.id) }; true }
+                    else -> false
                 }
-                else -> false
+            }
+            popup.show()
+        }
+    }
+
+    private fun pickTargetAndLink(noteId: Long, sourceBlockId: Long) {
+        val sheet = LinkTargetSheet.newInstance(noteId, sourceBlockId)
+        sheet.onTargetSelected = { targetBlockId ->
+            uiScope.launch {
+                withContext(Dispatchers.IO) {
+                    val targetBlock = blocksRepo.getBlock(targetBlockId)
+                    if (targetBlock?.childRefTargetId == sourceBlockId) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(activity, R.string.link_circular_forbidden, Toast.LENGTH_SHORT).show()
+                        }
+                        return@withContext
+                    }
+                    blocksRepo.unlinkChildRef(sourceBlockId)
+                    blocksRepo.linkChildRef(sourceBlockId, targetBlockId)
+                }
+                Toast.makeText(activity, R.string.link_created, Toast.LENGTH_SHORT).show()
             }
         }
-        popup.show()
+        sheet.show(activity.supportFragmentManager, "link_target_picker")
+    }
+
+    private fun openLinkedTarget(sourceBlockId: Long) {
+        uiScope.launch {
+            val target = withContext(Dispatchers.IO) {
+                blocksRepo.findLinkedTarget(sourceBlockId)
+            }
+            if (target == null) {
+                withContext(Dispatchers.IO) { blocksRepo.unlinkChildRef(sourceBlockId) }
+                Toast.makeText(activity, R.string.link_target_not_found, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            val success = openBlock(activity, target)
+            if (!success) {
+                withContext(Dispatchers.IO) { blocksRepo.unlinkChildRef(sourceBlockId) }
+            }
+        }
+    }
+
+    private fun unlinkSource(sourceBlockId: Long) {
+        uiScope.launch {
+            withContext(Dispatchers.IO) {
+                blocksRepo.unlinkChildRef(sourceBlockId)
+            }
+            Toast.makeText(activity, R.string.link_removed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun rename(item: MediaStripItem) {
@@ -443,10 +508,118 @@ class MediaActions(
         }
     }
 
-    private companion object {
-        const val MENU_SHARE = 1
-        const val MENU_DELETE = 2
-        const val MENU_RENAME = 3
-        const val MENU_OPEN_IN_MAPS = 4
+    companion object {
+        private const val MENU_SHARE = 1
+        private const val MENU_DELETE = 2
+        private const val MENU_RENAME = 3
+        private const val MENU_OPEN_IN_MAPS = 4
+        private const val MENU_LINK_TO_CHILD = 5
+        private const val MENU_GO_TO_LINK = 6
+        private const val MENU_UNLINK_CHILD = 7
+
+
+        fun openBlock(activity: AppCompatActivity, block: BlockEntity): Boolean {
+            val context = activity
+            when (block.type) {
+                BlockType.TEXT -> {
+                    ChildPostitSheet.open(block.noteId, block.id)
+                        .show(activity.supportFragmentManager, "child_text_edit_${block.id}")
+                    return true
+                }
+                BlockType.PHOTO, BlockType.SKETCH -> {
+                    val uri = block.mediaUri?.let { Uri.parse(it) } ?: return false
+                    if (!uriExists(context, uri)) {
+                        Toast.makeText(context, R.string.link_file_not_found, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val intent = Intent(context, PhotoViewerActivity::class.java).apply {
+                        putExtra("path", block.mediaUri)
+                        putExtra("blockId", block.id)
+                    }
+                    context.startActivity(intent)
+                    return true
+                }
+                BlockType.VIDEO -> {
+                    val uri = block.mediaUri?.let { Uri.parse(it) } ?: return false
+                    if (!uriExists(context, uri)) {
+                        Toast.makeText(context, R.string.link_file_not_found, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val intent = Intent(activity, VideoPlayerActivity::class.java).apply {
+                        putExtra(VideoPlayerActivity.EXTRA_URI, block.mediaUri)
+                        putExtra("blockId", block.id)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    activity.startActivity(intent)
+                    return true
+                }
+                BlockType.AUDIO -> {
+                     val uri = block.mediaUri?.let { Uri.parse(it) } ?: return false
+                    if (!uriExists(context, uri)) {
+                        Toast.makeText(context, R.string.link_file_not_found, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val intent = AudioViewerActivity.newIntent(context, block.mediaUri, block.id)
+                    context.startActivity(intent)
+                    return true
+                }
+                BlockType.FILE -> {
+                    val uri = block.mediaUri?.let { Uri.parse(it) } ?: return false
+                     if (!uriExists(context, uri)) {
+                        Toast.makeText(context, R.string.link_file_not_found, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val intent = Intent(context, com.example.openeer.ui.viewer.DocumentViewerActivity::class.java).apply {
+                        putExtra("path", block.mediaUri)
+                        putExtra("mime", block.mimeType)
+                        putExtra("title", block.childName ?: block.text)
+                        putExtra("blockId", block.id)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(intent)
+                    return true
+                }
+                BlockType.LOCATION, BlockType.ROUTE -> {
+                     val lat = block.lat
+                    val lon = block.lon
+                    if (lat == null || lon == null) {
+                         Toast.makeText(activity, R.string.map_location_unavailable, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val label = block.placeName?.takeIf { it.isNotBlank() } ?: context.getString(R.string.block_location_coordinates, lat, lon)
+                    val intent = Intent(activity, MapSnapshotViewerActivity::class.java)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_TITLE, label)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, label)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_LON, lon)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_BLOCK_ID, block.id)
+                        .apply {
+                            block.mediaUri?.let { putExtra(MapSnapshotViewerActivity.EXTRA_SNAPSHOT_URI, it) }
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                    activity.startActivity(intent)
+                    return true
+                }
+                 else -> {
+                    Toast.makeText(context, "Unsupported block type", Toast.LENGTH_SHORT).show()
+                    return false
+                }
+            }
+        }
+
+        private fun uriExists(context: android.content.Context, uri: Uri): Boolean {
+            // For content:// URIs, the best we can do is try to open it.
+            if ("content".equals(uri.scheme, ignoreCase = true)) {
+                return try {
+                    context.contentResolver.openInputStream(uri)?.use { it.close() }
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            // For file:// or implicit file path URIs.
+            val path = uri.path ?: return false
+            return File(path).exists()
+        }
     }
 }

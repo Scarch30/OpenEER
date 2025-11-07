@@ -18,6 +18,7 @@ import android.util.Log
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
 import androidx.core.widget.addTextChangedListener
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -28,6 +29,8 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository.ChecklistItemDraft
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.core.FeatureFlags
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import com.example.openeer.voice.SmartListSplitter
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import kotlinx.coroutines.CoroutineScope
@@ -47,8 +50,6 @@ private const val STATE_IS_LIST_MODE = "state_is_list_mode"
 private const val STATE_CURRENT_TITLE = "state_current_title"
 private const val STATE_CURRENT_BODY = "state_current_body"
 private const val LOG_TAG = "PostitSheet"
-
-private const val MENU_LINK_TO_CHILD = 2005
 
 
 class ChildPostitSheet : BottomSheetDialogFragment() {
@@ -574,6 +575,9 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
     private val blocksRepo: BlocksRepository by lazy {
         Injection.provideBlocksRepository(requireContext())
     }
+    private val mediaActions: MediaActions by lazy {
+        MediaActions(requireActivity() as androidx.appcompat.app.AppCompatActivity, blocksRepo)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -691,50 +695,16 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         blockId: Long?,
         contentProvider: () -> EditorContent,
     ) {
-        val popup = PopupMenu(requireContext(), anchor)
+        val block = blockId ?: return
         val content = contentProvider()
-        val combinedContent = composeShareText(content)
-        val hasBody = content.body.isNotBlank()
-        val shareItem = popup.menu.add(0, MENU_SHARE, 0, getString(R.string.media_action_share))
-        shareItem.isEnabled = combinedContent.isNotBlank()
-
-        if (blockId != null) {
-            popup.menu.add(0, MENU_RENAME, 1, getString(R.string.media_action_rename))
-            // +++ AJOUT : entrée “Lier à un élément…”
-            popup.menu.add(0, MENU_LINK_TO_CHILD, 2, getString(R.string.media_action_link_to_child))
-        }
-
-        if (FeatureFlags.listsEnabled) {
-            if (!isListMode) {
-                val convertToList = popup.menu.add(
-                    0, MENU_CONVERT_TO_LIST, 2, getString(R.string.note_menu_convert_to_list)
-                )
-                convertToList.isEnabled = blockId != null || hasBody
-            } else {
-                val convertToText = popup.menu.add(
-                    0, MENU_CONVERT_TO_TEXT, 2, getString(R.string.note_menu_convert_to_text)
-                )
-                convertToText.isEnabled = blockId != null || hasBody
-            }
-        }
-
-        if (blockId != null) {
-            popup.menu.add(0, MENU_DELETE, 3, getString(R.string.media_action_delete))
-        }
-
-        if (popup.menu.size() == 0) return
-
-        popup.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                MENU_SHARE -> { shareContent(combinedContent); true }
-                MENU_RENAME -> { blockId?.let { promptRenameChild(it) }; true }
-                MENU_DELETE -> { blockId?.let { confirmDelete(noteId, it) }; true }
-                MENU_CONVERT_TO_LIST -> { handleConvertToList(noteId, blockId, content); true }
-                MENU_CONVERT_TO_TEXT -> { handleConvertToText(noteId, blockId, content); true }
-                else -> false
-            }
-        }
-        popup.show()
+        val item = MediaStripItem.Text(
+            blockId = block,
+            noteId = noteId,
+            content = content.body,
+            isList = isListMode,
+            childName = currentChildName
+        )
+        mediaActions.showMenu(anchor, item)
     }
 
     private fun promptRenameChild(blockId: Long) {
