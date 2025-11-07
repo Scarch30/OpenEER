@@ -241,9 +241,9 @@ class MediaActions(
                         if (pile != null) openLocationPileCoverInMaps(pile) else Unit
                         true
                     }
-                    MENU_LINK_TO_CHILD -> { block?.let { pickTargetAndLink(it.noteId, it.id) }; true }
-                    MENU_GO_TO_LINK -> { block?.let { openLinkedTarget(it.id) }; true }
-                    MENU_UNLINK_CHILD -> { unlinkSource(it.id); true }
+                    MENU_LINK_TO_CHILD -> { block?.let { innerBlock -> pickTargetAndLink(innerBlock.noteId, innerBlock.id) }; true }
+                    MENU_GO_TO_LINK -> { block?.let { innerBlock -> openLinkedTarget(innerBlock.id) }; true }
+                    MENU_UNLINK_CHILD -> { block?.let { innerBlock -> unlinkSource(innerBlock.id) }; true }
                     MENU_CONVERT_TO_TEXT -> { onConvertToText?.invoke(); true }
                     MENU_CONVERT_TO_LIST -> { onConvertToList?.invoke(); true }
                     else -> false

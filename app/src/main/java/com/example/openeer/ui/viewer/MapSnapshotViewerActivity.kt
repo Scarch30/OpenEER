@@ -35,8 +35,14 @@ import java.io.File
 class MapSnapshotViewerActivity : AppCompatActivity() {
 
     companion object {
-        private const val EXTRA_URI = "extra_uri"   // accepte file:// ou content:// ou path absolu
-        private const val EXTRA_BLOCK_ID = "extra_block_id"
+        const val EXTRA_URI = "extra_uri"   // accepte file:// ou content:// ou path absolu
+        const val EXTRA_BLOCK_ID = "extra_block_id"
+        const val EXTRA_SNAPSHOT_URI = "snapshot_uri"
+        const val EXTRA_TITLE = "title"
+        const val EXTRA_LAT = "lat"
+        const val EXTRA_LON = "lon"
+        const val EXTRA_PLACE_LABEL = "place_label"
+
 
         fun newIntent(context: Context, absolutePathOrUri: String, blockId: Long = -1L): Intent =
             Intent(context, MapSnapshotViewerActivity::class.java).apply {

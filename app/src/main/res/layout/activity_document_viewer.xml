@@ -34,7 +34,7 @@
         android:layout_marginEnd="8dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/media_action_menu"
-        android:src="@drawable/ic_menu_overflow" />
+        android:src="@drawable/ic_more_vert_24" />
 
     <!-- PDF (invisible par défaut) -->
     <com.github.chrisbanes.photoview.PhotoView
