@@ -10,13 +10,20 @@ import android.view.View
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.ImageView
+import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.openeer.Injection
 import com.example.openeer.R
+import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import com.github.chrisbanes.photoview.PhotoView
+import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.max
 import android.view.WindowInsetsController
@@ -25,10 +32,18 @@ import android.view.WindowInsetsController
 class DocumentViewerActivity : AppCompatActivity() {
 
     companion object {
-        const val EXTRA_PATH  = "path"
-        const val EXTRA_MIME  = "mime"
+        const val EXTRA_PATH = "path"
+        const val EXTRA_MIME = "mime"
         const val EXTRA_TITLE = "title"
-        const val EXTRA_BLOCK = "blockId"
+        const val EXTRA_BLOCKID = "blockId"
+    }
+
+    private val blocksRepo: BlocksRepository by lazy {
+        Injection.provideBlocksRepository(this)
+    }
+
+    private val mediaActions: MediaActions by lazy {
+        MediaActions(this, blocksRepo)
     }
 
     private var pfd: ParcelFileDescriptor? = null
@@ -65,6 +80,28 @@ class DocumentViewerActivity : AppCompatActivity() {
         }
 
         renderPlainText(file)
+
+        setupMenu()
+    }
+
+    private fun setupMenu() {
+        val blockId = intent.getLongExtra(EXTRA_BLOCKID, -1)
+        if (blockId == -1L) return
+
+        findViewById<ImageButton>(R.id.docMenu)?.setOnClickListener { anchor ->
+            lifecycleScope.launch {
+                val block = blocksRepo.getBlock(blockId) ?: return@launch
+                val item = MediaStripItem.File(
+                    blockId = block.id,
+                    mediaUri = block.mediaUri ?: "",
+                    mimeType = block.mimeType,
+                    displayName = block.childName ?: block.text ?: "",
+                    childOrdinal = block.childOrdinal,
+                    childName = block.childName
+                )
+                mediaActions.showMenu(anchor, item)
+            }
+        }
     }
 
     // ---------- TXT ----------
@@ -85,6 +122,7 @@ class DocumentViewerActivity : AppCompatActivity() {
         // Contraste dynamique : fond sombre si texte clair, sinon fond clair
         val isTextLight = isColorLight(textView.currentTextColor)
         applyContrastForTextColor(isTextLight)
+        setupMenu()
     }
 
     // ---------- HTML / Markdown ----------
@@ -126,6 +164,7 @@ class DocumentViewerActivity : AppCompatActivity() {
                 null
             )
         }
+        setupMenu()
     }
 
     private fun markdownToBasicHtml(md: String): String {
@@ -190,6 +229,7 @@ class DocumentViewerActivity : AppCompatActivity() {
         }
 
         list.adapter = PdfPageAdapter(pdfRenderer!!)
+        setupMenu()
     }
 
     private class PdfPageAdapter(

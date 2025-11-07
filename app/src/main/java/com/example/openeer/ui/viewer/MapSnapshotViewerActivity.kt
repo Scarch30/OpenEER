@@ -21,7 +21,10 @@ import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.example.openeer.Injection
 import com.example.openeer.R
+import com.example.openeer.data.block.BlockType
 import com.example.openeer.ui.dialogs.ChildNameDialog
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +48,7 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK_ID, -1L) }
     private val sourcePath: String? by lazy { intent.getStringExtra(EXTRA_URI) }
     private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
+    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
     private lateinit var toolbar: MaterialToolbar
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,54 +103,31 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_viewer_item, menu)
-        menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
-        menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
-        menu.findItem(R.id.action_share)?.isVisible = !sourcePath.isNullOrBlank()
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            android.R.id.home -> {
-                finishAfterTransition()
-                true
-            }
-            R.id.action_rename -> {
-                showRenameDialog()
-                true
-            }
-            R.id.action_share -> {
-                shareSnapshot()
-                true
-            }
-            R.id.action_delete -> {
-                confirmDelete()
-                true
-            }
-            else -> super.onOptionsItemSelected(item)
+        if (item.itemId == R.id.action_more) {
+            val anchor = findViewById<View>(R.id.action_more)
+            showMoreMenu(anchor)
+            return true
         }
+        return super.onOptionsItemSelected(item)
     }
 
-    private fun showRenameDialog() {
+    private fun showMoreMenu(anchor: View) {
         if (blockId <= 0) return
         lifecycleScope.launch {
-            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(blockId) }
-            ChildNameDialog.show(
-                context = this@MapSnapshotViewerActivity,
-                initialValue = current,
-                onSave = { newName ->
-                    lifecycleScope.launch {
-                        withContext(Dispatchers.IO) { blocksRepository.setChildNameForBlock(blockId, newName) }
-                        updateToolbarTitle(newName)
-                    }
-                },
-                onReset = {
-                    lifecycleScope.launch {
-                        withContext(Dispatchers.IO) { blocksRepository.setChildNameForBlock(blockId, null) }
-                        updateToolbarTitle(null)
-                    }
-                }
+            val block = withContext(Dispatchers.IO) { blocksRepository.getBlock(blockId) } ?: return@launch
+            val item = MediaStripItem.Image(
+                blockId = block.id,
+                mediaUri = block.mediaUri ?: "",
+                mimeType = block.mimeType,
+                type = block.type,
+                childOrdinal = block.childOrdinal,
+                childName = block.childName
             )
+            mediaActions.showMenu(anchor, item)
         }
     }
 
@@ -164,58 +145,5 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     private fun updateToolbarTitle(name: String?) {
         val title = name?.takeIf { it.isNotBlank() } ?: getString(R.string.map_snapshot_preview)
         supportActionBar?.title = title
-    }
-
-    private fun shareSnapshot() {
-        val source = sourcePath ?: run {
-            Toast.makeText(this, getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val shareUri = ViewerMediaUtils.resolveShareUri(this, source) ?: run {
-            Toast.makeText(this, getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "image/*"
-            putExtra(Intent.EXTRA_STREAM, shareUri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        val targets = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-        targets.forEach { info ->
-            grantUriPermission(info.activityInfo.packageName, shareUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        runCatching {
-            startActivity(Intent.createChooser(intent, getString(R.string.media_action_share)))
-        }.onFailure {
-            Toast.makeText(this, getString(R.string.media_share_error), Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun confirmDelete() {
-        if (blockId <= 0) return
-        AlertDialog.Builder(this)
-            .setTitle(R.string.media_action_delete)
-            .setMessage(R.string.media_delete_confirm)
-            .setPositiveButton(R.string.action_validate) { _, _ -> deleteSnapshot() }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
-    private fun deleteSnapshot() {
-        val path = sourcePath
-        lifecycleScope.launch {
-            val success = withContext(Dispatchers.IO) {
-                runCatching {
-                    path?.let { ViewerMediaUtils.deleteMediaFile(this@MapSnapshotViewerActivity, it) }
-                    blocksRepository.deleteBlock(blockId)
-                }.isSuccess
-            }
-            if (success) {
-                Toast.makeText(this@MapSnapshotViewerActivity, getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
-                finish()
-            } else {
-                Toast.makeText(this@MapSnapshotViewerActivity, getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
-            }
-        }
     }
 }
