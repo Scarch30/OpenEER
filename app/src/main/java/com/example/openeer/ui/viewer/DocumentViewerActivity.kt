@@ -1,20 +1,25 @@
 package com.example.openeer.ui.viewer
 
 import android.graphics.Bitmap
+import android.graphics.Typeface
 import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.view.View
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.R
-import java.io.File
 import com.github.chrisbanes.photoview.PhotoView
+import java.io.File
+import kotlin.math.max
+import android.view.WindowInsetsController
 
 
 class DocumentViewerActivity : AppCompatActivity() {
@@ -35,46 +40,38 @@ class DocumentViewerActivity : AppCompatActivity() {
         val path  = intent.getStringExtra(EXTRA_PATH)
         val mime  = (intent.getStringExtra(EXTRA_MIME) ?: "").lowercase()
         val title = intent.getStringExtra(EXTRA_TITLE) ?: getString(R.string.document_viewer_title)
-
-        title.let { setTitle(it) }
+        setTitle(title)
 
         if (path.isNullOrBlank()) {
             Toast.makeText(this, R.string.media_missing_file, Toast.LENGTH_SHORT).show()
-            finish()
-            return
+            finish(); return
         }
         val file = File(path)
         if (!file.exists()) {
             Toast.makeText(this, R.string.media_missing_file, Toast.LENGTH_SHORT).show()
-            finish()
-            return
+            finish(); return
         }
 
-        // Dispatch par type (ordre : PDF → HTML/MD → texte brut)
+        // Dispatch simple
         val isPdf = mime == "application/pdf" || path.endsWith(".pdf", true)
         if (isPdf) {
-            renderPdf(file)
-            return
+            renderPdf(file); return
         }
 
         val isHtml = mime == "text/html" || path.endsWith(".html", true) || path.endsWith(".htm", true)
         val isMd   = mime == "text/markdown" || mime == "text/x-markdown" || path.endsWith(".md", true)
-
         if (isHtml || isMd) {
-            renderWeb(file, isMarkdown = isMd)
-            return
+            renderWeb(file, isMarkdown = isMd); return
         }
 
-        // Fallback : texte brut
         renderPlainText(file)
     }
 
-    // --- TXT ---
-
+    // ---------- TXT ----------
     private fun renderPlainText(file: File) {
         setContentView(R.layout.activity_document_viewer)
         val textView = findViewById<TextView>(R.id.docText)
-        textView.typeface = android.graphics.Typeface.MONOSPACE
+        textView.typeface = Typeface.MONOSPACE
         textView.setTextIsSelectable(true)
 
         val content: String = runCatching { file.readText(Charsets.UTF_8) }
@@ -84,20 +81,28 @@ class DocumentViewerActivity : AppCompatActivity() {
             }
 
         textView.text = content.ifBlank { " " }
+
+        // Contraste dynamique : fond sombre si texte clair, sinon fond clair
+        val isTextLight = isColorLight(textView.currentTextColor)
+        applyContrastForTextColor(isTextLight)
     }
 
-    // --- HTML / Markdown (WebView) ---
-
+    // ---------- HTML / Markdown ----------
     private fun renderWeb(file: File, isMarkdown: Boolean) {
         setContentView(R.layout.activity_document_viewer_web)
         val web = findViewById<WebView>(R.id.docWeb)
 
-        // Réglages safe par défaut
+        // Réglages sûrs
         web.settings.javaScriptEnabled = false
         web.settings.cacheMode = WebSettings.LOAD_NO_CACHE
         web.settings.builtInZoomControls = true
         web.settings.displayZoomControls = false
+        // Fond clair par défaut pour lisibilité
+        web.setBackgroundColor(0xFFFFFFFF.toInt())
+        setSystemBarIconContrast(lightIcons = true)
         if (Build.VERSION.SDK_INT >= 29) {
+            // Laisse WebView décider en auto si le site a un thème sombre,
+            // mais notre fond reste blanc par défaut.
             web.settings.forceDark = WebSettings.FORCE_DARK_AUTO
         }
 
@@ -108,51 +113,35 @@ class DocumentViewerActivity : AppCompatActivity() {
             }
 
         if (isMarkdown) {
-            // MVP Markdown → HTML très simple (pas de lib), suffisante pour lecture
             val html = markdownToBasicHtml(raw)
             web.loadDataWithBaseURL(
-                /* baseUrl = */ null,
-                /* data    = */ html,
-                /* mime    = */ "text/html",
-                /* enc     = */ "utf-8",
-                /* history = */ null
+                null, html, "text/html", "utf-8", null
             )
         } else {
-            // HTML : on affiche tel quel
             web.loadDataWithBaseURL(
-                /* baseUrl = */ "file://${file.parentFile?.absolutePath}/",
-                /* data    = */ raw,
-                /* mime    = */ "text/html",
-                /* enc     = */ "utf-8",
-                /* history = */ null
+                "file://${file.parentFile?.absolutePath}/",
+                raw,
+                "text/html",
+                "utf-8",
+                null
             )
         }
     }
 
     private fun markdownToBasicHtml(md: String): String {
-        // Conversion très légère : titres, gras/italique, code inline, paragraphes & sauts de ligne.
         var t = md
-
-        // Code inline `
         t = t.replace(Regex("`([^`]+)`")) { "<code>${it.groupValues[1]}</code>" }
-
-        // **bold** / *italic*
         t = t.replace(Regex("\\*\\*([^*]+)\\*\\*")) { "<b>${it.groupValues[1]}</b>" }
         t = t.replace(Regex("\\*([^*]+)\\*")) { "<i>${it.groupValues[1]}</i>" }
-
-        // Titres #..######
         t = t.replace(Regex("(?m)^######\\s+(.+)$")) { "<h6>${it.groupValues[1]}</h6>" }
         t = t.replace(Regex("(?m)^#####\\s+(.+)$"))  { "<h5>${it.groupValues[1]}</h5>" }
         t = t.replace(Regex("(?m)^####\\s+(.+)$"))   { "<h4>${it.groupValues[1]}</h4>" }
         t = t.replace(Regex("(?m)^###\\s+(.+)$"))    { "<h3>${it.groupValues[1]}</h3>" }
         t = t.replace(Regex("(?m)^##\\s+(.+)$"))     { "<h2>${it.groupValues[1]}</h2>" }
         t = t.replace(Regex("(?m)^#\\s+(.+)$"))      { "<h1>${it.groupValues[1]}</h1>" }
-
-        // Listes simples
         t = t.replace(Regex("(?m)^\\s*[-*]\\s+(.+)$")) { "<li>${it.groupValues[1]}</li>" }
         t = t.replace(Regex("(?s)(<li>.*?</li>)")) { "<ul>${it.groupValues[1]}</ul>" }
 
-        // Paragraphes & sauts de ligne
         val lines = t.split("\n")
         val sb = StringBuilder()
         for (line in lines) {
@@ -167,7 +156,7 @@ class DocumentViewerActivity : AppCompatActivity() {
               <meta charset="utf-8"/>
               <meta name="viewport" content="width=device-width, initial-scale=1"/>
               <style>
-                body { font-family: -apple-system,BlinkMacSystemFont,Roboto,Segoe UI,Helvetica,Arial,sans-serif; line-height: 1.45; padding: 12px; }
+                body { font-family: -apple-system,BlinkMacSystemFont,Roboto,Segoe UI,Helvetica,Arial,sans-serif; line-height: 1.45; padding: 12px; background:#fff; color:#111; }
                 code { background: #2223; padding: 0 4px; border-radius: 4px; }
                 pre  { background: #2223; padding: 8px; border-radius: 6px; overflow-x: auto; }
                 h1,h2,h3 { margin-top: 1em; }
@@ -180,11 +169,14 @@ class DocumentViewerActivity : AppCompatActivity() {
         """.trimIndent()
     }
 
-    // --- PDF (PdfRenderer + RecyclerView paginé) ---
-
+    // ---------- PDF (PdfRenderer + RecyclerView) ----------
     private fun renderPdf(file: File) {
         setContentView(R.layout.activity_document_viewer_pdf)
         val list = findViewById<RecyclerView>(R.id.pdfList)
+        // Fond clair pour lisibilité sur documents scannés/typo noire
+        list.setBackgroundColor(0xFFFFFFFF.toInt())
+        setSystemBarIconContrast(lightIcons = true)
+
         list.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
 
         try {
@@ -197,18 +189,12 @@ class DocumentViewerActivity : AppCompatActivity() {
             return
         }
 
-        val renderer = pdfRenderer!!
-        list.adapter = PdfPageAdapter(renderer)
+        list.adapter = PdfPageAdapter(pdfRenderer!!)
     }
 
     private class PdfPageAdapter(
         private val renderer: PdfRenderer
     ) : RecyclerView.Adapter<PdfPageVH>() {
-
-        override fun onViewRecycled(holder: PdfPageVH) {
-            super.onViewRecycled(holder)
-            holder.recycle()
-        }
 
         override fun getItemCount(): Int = renderer.pageCount
 
@@ -220,30 +206,25 @@ class DocumentViewerActivity : AppCompatActivity() {
                     RecyclerView.LayoutParams.WRAP_CONTENT
                 )
                 adjustViewBounds = true
-                // marge interne légère pour le confort
                 val pad = (ctx.resources.displayMetrics.density * 12).toInt()
                 setPadding(pad, pad, pad, pad)
-                // comportements de zoom
-                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                scaleType = ImageView.ScaleType.FIT_CENTER
                 minimumScale = 1.0f
                 mediumScale   = 2.5f
                 maximumScale  = 5.0f
-                // autorise le fling/pan, déjà géré par PhotoView
             }
             return PdfPageVH(pv)
         }
 
-
         override fun onBindViewHolder(holder: PdfPageVH, position: Int) {
-            holder.recycle() // libère l’ancien bitmap si recyclage
+            holder.recycle()
             val page = renderer.openPage(position)
             try {
-                // Rendons à la largeur disponible de l’écran (qualité nette + pas d’OOM)
                 val dm = holder.itemView.resources.displayMetrics
-                val paddingPx = (dm.density * 24).toInt() // ≈ 12dp de chaque côté
-                val targetW = (dm.widthPixels - paddingPx).coerceAtLeast(1)
+                val paddingPx = (dm.density * 24).toInt()
+                val targetW = max(dm.widthPixels - paddingPx, 1)
                 val scale   = targetW.toFloat() / page.width.toFloat()
-                val targetH = (page.height * scale).toInt().coerceAtLeast(1)
+                val targetH = max((page.height * scale).toInt(), 1)
 
                 val bmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
                 page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -253,6 +234,10 @@ class DocumentViewerActivity : AppCompatActivity() {
             }
         }
 
+        override fun onViewRecycled(holder: PdfPageVH) {
+            holder.recycle()
+            super.onViewRecycled(holder)
+        }
     }
 
     private class PdfPageVH(
@@ -262,11 +247,9 @@ class DocumentViewerActivity : AppCompatActivity() {
         private var current: Bitmap? = null
 
         fun bind(bitmap: Bitmap) {
-            // libère l’ancien si présent
             current?.let { if (!it.isRecycled) it.recycle() }
             current = bitmap
             photoView.setImageBitmap(bitmap)
-            // reset du zoom à chaque nouvelle page liée au holder
             photoView.setScale(photoView.minimumScale, true)
         }
 
@@ -274,6 +257,51 @@ class DocumentViewerActivity : AppCompatActivity() {
             photoView.setImageDrawable(null)
             current?.let { if (!it.isRecycled) it.recycle() }
             current = null
+        }
+    }
+
+    // ---------- Helpers contraste & barres système ----------
+    private fun isColorLight(color: Int): Boolean {
+        val r = (color shr 16 and 0xFF) / 255.0
+        val g = (color shr 8 and 0xFF) / 255.0
+        val b = (color and 0xFF) / 255.0
+        val luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return luminance > 0.6
+    }
+
+    // REPLACE these two functions:
+    private fun applyContrastForTextColor(isTextLight: Boolean) {
+        // texte clair -> fond sombre ; texte foncé -> fond clair
+        val bg = if (isTextLight) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+
+        // essaie de cibler un root classique si présent ; sinon décor
+        val root = run {
+            val id = resources.getIdentifier("documentRoot", "id", packageName)
+            if (id != 0) findViewById<View>(id) else null
+        } ?: window.decorView
+        root.setBackgroundColor(bg)
+
+        // icônes de barres (status/nav) : claires si fond sombre, foncées si fond clair
+        setSystemBarIconContrast(lightIcons = !isTextLight)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun setSystemBarIconContrast(lightIcons: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = window.insetsController
+            val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            val appearance = if (lightIcons) mask else 0
+            controller?.setSystemBarsAppearance(appearance, mask)
+        } else {
+            // Avant Android 11: on ne peut régler que le status bar en clair/foncé
+            var flags = window.decorView.systemUiVisibility
+            flags = if (lightIcons) {
+                flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            } else {
+                flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+            }
+            window.decorView.systemUiVisibility = flags
         }
     }
 

@@ -1,19 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/scrollRoot"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/documentRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:forceDarkAllowed="false"
+    android:background="@android:color/white">
 
-   <TextView
-    android:id="@+id/docText"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:padding="16dp"
-    android:textSize="15sp"
-    android:lineSpacingExtra="2dp"
-    android:breakStrategy="balanced"
-    android:textAppearance="?attr/textAppearanceBodyMedium"
-    android:textIsSelectable="true" />
+    <!-- TXT -->
+    <ScrollView
+        android:id="@+id/scrollRoot"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
 
-</ScrollView>
+        <TextView
+            android:id="@+id/docText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="16dp"
+            android:textSize="15sp"
+            android:lineSpacingExtra="2dp"
+            android:breakStrategy="balanced"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textIsSelectable="true" />
+    </ScrollView>
+
+    <!-- PDF (invisible par défaut) -->
+    <com.github.chrisbanes.photoview.PhotoView
+        android:id="@+id/pdfImage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:contentDescription="@string/document_viewer_title" />
+</FrameLayout>

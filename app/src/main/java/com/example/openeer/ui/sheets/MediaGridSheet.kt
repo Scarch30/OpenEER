@@ -79,6 +79,7 @@ class MediaGridSheet : BottomSheetDialogFragment() {
         private const val ARG_NOTE_ID = "arg_note_id"
         private const val ARG_CATEGORY = "arg_category"
 
+
         fun newInstance(noteId: Long, category: MediaCategory): MediaGridSheet =
             MediaGridSheet().apply {
                 arguments = bundleOf(

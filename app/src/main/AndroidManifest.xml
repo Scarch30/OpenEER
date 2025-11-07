@@ -137,6 +137,8 @@
             android:exported="false"
             android:label="Notes du jour" />
 
+
+
         <activity
             android:name=".ui.library.LocationNotesActivity"
             android:exported="false"

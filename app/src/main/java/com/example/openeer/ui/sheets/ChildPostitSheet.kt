@@ -48,6 +48,9 @@ private const val STATE_CURRENT_TITLE = "state_current_title"
 private const val STATE_CURRENT_BODY = "state_current_body"
 private const val LOG_TAG = "PostitSheet"
 
+private const val MENU_LINK_TO_CHILD = 2005
+
+
 class ChildPostitSheet : BottomSheetDialogFragment() {
 
     companion object {
@@ -697,6 +700,8 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
         if (blockId != null) {
             popup.menu.add(0, MENU_RENAME, 1, getString(R.string.media_action_rename))
+            // +++ AJOUT : entrée “Lier à un élément…”
+            popup.menu.add(0, MENU_LINK_TO_CHILD, 2, getString(R.string.media_action_link_to_child))
         }
 
         if (FeatureFlags.listsEnabled) {

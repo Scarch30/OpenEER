@@ -65,6 +65,8 @@ class BlocksRepository(
     companion object {
         const val LINK_AUDIO_TRANSCRIPTION = "AUDIO_TRANSCRIPTION"
         const val LINK_VIDEO_TRANSCRIPTION = "VIDEO_TRANSCRIPTION"
+        // ✅ Lien générique “from block → to block” (ex: note-mère → note-fille)
+        const val LINK_CHILD_REF = "CHILD_REF"
         const val MIME_TYPE_TEXT_BLOCK_LIST = "text/x-openeer-list"
         private const val BLOCK_LIST_LOG_TAG = "BlockListUI"
         private const val LIST_REPO_LOG_TAG = "ListRepo"
@@ -1347,4 +1349,62 @@ class BlocksRepository(
             blockDao.update(videoBlock.copy(text = newText, updatedAt = now))
         }
     }
+    // --------------------------------------------------------------------
+// 🔗 Liens génériques de blocs (ex: NOTE_MERE -> NOTE_FILLE)
+// --------------------------------------------------------------------
+
+    /**
+     * Crée un lien générique from → to avec un type (par défaut CHILD_REF).
+     * Ne lance pas la création si linkDao n'est pas fourni.
+     */
+    suspend fun linkBlocks(
+        fromBlockId: Long,
+        toBlockId: Long,
+        type: String = LINK_CHILD_REF
+    ) {
+        val dao = linkDao ?: return
+        withContext(io) {
+            dao.insert(
+                BlockLinkEntity(
+                    id = 0L,
+                    fromBlockId = fromBlockId,
+                    toBlockId = toBlockId,
+                    type = type
+                )
+            )
+        }
+    }
+
+    /**
+     * Trouve (au plus un) bloc cible lié à `fromBlockId` pour un type donné.
+     * Utile pour les liens 1→1 (ex: un item pointe vers UNE note-fille).
+     */
+    suspend fun findLinkedTarget(
+        fromBlockId: Long,
+        type: String = LINK_CHILD_REF
+    ): Long? {
+        val dao = linkDao ?: return null
+        return withContext(io) { dao.findLinkedTo(fromBlockId, type) }
+    }
+
+    /**
+     * Trouve (au plus un) bloc source qui pointe vers `toBlockId` pour un type donné.
+     * Utile pour remonter “qui pointe vers ce bloc ?”.
+     */
+    suspend fun findLinkedSource(
+        toBlockId: Long,
+        type: String = LINK_CHILD_REF
+    ): Long? {
+        val dao = linkDao ?: return null
+        return withContext(io) { dao.findLinkedFrom(toBlockId, type) }
+    }
+    /**
+     * Lien “note-mère → note-fille” (typé CHILD_REF).
+     * fromBlockId = le bloc texte (ou item *représenté par un bloc*) de la note-mère
+     * toBlockId   = l’ID du bloc enfant (audio, photo, fichier, texte, etc.)
+     */
+    suspend fun linkChildRef(fromBlockId: Long, toBlockId: Long) {
+        linkBlocks(fromBlockId, toBlockId, LINK_CHILD_REF)
+    }
+
 }
