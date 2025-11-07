@@ -25,17 +25,6 @@
             android:textIsSelectable="true" />
     </ScrollView>
 
-    <ImageButton
-        android:id="@+id/docMenu"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="8dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/media_action_menu"
-        android:src="@drawable/ic_more_vert_24" />
-
     <!-- PDF (invisible par défaut) -->
     <com.github.chrisbanes.photoview.PhotoView
         android:id="@+id/pdfImage"

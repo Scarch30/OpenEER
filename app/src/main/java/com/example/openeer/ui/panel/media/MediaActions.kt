@@ -25,7 +25,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.Locale
-import com.example.openeer.ui.viewer.MapSnapshotViewerActivity
+import com.example.openeer.ui.library.MapSnapshotViewerActivity
 import com.example.openeer.ui.viewer.AudioViewerActivity
 
 
@@ -194,23 +194,10 @@ class MediaActions(
         }
     }
 
-    fun showMenu(
-        anchor: View,
-        item: MediaStripItem,
-        onConvertToText: (() -> Unit)? = null,
-        onConvertToList: (() -> Unit)? = null
-    ) {
+    fun showMenu(anchor: View, item: MediaStripItem) {
         uiScope.launch {
             val popup = PopupMenu(activity, anchor)
             val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(item.blockId) }
-
-            if (item is MediaStripItem.Text) {
-                if (item.isList) {
-                    popup.menu.add(0, MENU_CONVERT_TO_TEXT, 0, activity.getString(R.string.block_action_convert_to_text))
-                } else {
-                    popup.menu.add(0, MENU_CONVERT_TO_LIST, 0, activity.getString(R.string.block_action_convert_to_list))
-                }
-            }
 
             popup.menu.add(0, MENU_SHARE, 0, activity.getString(R.string.media_action_share))
 
@@ -241,11 +228,9 @@ class MediaActions(
                         if (pile != null) openLocationPileCoverInMaps(pile) else Unit
                         true
                     }
-                    MENU_LINK_TO_CHILD -> { block?.let { innerBlock -> pickTargetAndLink(innerBlock.noteId, innerBlock.id) }; true }
-                    MENU_GO_TO_LINK -> { block?.let { innerBlock -> openLinkedTarget(innerBlock.id) }; true }
-                    MENU_UNLINK_CHILD -> { block?.let { innerBlock -> unlinkSource(innerBlock.id) }; true }
-                    MENU_CONVERT_TO_TEXT -> { onConvertToText?.invoke(); true }
-                    MENU_CONVERT_TO_LIST -> { onConvertToList?.invoke(); true }
+                    MENU_LINK_TO_CHILD -> { block?.let { pickTargetAndLink(it.noteId, it.id) }; true }
+                    MENU_GO_TO_LINK -> { block?.let { openLinkedTarget(it.id) }; true }
+                    MENU_UNLINK_CHILD -> { block?.let { unlinkSource(it.id) }; true }
                     else -> false
                 }
             }
@@ -531,8 +516,6 @@ class MediaActions(
         private const val MENU_LINK_TO_CHILD = 5
         private const val MENU_GO_TO_LINK = 6
         private const val MENU_UNLINK_CHILD = 7
-        private const val MENU_CONVERT_TO_TEXT = 8
-        private const val MENU_CONVERT_TO_LIST = 9
 
 
         fun openBlock(activity: AppCompatActivity, block: BlockEntity): Boolean {
