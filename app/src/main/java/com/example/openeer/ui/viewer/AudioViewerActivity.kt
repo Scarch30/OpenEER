@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.view.View
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
@@ -18,11 +17,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.openeer.Injection
 import com.example.openeer.R
-import com.example.openeer.data.block.BlockType
 import com.example.openeer.databinding.ActivityAudioViewerBinding
 import com.example.openeer.ui.dialogs.ChildNameDialog
-import com.example.openeer.ui.panel.media.MediaActions
-import com.example.openeer.ui.panel.media.MediaStripItem
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -51,7 +47,6 @@ class AudioViewerActivity : AppCompatActivity() {
     private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK_ID, -1L) }
     private val uriString: String? by lazy { intent.getStringExtra(EXTRA_URI) }
     private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
-    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -123,32 +118,52 @@ class AudioViewerActivity : AppCompatActivity() {
     }
 
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
-        menuInflater.inflate(R.menu.menu_viewer_item, menu)
+        menuInflater.inflate(R.menu.menu_viewer_audio, menu)
+        menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
+        menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
+        menu.findItem(R.id.action_share)?.isVisible = !uriString.isNullOrBlank()
         return true
     }
 
     override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
-        if (item.itemId == R.id.action_more) {
-            val anchor = findViewById<View>(R.id.action_more)
-            showMoreMenu(anchor)
-            return true
+        return when (item.itemId) {
+            android.R.id.home -> {
+                finishAfterTransition()
+                true
+            }
+            R.id.action_rename -> {
+                showRenameDialog(); true
+            }
+            R.id.action_share -> {
+                shareCurrentAudio(); true
+            }
+            R.id.action_delete -> {
+                confirmDelete(); true
+            }
+            else -> super.onOptionsItemSelected(item)
         }
-        return super.onOptionsItemSelected(item)
     }
 
-    private fun showMoreMenu(anchor: View) {
+    private fun showRenameDialog() {
         if (blockId <= 0) return
         lifecycleScope.launch {
-            val block = withContext(Dispatchers.IO) { blocksRepository.getBlock(blockId) } ?: return@launch
-            val item = MediaStripItem.Audio(
-                blockId = block.id,
-                mediaUri = block.mediaUri ?: "",
-                mimeType = block.mimeType,
-                durationMs = block.durationMs,
-                childOrdinal = block.childOrdinal,
-                childName = block.childName
+            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(blockId) }
+            ChildNameDialog.show(
+                context = this@AudioViewerActivity,
+                initialValue = current,
+                onSave = { newName ->
+                    lifecycleScope.launch {
+                        withContext(Dispatchers.IO) { blocksRepository.setChildNameForBlock(blockId, newName) }
+                        updateToolbarTitle(newName)
+                    }
+                },
+                onReset = {
+                    lifecycleScope.launch {
+                        withContext(Dispatchers.IO) { blocksRepository.setChildNameForBlock(blockId, null) }
+                        updateToolbarTitle(null)
+                    }
+                }
             )
-            mediaActions.showMenu(anchor, item)
         }
     }
 
@@ -166,5 +181,84 @@ class AudioViewerActivity : AppCompatActivity() {
     private fun updateToolbarTitle(name: String?) {
         val title = name?.takeIf { it.isNotBlank() } ?: getString(R.string.audio_viewer_default_title)
         supportActionBar?.title = title
+    }
+
+    private fun shareCurrentAudio() {
+        val source = uriString ?: return
+        val shareUri = resolveShareUri(source) ?: run {
+            Toast.makeText(this, getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "audio/*"
+            putExtra(Intent.EXTRA_STREAM, shareUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val pm = packageManager
+        val targets = pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        targets.forEach { info ->
+            grantUriPermission(info.activityInfo.packageName, shareUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching {
+            startActivity(Intent.createChooser(intent, getString(R.string.media_action_share)))
+        }.onFailure {
+            Toast.makeText(this, getString(R.string.media_share_error), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmDelete() {
+        if (blockId <= 0) return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.media_action_delete)
+            .setMessage(R.string.media_delete_confirm)
+            .setPositiveButton(R.string.action_validate) { _, _ -> deleteAudio() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun deleteAudio() {
+        val source = uriString
+        lifecycleScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                runCatching {
+                    source?.let { deleteMediaFile(it) }
+                    blocksRepository.deleteBlock(blockId)
+                }.isSuccess
+            }
+            if (success) {
+                Toast.makeText(this@AudioViewerActivity, getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
+                finish()
+            } else {
+                Toast.makeText(this@AudioViewerActivity, getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun deleteMediaFile(raw: String) {
+        runCatching {
+            val uri = Uri.parse(raw)
+            when {
+                uri.scheme.isNullOrEmpty() -> File(raw).takeIf { it.exists() }?.delete()
+                uri.scheme.equals("file", ignoreCase = true) -> uri.path?.let { path -> File(path).takeIf { it.exists() }?.delete() }
+                uri.scheme.equals("content", ignoreCase = true) -> contentResolver.delete(uri, null, null)
+                else -> uri.path?.let { path -> File(path).takeIf { it.exists() }?.delete() }
+            }
+        }
+    }
+
+    private fun resolveShareUri(raw: String): Uri? {
+        val parsed = Uri.parse(raw)
+        return when {
+            parsed.scheme.isNullOrEmpty() -> {
+                val file = File(raw)
+                if (!file.exists()) null else FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            }
+            parsed.scheme.equals("file", ignoreCase = true) -> {
+                val file = File(parsed.path ?: return null)
+                if (!file.exists()) null else FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            }
+            parsed.scheme.equals("content", ignoreCase = true) -> parsed
+            else -> parsed
+        }
     }
 }
