@@ -18,7 +18,8 @@ import com.example.openeer.data.Note
         Index(value = ["noteId", "position"], unique = true),
         Index(value = ["groupId"]),
         // Aligner avec l'index créé en migration:
-        Index(value = ["noteId", "childOrdinal"], name = "idx_blocks_note_childOrdinal")
+        Index(value = ["noteId", "childOrdinal"], name = "idx_blocks_note_childOrdinal"),
+        Index(value = ["childRefTargetId"])
     ]
 )
 data class BlockEntity(
@@ -26,6 +27,7 @@ data class BlockEntity(
     val noteId: Long,
     val type: BlockType,
     val position: Int,
+    val childRefTargetId: Long? = null,
     val childOrdinal: Int? = null,
     val childName: String? = null,
     val groupId: String? = null,

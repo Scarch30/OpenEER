@@ -1404,7 +1404,27 @@ class BlocksRepository(
      * toBlockId   = l’ID du bloc enfant (audio, photo, fichier, texte, etc.)
      */
     suspend fun linkChildRef(fromBlockId: Long, toBlockId: Long) {
-        linkBlocks(fromBlockId, toBlockId, LINK_CHILD_REF)
+        withContext(io) {
+            blockDao.linkChildRef(fromBlockId, toBlockId)
+        }
     }
 
+    suspend fun unlinkChildRef(sourceBlockId: Long) {
+        withContext(io) {
+            blockDao.unlinkChildRef(sourceBlockId)
+        }
+    }
+
+    suspend fun findLinkedTarget(sourceBlockId: Long): BlockEntity? {
+        return withContext(io) {
+            val source = blockDao.getById(sourceBlockId)
+            source?.childRefTargetId?.let { blockDao.getById(it) }
+        }
+    }
+
+    suspend fun findLinkedSources(targetBlockId: Long): List<BlockEntity> {
+        return withContext(io) {
+            blockDao.findLinkedSources(targetBlockId)
+        }
+    }
 }
