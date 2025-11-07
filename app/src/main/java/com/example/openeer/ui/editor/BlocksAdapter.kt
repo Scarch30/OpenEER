@@ -28,7 +28,7 @@ import com.example.openeer.ui.map.MapText   // ⬅️ pour détecter le fallback
 import com.google.android.material.chip.Chip
 import com.google.gson.Gson
 import java.util.Locale
-import com.example.openeer.ui.library.MapSnapshotViewerActivity
+import com.example.openeer.ui.viewer.MapSnapshotViewerActivity
 import com.example.openeer.ui.viewer.AudioViewerActivity
 
 

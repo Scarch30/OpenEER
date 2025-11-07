@@ -85,6 +85,8 @@
     <string name="block_convert_error_missing">Bloc introuvable.</string>
     <string name="block_convert_error_unsupported">Conversion non disponible pour ce bloc.</string>
     <string name="block_convert_menu_content_description">Options de conversion</string>
+    <string name="block_action_convert_to_text">Convertir en texte</string>
+    <string name="block_action_convert_to_list">Convertir en liste</string>
     <string name="media_text_badge_note">POST-IT</string>
     <string name="media_text_badge_list">LISTE</string>
     <string name="note_list_add_placeholder">+ Ajouter un élément</string>
@@ -453,6 +455,7 @@
     <string name="media_action_play">Lecture</string>
     <string name="media_action_pause">Pause</string>
     <string name="media_no_viewer_app">Pas de vue</string>
+    <string name="media_action_menu">Menu</string>
 
     <string name="document_viewer_title">Document</string>
     <string name="document_viewer_unsupported">Format non pris en charge (%1$s)</string>

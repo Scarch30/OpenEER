@@ -704,7 +704,12 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             isList = isListMode,
             childName = currentChildName
         )
-        mediaActions.showMenu(anchor, item)
+        mediaActions.showMenu(
+            anchor,
+            item,
+            onConvertToList = { handleConvertToList(noteId, blockId, content) },
+            onConvertToText = { handleConvertToText(noteId, blockId, content) }
+        )
     }
 
     private fun promptRenameChild(blockId: Long) {

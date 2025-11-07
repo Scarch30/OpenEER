@@ -52,7 +52,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
-import com.example.openeer.ui.library.MapSnapshotViewerActivity
+import com.example.openeer.ui.viewer.MapSnapshotViewerActivity
 import com.example.openeer.ui.viewer.AudioViewerActivity
 import androidx.core.view.isVisible
 

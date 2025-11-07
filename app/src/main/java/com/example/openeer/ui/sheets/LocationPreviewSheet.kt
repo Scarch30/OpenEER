@@ -8,8 +8,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
-import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.os.bundleOf
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
@@ -19,6 +20,8 @@ import com.example.openeer.R
 import com.example.openeer.data.AppDatabase
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.ui.dialogs.ChildNameDialog
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapPreviewStorage
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -84,6 +87,12 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
 
     // Accès direct au DAO (simple et fiable)
     private val noteDao by lazy { AppDatabase.get(requireContext().applicationContext).noteDao() }
+    private val mediaActions by lazy {
+        MediaActions(
+            activity as AppCompatActivity,
+            Injection.provideBlocksRepository(requireContext())
+        )
+    }
     private var currentLabel: String = ""
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
@@ -119,43 +128,19 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
         overflowButton.visibility = if (blockId > 0) View.VISIBLE else View.GONE
         overflowButton.setOnClickListener { anchor ->
             if (blockId <= 0) return@setOnClickListener
-            val popup = PopupMenu(requireContext(), anchor)
-            popup.menuInflater.inflate(R.menu.menu_viewer_item, popup.menu)
-            popup.setOnMenuItemClickListener { mi ->
-                when (mi.itemId) {
-                    R.id.action_rename -> {
-                        viewLifecycleOwner.lifecycleScope.launch {
-                            val repo = Injection.provideBlocksRepository(requireContext())
-                            val current = withContext(Dispatchers.IO) { repo.getChildNameForBlock(blockId) }
-                            ChildNameDialog.show(
-                                context = requireContext(),
-                                initialValue = current,
-                                onSave = { newName ->
-                                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                                        repo.setChildNameForBlock(blockId, newName)
-                                    }
-                                },
-                                onReset = {
-                                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                                        repo.setChildNameForBlock(blockId, null)
-                                    }
-                                }
-                            )
-                        }
-                        true
-                    }
-                    R.id.action_share -> {
-                        shareLocation()
-                        true
-                    }
-                    R.id.action_delete -> {
-                        confirmDelete()
-                        true
-                    }
-                    else -> false
-                }
+            lifecycleScope.launch {
+                val repo = Injection.provideBlocksRepository(requireContext())
+                val block = withContext(Dispatchers.IO) { repo.getBlock(blockId) } ?: return@launch
+                val item = MediaStripItem.Image(
+                    blockId = block.id,
+                    mediaUri = block.mediaUri ?: "",
+                    mimeType = block.mimeType,
+                    type = block.type,
+                    childOrdinal = block.childOrdinal,
+                    childName = block.childName
+                )
+                mediaActions.showMenu(anchor, item)
             }
-            popup.show()
         }
 
         // 1) Charger la capture si elle existe
@@ -234,61 +219,6 @@ class LocationPreviewSheet : BottomSheetDialogFragment() {
         }
 
         return root
-    }
-
-    private fun shareLocation() {
-        val label = currentLabel.ifBlank { initialLabel }
-        val coords = if (!lat.isNaN() && !lon.isNaN()) String.format(Locale.US, "%.6f, %.6f", lat, lon) else null
-        val link = coords?.let { c -> "https://maps.google.com/?q=${c.replace(" ", "")}" }
-        val text = buildString {
-            if (label.isNotBlank()) append(label)
-            if (link != null) {
-                if (isNotEmpty()) append('\n')
-                append(link)
-            } else if (coords != null) {
-                if (isNotEmpty()) append('\n')
-                append(coords)
-            }
-        }.ifBlank { coords ?: label }
-
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
-        }
-        runCatching {
-            startActivity(Intent.createChooser(intent, getString(R.string.media_action_share)))
-        }.onFailure {
-            Toast.makeText(requireContext(), getString(R.string.media_share_error), Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun confirmDelete() {
-        if (blockId <= 0) return
-        AlertDialog.Builder(requireContext())
-            .setTitle(R.string.media_action_delete)
-            .setMessage(R.string.media_delete_confirm)
-            .setPositiveButton(R.string.action_validate) { _, _ -> deleteLocation() }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
-    private fun deleteLocation() {
-        val ctx = requireContext()
-        viewLifecycleOwner.lifecycleScope.launch {
-            val success = withContext(Dispatchers.IO) {
-                val repo = Injection.provideBlocksRepository(ctx)
-                runCatching {
-                    MapPreviewStorage.fileFor(ctx, blockId, type).takeIf { it.exists() }?.delete()
-                    repo.deleteBlock(blockId)
-                }.isSuccess
-            }
-            if (success) {
-                Toast.makeText(ctx, ctx.getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
-                dismissAllowingStateLoss()
-            } else {
-                Toast.makeText(ctx, ctx.getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
-            }
-        }
     }
 
     /** Détection de fallback : vide, "Position actuelle", "geo:…", ou "lat, lon". */
