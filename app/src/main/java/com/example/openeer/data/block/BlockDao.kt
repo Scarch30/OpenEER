@@ -91,4 +91,13 @@ interface BlockDao {
             updatePosition(blockId, noteId, idx)
         }
     }
+
+    @Query("UPDATE blocks SET childRefTargetId=:target WHERE id=:source")
+    suspend fun linkChildRef(source: Long, target: Long)
+
+    @Query("UPDATE blocks SET childRefTargetId=NULL WHERE id=:source")
+    suspend fun unlinkChildRef(source: Long)
+
+    @Query("SELECT * FROM blocks WHERE childRefTargetId=:target")
+    suspend fun findLinkedSources(target: Long): List<BlockEntity>
 }

@@ -49,7 +49,7 @@ import com.example.openeer.data.tag.TagEntity
         FavoriteEntity::class,
         ListItemEntity::class
     ],
-    version = 26, // 🔼 bump : numérotation enfants + labels
+    version = 27, // 🔼 bump : childRefTargetId
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -679,6 +679,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE blocks ADD COLUMN childRefTargetId INTEGER")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_blocks_childRefTargetId ON blocks(childRefTargetId)")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -711,7 +718,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_22_23,
                         MIGRATION_23_24,
                         MIGRATION_24_25,
-                        MIGRATION_25_26
+                        MIGRATION_25_26,
+                        MIGRATION_26_27
                     )
                     .build()
                     .also { INSTANCE = it }
