@@ -443,10 +443,114 @@ class MediaActions(
         }
     }
 
-    private companion object {
-        const val MENU_SHARE = 1
-        const val MENU_DELETE = 2
-        const val MENU_RENAME = 3
-        const val MENU_OPEN_IN_MAPS = 4
+    companion object {
+        private const val MENU_SHARE = 1
+        private const val MENU_DELETE = 2
+        private const val MENU_RENAME = 3
+        private const val MENU_OPEN_IN_MAPS = 4
+
+        fun openBlock(activity: AppCompatActivity, block: BlockEntity): Boolean {
+            val context = activity
+            when (block.type) {
+                BlockType.TEXT -> {
+                    ChildPostitSheet.open(block.noteId, block.id)
+                        .show(activity.supportFragmentManager, "child_text_edit_${block.id}")
+                    return true
+                }
+                BlockType.PHOTO, BlockType.SKETCH -> {
+                    val uri = block.mediaUri?.let { Uri.parse(it) } ?: return false
+                    if (!uriExists(context, uri)) {
+                        Toast.makeText(context, R.string.link_file_not_found, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val intent = Intent(context, PhotoViewerActivity::class.java).apply {
+                        putExtra("path", block.mediaUri)
+                        putExtra("blockId", block.id)
+                    }
+                    context.startActivity(intent)
+                    return true
+                }
+                BlockType.VIDEO -> {
+                    val uri = block.mediaUri?.let { Uri.parse(it) } ?: return false
+                    if (!uriExists(context, uri)) {
+                        Toast.makeText(context, R.string.link_file_not_found, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val intent = Intent(activity, VideoPlayerActivity::class.java).apply {
+                        putExtra(VideoPlayerActivity.EXTRA_URI, block.mediaUri)
+                        putExtra("blockId", block.id)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    activity.startActivity(intent)
+                    return true
+                }
+                BlockType.AUDIO -> {
+                     val uri = block.mediaUri?.let { Uri.parse(it) } ?: return false
+                    if (!uriExists(context, uri)) {
+                        Toast.makeText(context, R.string.link_file_not_found, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val intent = AudioViewerActivity.newIntent(context, block.mediaUri, block.id)
+                    context.startActivity(intent)
+                    return true
+                }
+                BlockType.FILE -> {
+                    val uri = block.mediaUri?.let { Uri.parse(it) } ?: return false
+                     if (!uriExists(context, uri)) {
+                        Toast.makeText(context, R.string.link_file_not_found, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val intent = Intent(context, com.example.openeer.ui.viewer.DocumentViewerActivity::class.java).apply {
+                        putExtra("path", block.mediaUri)
+                        putExtra("mime", block.mimeType)
+                        putExtra("title", block.childName ?: block.text)
+                        putExtra("blockId", block.id)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(intent)
+                    return true
+                }
+                BlockType.LOCATION, BlockType.ROUTE -> {
+                     val lat = block.lat
+                    val lon = block.lon
+                    if (lat == null || lon == null) {
+                         Toast.makeText(activity, R.string.map_location_unavailable, Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    val label = block.placeName?.takeIf { it.isNotBlank() } ?: context.getString(R.string.block_location_coordinates, lat, lon)
+                    val intent = Intent(activity, MapSnapshotViewerActivity::class.java)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_TITLE, label)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_PLACE_LABEL, label)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_LAT, lat)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_LON, lon)
+                        .putExtra(MapSnapshotViewerActivity.EXTRA_BLOCK_ID, block.id)
+                        .apply {
+                            block.mediaUri?.let { putExtra(MapSnapshotViewerActivity.EXTRA_SNAPSHOT_URI, it) }
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                    activity.startActivity(intent)
+                    return true
+                }
+                 else -> {
+                    Toast.makeText(context, "Unsupported block type", Toast.LENGTH_SHORT).show()
+                    return false
+                }
+            }
+        }
+
+        private fun uriExists(context: android.content.Context, uri: Uri): Boolean {
+            // For content:// URIs, the best we can do is try to open it.
+            if ("content".equals(uri.scheme, ignoreCase = true)) {
+                return try {
+                    context.contentResolver.openInputStream(uri)?.use { it.close() }
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            // For file:// or implicit file path URIs.
+            val path = uri.path ?: return false
+            return File(path).exists()
+        }
     }
 }

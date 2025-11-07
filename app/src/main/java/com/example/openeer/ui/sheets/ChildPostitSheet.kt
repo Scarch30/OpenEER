@@ -18,6 +18,7 @@ import android.util.Log
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
 import androidx.core.widget.addTextChangedListener
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -28,6 +29,7 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository.ChecklistItemDraft
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.core.FeatureFlags
+import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.voice.SmartListSplitter
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import kotlinx.coroutines.CoroutineScope
@@ -42,13 +44,15 @@ private const val MENU_DELETE = 1001
 private const val MENU_CONVERT_TO_LIST = 1002
 private const val MENU_CONVERT_TO_TEXT = 1003
 private const val MENU_RENAME = 1004
+private const val MENU_LINK_TO_CHILD = 2005
+private const val MENU_GO_TO_LINK = 2006
+private const val MENU_UNLINK_CHILD = 2007
+
 
 private const val STATE_IS_LIST_MODE = "state_is_list_mode"
 private const val STATE_CURRENT_TITLE = "state_current_title"
 private const val STATE_CURRENT_BODY = "state_current_body"
 private const val LOG_TAG = "PostitSheet"
-
-private const val MENU_LINK_TO_CHILD = 2005
 
 
 class ChildPostitSheet : BottomSheetDialogFragment() {
@@ -700,11 +704,15 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
         if (blockId != null) {
             popup.menu.add(0, MENU_RENAME, 1, getString(R.string.media_action_rename))
-            // +++ AJOUT : entrée “Lier à un élément…”
-            popup.menu.add(0, MENU_LINK_TO_CHILD, 2, getString(R.string.media_action_link_to_child))
-        }
-
-        if (FeatureFlags.listsEnabled) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(blockId) }
+                if (block?.childRefTargetId == null) {
+                    popup.menu.add(0, MENU_LINK_TO_CHILD, 2, getString(R.string.media_action_link_to_child))
+                } else {
+                    popup.menu.add(0, MENU_GO_TO_LINK, 2, getString(R.string.media_action_go_to_link))
+                    popup.menu.add(0, MENU_UNLINK_CHILD, 2, getString(R.string.media_action_unlink_child))
+                }
+                 if (FeatureFlags.listsEnabled) {
             if (!isListMode) {
                 val convertToList = popup.menu.add(
                     0, MENU_CONVERT_TO_LIST, 2, getString(R.string.note_menu_convert_to_list)
@@ -717,24 +725,77 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
                 convertToText.isEnabled = blockId != null || hasBody
             }
         }
+                if (blockId != null) {
+                    popup.menu.add(0, MENU_DELETE, 3, getString(R.string.media_action_delete))
+                }
 
-        if (blockId != null) {
-            popup.menu.add(0, MENU_DELETE, 3, getString(R.string.media_action_delete))
-        }
+                if (popup.menu.size() == 0) return@launch
 
-        if (popup.menu.size() == 0) return
-
-        popup.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                MENU_SHARE -> { shareContent(combinedContent); true }
-                MENU_RENAME -> { blockId?.let { promptRenameChild(it) }; true }
-                MENU_DELETE -> { blockId?.let { confirmDelete(noteId, it) }; true }
-                MENU_CONVERT_TO_LIST -> { handleConvertToList(noteId, blockId, content); true }
-                MENU_CONVERT_TO_TEXT -> { handleConvertToText(noteId, blockId, content); true }
-                else -> false
+                popup.setOnMenuItemClickListener { item ->
+                    when (item.itemId) {
+                        MENU_SHARE -> { shareContent(combinedContent); true }
+                        MENU_RENAME -> { blockId?.let { promptRenameChild(it) }; true }
+                        MENU_DELETE -> { blockId?.let { confirmDelete(noteId, it) }; true }
+                        MENU_CONVERT_TO_LIST -> { handleConvertToList(noteId, blockId, content); true }
+                        MENU_CONVERT_TO_TEXT -> { handleConvertToText(noteId, blockId, content); true }
+                        MENU_LINK_TO_CHILD -> { blockId?.let { pickTargetAndLink(it) }; true }
+                        MENU_GO_TO_LINK -> { blockId?.let { openLinkedTarget(it) }; true }
+                        MENU_UNLINK_CHILD -> { blockId?.let { unlinkSource(it) }; true }
+                        else -> false
+                    }
+                }
+                popup.show()
             }
         }
-        popup.show()
+    }
+
+    private fun pickTargetAndLink(sourceBlockId: Long) {
+        val noteId = requireArguments().getLong(ARG_NOTE_ID)
+        val sheet = LinkTargetSheet.newInstance(noteId, sourceBlockId)
+        sheet.onTargetSelected = { targetBlockId ->
+            viewLifecycleOwner.lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    val targetBlock = blocksRepo.getBlock(targetBlockId)
+                    if (targetBlock?.childRefTargetId == sourceBlockId) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(requireContext(), R.string.link_circular_forbidden, Toast.LENGTH_SHORT).show()
+                        }
+                        return@withContext
+                    }
+                    blocksRepo.unlinkChildRef(sourceBlockId)
+                    blocksRepo.linkChildRef(sourceBlockId, targetBlockId)
+                }
+                Toast.makeText(requireContext(), R.string.link_created, Toast.LENGTH_SHORT).show()
+            }
+        }
+        sheet.show(parentFragmentManager, "link_target_picker")
+    }
+
+    private fun openLinkedTarget(sourceBlockId: Long) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val target = withContext(Dispatchers.IO) {
+                blocksRepo.findLinkedTarget(sourceBlockId)
+            }
+            if (target == null) {
+                withContext(Dispatchers.IO) { blocksRepo.unlinkChildRef(sourceBlockId) }
+                Toast.makeText(requireContext(), R.string.link_target_not_found, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            val success = MediaActions.openBlock(requireActivity() as androidx.appcompat.app.AppCompatActivity, target)
+            if (!success) {
+                withContext(Dispatchers.IO) { blocksRepo.unlinkChildRef(sourceBlockId) }
+            }
+        }
+    }
+
+    private fun unlinkSource(sourceBlockId: Long) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                blocksRepo.unlinkChildRef(sourceBlockId)
+            }
+            Toast.makeText(requireContext(), R.string.link_removed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun promptRenameChild(blockId: Long) {
