@@ -17,8 +17,6 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.map.buildMapsUrl
 import com.example.openeer.ui.dialogs.ChildNameDialog
-import com.example.openeer.ui.panel.media.MediaActions
-import com.example.openeer.ui.panel.media.MediaStripItem
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
@@ -34,8 +32,6 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     private val routeGson by lazy { Gson() }
     private var openMapsAction: (() -> Unit)? = null
     private var hasShownMapsUnavailableMessage = false
-    private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
-    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,13 +55,6 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     // ⬇️ C'EST ICI qu’on “gonfle” (inflate) le menu
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_viewer_location, menu)
-        lifecycleScope.launch {
-            val block = withContext(Dispatchers.IO) {
-                if (blockId > 0) blocksRepository.getBlock(blockId) else null
-            }
-            val linkItem = menu.findItem(R.id.action_link_to_element)
-            linkItem?.isVisible = block != null
-        }
         val renameItem = menu.findItem(R.id.action_rename)
         val hasValidBlock = blockId > 0
         renameItem?.isVisible = hasValidBlock
@@ -98,31 +87,7 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         }
         R.id.action_share -> { sharePlace(); true }
         R.id.action_delete -> { /* TODO: suppression */ true }
-        R.id.action_link_to_element -> {
-            openLinkMenuForMap()
-            true
-        }
         else -> super.onOptionsItemSelected(item)
-    }
-
-    private fun openLinkMenuForMap() {
-        if (blockId <= 0) return
-        lifecycleScope.launch {
-            val block = withContext(Dispatchers.IO) { blocksRepository.getBlock(blockId) }
-            if (block == null) {
-                Toast.makeText(this@MapSnapshotViewerActivity, R.string.media_missing_file, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            val item = MediaStripItem.Image(
-                blockId = block.id,
-                mediaUri = block.mediaUri ?: "",
-                mimeType = block.mimeType,
-                type = block.type,
-                childName = block.childName
-            )
-            val toolbar = findViewById<MaterialToolbar>(R.id.viewerToolbar)
-            mediaActions.showMenu(toolbar, item, null, null)
-        }
     }
 
     private fun showRenameDialog() {
