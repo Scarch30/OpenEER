@@ -18,9 +18,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.openeer.Injection
+import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.R
 import com.example.openeer.databinding.ActivityVideoPlayerBinding
 import com.example.openeer.ui.dialogs.ChildNameDialog
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,6 +40,10 @@ class VideoPlayerActivity : AppCompatActivity() {
     private var lastPosition = 0L
     private val blockId: Long by lazy { intent.getLongExtra("blockId", -1L) }
     private val sourceUri: String? by lazy { intent.getStringExtra(EXTRA_URI) }
+    private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
+    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
+    private var currentBlock: BlockEntity? = null
+    private var currentChildName: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -121,6 +128,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
         menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
         menu.findItem(R.id.action_share)?.isVisible = !sourceUri.isNullOrBlank()
+        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
         return true
     }
 
@@ -142,11 +150,13 @@ class VideoPlayerActivity : AppCompatActivity() {
                 confirmDelete()
                 true
             }
+            R.id.action_link_to_element -> {
+                openLinkMenuForVideo()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
-
-    private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
 
     private fun showRenameDialog() {
         if (blockId <= 0) return
@@ -173,18 +183,41 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     private fun refreshToolbarTitle() {
         if (blockId <= 0) {
+            currentBlock = null
             updateToolbarTitle(null)
+            invalidateOptionsMenu()
             return
         }
         lifecycleScope.launch {
-            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(blockId) }
-            updateToolbarTitle(current)
+            val (block, childName) = withContext(Dispatchers.IO) {
+                val entity = blocksRepository.getBlock(blockId)
+                val name = entity?.let { blocksRepository.getChildNameForBlock(blockId) }
+                entity to name
+            }
+            currentBlock = block
+            updateToolbarTitle(childName)
+            invalidateOptionsMenu()
         }
     }
 
     private fun updateToolbarTitle(name: String?) {
+        currentChildName = name
         val title = name?.takeIf { it.isNotBlank() } ?: ""
         supportActionBar?.title = title
+    }
+
+    private fun openLinkMenuForVideo() {
+        val block = currentBlock ?: return
+        val mediaUri = (block.mediaUri ?: sourceUri).orEmpty()
+        val item = MediaStripItem.Image(
+            blockId = block.id,
+            mediaUri = mediaUri,
+            mimeType = block.mimeType,
+            type = block.type,
+            childOrdinal = block.childOrdinal,
+            childName = currentChildName
+        )
+        mediaActions.showMenu(binding.viewerToolbar, item)
     }
 
     private fun shareVideo() {

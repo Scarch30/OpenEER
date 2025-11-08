@@ -458,6 +458,7 @@
     <string name="document_viewer_unsupported">Format non pris en charge (%1$s)</string>
     <string name="document_viewer_read_error">Erreur de lecture du fichier</string>
     <string name="media_category_files">Fichiers</string>
+    <string name="media_action_link">Lier à un élément</string>
     <string name="media_action_link_to_child">Lier à un élément…</string>
     <string name="media_action_go_to_link">Aller à la cible</string>
     <string name="media_action_unlink_child">Délier</string>

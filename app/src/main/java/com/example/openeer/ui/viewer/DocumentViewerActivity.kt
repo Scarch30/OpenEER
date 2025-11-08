@@ -6,20 +6,35 @@ import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
+import android.view.WindowInsetsController
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.openeer.Injection
 import com.example.openeer.R
+import com.example.openeer.data.block.BlockEntity
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import com.github.chrisbanes.photoview.PhotoView
+import com.google.android.material.appbar.MaterialToolbar
 import java.io.File
 import kotlin.math.max
-import android.view.WindowInsetsController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 class DocumentViewerActivity : AppCompatActivity() {
@@ -31,6 +46,15 @@ class DocumentViewerActivity : AppCompatActivity() {
         const val EXTRA_BLOCK = "blockId"
     }
 
+    private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK, -1L) }
+    private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
+    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
+    private var currentBlock: BlockEntity? = null
+    private var currentChildName: String? = null
+    private var documentPath: String? = null
+    private var documentMime: String = ""
+    private var defaultTitle: String = ""
+    private var viewerToolbar: MaterialToolbar? = null
     private var pfd: ParcelFileDescriptor? = null
     private var pdfRenderer: PdfRenderer? = null
 
@@ -40,7 +64,8 @@ class DocumentViewerActivity : AppCompatActivity() {
         val path  = intent.getStringExtra(EXTRA_PATH)
         val mime  = (intent.getStringExtra(EXTRA_MIME) ?: "").lowercase()
         val title = intent.getStringExtra(EXTRA_TITLE) ?: getString(R.string.document_viewer_title)
-        setTitle(title)
+        defaultTitle = title
+        updateToolbarTitle(currentChildName)
 
         if (path.isNullOrBlank()) {
             Toast.makeText(this, R.string.media_missing_file, Toast.LENGTH_SHORT).show()
@@ -52,24 +77,27 @@ class DocumentViewerActivity : AppCompatActivity() {
             finish(); return
         }
 
+        documentPath = path
+        documentMime = mime
+
         // Dispatch simple
         val isPdf = mime == "application/pdf" || path.endsWith(".pdf", true)
-        if (isPdf) {
-            renderPdf(file); return
-        }
-
         val isHtml = mime == "text/html" || path.endsWith(".html", true) || path.endsWith(".htm", true)
         val isMd   = mime == "text/markdown" || mime == "text/x-markdown" || path.endsWith(".md", true)
-        if (isHtml || isMd) {
-            renderWeb(file, isMarkdown = isMd); return
+
+        when {
+            isPdf -> renderPdf(file)
+            isHtml || isMd -> renderWeb(file, isMarkdown = isMd)
+            else -> renderPlainText(file)
         }
 
-        renderPlainText(file)
+        loadBlockMetadata()
     }
 
     // ---------- TXT ----------
     private fun renderPlainText(file: File) {
         setContentView(R.layout.activity_document_viewer)
+        setupToolbar()
         val textView = findViewById<TextView>(R.id.docText)
         textView.typeface = Typeface.MONOSPACE
         textView.setTextIsSelectable(true)
@@ -90,6 +118,7 @@ class DocumentViewerActivity : AppCompatActivity() {
     // ---------- HTML / Markdown ----------
     private fun renderWeb(file: File, isMarkdown: Boolean) {
         setContentView(R.layout.activity_document_viewer_web)
+        setupToolbar()
         val web = findViewById<WebView>(R.id.docWeb)
 
         // Réglages sûrs
@@ -172,6 +201,7 @@ class DocumentViewerActivity : AppCompatActivity() {
     // ---------- PDF (PdfRenderer + RecyclerView) ----------
     private fun renderPdf(file: File) {
         setContentView(R.layout.activity_document_viewer_pdf)
+        setupToolbar()
         val list = findViewById<RecyclerView>(R.id.pdfList)
         // Fond clair pour lisibilité sur documents scannés/typo noire
         list.setBackgroundColor(0xFFFFFFFF.toInt())
@@ -190,6 +220,85 @@ class DocumentViewerActivity : AppCompatActivity() {
         }
 
         list.adapter = PdfPageAdapter(pdfRenderer!!)
+    }
+
+    private fun setupToolbar() {
+        val toolbar = findViewById<MaterialToolbar>(R.id.viewerToolbar)
+        viewerToolbar = toolbar
+        setSupportActionBar(toolbar)
+        toolbar.navigationIcon = AppCompatResources.getDrawable(this, R.drawable.ic_close)
+        toolbar.setNavigationOnClickListener { finishAfterTransition() }
+        ViewCompat.setOnApplyWindowInsetsListener(toolbar) { view, insets ->
+            val sys = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            view.updatePadding(top = sys.top)
+            insets
+        }
+        updateToolbarTitle(currentChildName)
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_viewer_doc, menu)
+        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            android.R.id.home -> {
+                finishAfterTransition()
+                true
+            }
+            R.id.action_link_to_element -> {
+                openLinkMenuForDocument()
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun loadBlockMetadata() {
+        if (blockId <= 0) {
+            currentBlock = null
+            updateToolbarTitle(null)
+            invalidateOptionsMenu()
+            return
+        }
+        lifecycleScope.launch {
+            val (block, childName) = withContext(Dispatchers.IO) {
+                val entity = blocksRepository.getBlock(blockId)
+                val name = entity?.let { blocksRepository.getChildNameForBlock(blockId) }
+                entity to name
+            }
+            currentBlock = block
+            updateToolbarTitle(childName)
+            invalidateOptionsMenu()
+        }
+    }
+
+    private fun updateToolbarTitle(name: String?) {
+        currentChildName = name
+        val title = name?.takeIf { it.isNotBlank() } ?: defaultTitle
+        val toolbar = viewerToolbar
+        if (toolbar != null) {
+            supportActionBar?.title = title
+        } else {
+            setTitle(title)
+        }
+    }
+
+    private fun openLinkMenuForDocument() {
+        val block = currentBlock ?: return
+        val anchorView: View = viewerToolbar ?: findViewById<View>(android.R.id.content)
+        val mediaUri = (block.mediaUri ?: documentPath).orEmpty()
+        val item = MediaStripItem.File(
+            blockId = block.id,
+            mediaUri = mediaUri,
+            mimeType = block.mimeType ?: documentMime,
+            displayName = currentChildName?.takeIf { it.isNotBlank() } ?: defaultTitle,
+            childOrdinal = block.childOrdinal,
+            childName = currentChildName
+        )
+        mediaActions.showMenu(anchorView, item)
     }
 
     private class PdfPageAdapter(

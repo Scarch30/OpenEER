@@ -20,8 +20,11 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.example.openeer.Injection
+import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.R
 import com.example.openeer.ui.dialogs.ChildNameDialog
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +48,9 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK_ID, -1L) }
     private val sourcePath: String? by lazy { intent.getStringExtra(EXTRA_URI) }
     private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
+    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
+    private var currentBlock: BlockEntity? = null
+    private var currentChildName: String? = null
     private lateinit var toolbar: MaterialToolbar
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -102,6 +108,7 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
         menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
         menu.findItem(R.id.action_share)?.isVisible = !sourcePath.isNullOrBlank()
+        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
         return true
     }
 
@@ -121,6 +128,10 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
             }
             R.id.action_delete -> {
                 confirmDelete()
+                true
+            }
+            R.id.action_link_to_element -> {
+                openLinkMenuForSnapshot()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -152,18 +163,41 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
 
     private fun refreshToolbarTitle() {
         if (blockId <= 0) {
+            currentBlock = null
             updateToolbarTitle(null)
+            invalidateOptionsMenu()
             return
         }
         lifecycleScope.launch {
-            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(blockId) }
-            updateToolbarTitle(current)
+            val (block, childName) = withContext(Dispatchers.IO) {
+                val entity = blocksRepository.getBlock(blockId)
+                val name = entity?.let { blocksRepository.getChildNameForBlock(blockId) }
+                entity to name
+            }
+            currentBlock = block
+            updateToolbarTitle(childName)
+            invalidateOptionsMenu()
         }
     }
 
     private fun updateToolbarTitle(name: String?) {
+        currentChildName = name
         val title = name?.takeIf { it.isNotBlank() } ?: getString(R.string.map_snapshot_preview)
         supportActionBar?.title = title
+    }
+
+    private fun openLinkMenuForSnapshot() {
+        val block = currentBlock ?: return
+        val mediaUri = (block.mediaUri ?: sourcePath).orEmpty()
+        val item = MediaStripItem.Image(
+            blockId = block.id,
+            mediaUri = mediaUri,
+            mimeType = block.mimeType,
+            type = block.type,
+            childOrdinal = block.childOrdinal,
+            childName = currentChildName
+        )
+        mediaActions.showMenu(toolbar, item)
     }
 
     private fun shareSnapshot() {
