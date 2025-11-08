@@ -15,19 +15,11 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.openeer.Injection
 import com.example.openeer.R
-import com.example.openeer.ui.panel.media.MediaActions
-import com.example.openeer.ui.panel.media.MediaStripItem
 import com.github.chrisbanes.photoview.PhotoView
 import java.io.File
 import kotlin.math.max
 import android.view.WindowInsetsController
-import androidx.lifecycle.lifecycleScope
-import com.google.android.material.appbar.MaterialToolbar
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 
 class DocumentViewerActivity : AppCompatActivity() {
@@ -39,10 +31,6 @@ class DocumentViewerActivity : AppCompatActivity() {
         const val EXTRA_BLOCK = "blockId"
     }
 
-    private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK, -1L) }
-    private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
-    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
-
     private var pfd: ParcelFileDescriptor? = null
     private var pdfRenderer: PdfRenderer? = null
 
@@ -53,12 +41,6 @@ class DocumentViewerActivity : AppCompatActivity() {
         val mime  = (intent.getStringExtra(EXTRA_MIME) ?: "").lowercase()
         val title = intent.getStringExtra(EXTRA_TITLE) ?: getString(R.string.document_viewer_title)
         setTitle(title)
-
-        val toolbar = findViewById<MaterialToolbar>(R.id.viewerToolbar)
-        setSupportActionBar(toolbar)
-        supportActionBar?.title = title
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        toolbar.setNavigationOnClickListener { finish() }
 
         if (path.isNullOrBlank()) {
             Toast.makeText(this, R.string.media_missing_file, Toast.LENGTH_SHORT).show()
@@ -328,46 +310,5 @@ class DocumentViewerActivity : AppCompatActivity() {
         runCatching { pdfRenderer?.close() }
         runCatching { pfd?.close() }
         super.onDestroy()
-    }
-
-    override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
-        menuInflater.inflate(R.menu.menu_viewer_document, menu)
-        lifecycleScope.launch {
-            val block = withContext(Dispatchers.IO) {
-                if (blockId > 0) blocksRepository.getBlock(blockId) else null
-            }
-            val linkItem = menu.findItem(R.id.action_link_to_element)
-            linkItem?.isVisible = block != null
-        }
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
-        return when (item.itemId) {
-            R.id.action_link_to_element -> {
-                openLinkMenuForDocument()
-                true
-            }
-            else -> super.onOptionsItemSelected(item)
-        }
-    }
-
-    private fun openLinkMenuForDocument() {
-        if (blockId <= 0) return
-        lifecycleScope.launch {
-            val block = withContext(Dispatchers.IO) { blocksRepository.getBlock(blockId) }
-            if (block == null) {
-                Toast.makeText(this@DocumentViewerActivity, R.string.media_missing_file, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            val item = MediaStripItem.File(
-                blockId = block.id,
-                mediaUri = block.mediaUri ?: "",
-                mimeType = block.mimeType,
-                displayName = block.childName ?: "Document"
-            )
-            val toolbar = findViewById<MaterialToolbar>(R.id.viewerToolbar)
-            mediaActions.showMenu(toolbar, item, null, null)
-        }
     }
 }
