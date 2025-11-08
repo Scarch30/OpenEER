@@ -20,6 +20,8 @@ import com.bumptech.glide.request.RequestOptions
 import com.example.openeer.Injection
 import com.example.openeer.R
 import com.example.openeer.ui.dialogs.ChildNameDialog
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import com.google.android.material.appbar.MaterialToolbar
 import com.example.openeer.ui.viewer.ViewerMediaUtils
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +34,7 @@ class PhotoViewerActivity : AppCompatActivity() {
     private val blockId: Long by lazy { intent.getLongExtra("blockId", -1L) }
     private val sourcePath: String? by lazy { intent.getStringExtra("path") }
     private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
+    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
     private lateinit var toolbar: MaterialToolbar
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,6 +88,13 @@ class PhotoViewerActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
         menuInflater.inflate(R.menu.menu_viewer_item, menu)
+        lifecycleScope.launch {
+            val block = withContext(Dispatchers.IO) {
+                if (blockId > 0) blocksRepository.getBlock(blockId) else null
+            }
+            val linkItem = menu.findItem(R.id.action_link_to_element)
+            linkItem?.isVisible = block != null
+        }
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
         menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
         menu.findItem(R.id.action_share)?.isVisible = !sourcePath.isNullOrBlank()
@@ -109,7 +119,30 @@ class PhotoViewerActivity : AppCompatActivity() {
                 confirmDelete()
                 true
             }
+            R.id.action_link_to_element -> {
+                openLinkMenuForPhoto()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun openLinkMenuForPhoto() {
+        if (blockId <= 0) return
+        lifecycleScope.launch {
+            val block = withContext(Dispatchers.IO) { blocksRepository.getBlock(blockId) }
+            if (block == null) {
+                Toast.makeText(this@PhotoViewerActivity, R.string.media_missing_file, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val item = MediaStripItem.Image(
+                blockId = block.id,
+                mediaUri = block.mediaUri ?: "",
+                mimeType = block.mimeType,
+                type = block.type,
+                childName = block.childName
+            )
+            mediaActions.showMenu(toolbar, item, null, null)
         }
     }
 

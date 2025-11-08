@@ -461,6 +461,7 @@
     <string name="media_action_link_to_child">Lier à un élément…</string>
     <string name="media_action_go_to_link">Aller à la cible</string>
     <string name="media_action_unlink_child">Délier</string>
+    <string name="media_action_link">Lier à un élément</string>
     <string name="link_hint_block_id">ID du bloc cible (ex: 123)</string>
     <string name="link_pick_id_message">Entrez l’identifiant du bloc à lier. (Temporaire, on ajoutera un sélecteur visuel ensuite.)</string>
     <string name="link_created">Lien créé</string>

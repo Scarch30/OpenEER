@@ -19,6 +19,8 @@ import com.example.openeer.Injection
 import com.example.openeer.R
 import com.example.openeer.databinding.ActivityAudioViewerBinding
 import com.example.openeer.ui.dialogs.ChildNameDialog
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,6 +49,7 @@ class AudioViewerActivity : AppCompatActivity() {
     private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK_ID, -1L) }
     private val uriString: String? by lazy { intent.getStringExtra(EXTRA_URI) }
     private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
+    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,6 +122,13 @@ class AudioViewerActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
         menuInflater.inflate(R.menu.menu_viewer_audio, menu)
+        lifecycleScope.launch {
+            val block = withContext(Dispatchers.IO) {
+                if (blockId > 0) blocksRepository.getBlock(blockId) else null
+            }
+            val linkItem = menu.findItem(R.id.action_link_to_element)
+            linkItem?.isVisible = block != null
+        }
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
         menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
         menu.findItem(R.id.action_share)?.isVisible = !uriString.isNullOrBlank()
@@ -140,7 +150,29 @@ class AudioViewerActivity : AppCompatActivity() {
             R.id.action_delete -> {
                 confirmDelete(); true
             }
+            R.id.action_link_to_element -> {
+                openLinkMenuForAudio(); true
+            }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun openLinkMenuForAudio() {
+        if (blockId <= 0) return
+        lifecycleScope.launch {
+            val block = withContext(Dispatchers.IO) { blocksRepository.getBlock(blockId) }
+            if (block == null) {
+                Toast.makeText(this@AudioViewerActivity, R.string.media_missing_file, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val item = MediaStripItem.Audio(
+                blockId = block.id,
+                mediaUri = block.mediaUri ?: "",
+                mimeType = block.mimeType,
+                durationMs = 0, // Duration is not available here, and not used for linking
+                childName = block.childName
+            )
+            mediaActions.showMenu(binding.viewerToolbar, item, null, null)
         }
     }
 
