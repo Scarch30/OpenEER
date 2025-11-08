@@ -19,7 +19,10 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
 import com.example.openeer.Injection
 import com.example.openeer.R
+import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.ui.dialogs.ChildNameDialog
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import com.google.android.material.appbar.MaterialToolbar
 import com.example.openeer.ui.viewer.ViewerMediaUtils
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +36,9 @@ class PhotoViewerActivity : AppCompatActivity() {
     private val sourcePath: String? by lazy { intent.getStringExtra("path") }
     private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
     private lateinit var toolbar: MaterialToolbar
+    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
+    private var currentBlock: BlockEntity? = null
+    private var currentChildName: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,6 +94,7 @@ class PhotoViewerActivity : AppCompatActivity() {
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
         menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
         menu.findItem(R.id.action_share)?.isVisible = !sourcePath.isNullOrBlank()
+        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
         return true
     }
 
@@ -107,6 +114,10 @@ class PhotoViewerActivity : AppCompatActivity() {
             }
             R.id.action_delete -> {
                 confirmDelete()
+                true
+            }
+            R.id.action_link_to_element -> {
+                openLinkMenuForPhoto()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -138,18 +149,42 @@ class PhotoViewerActivity : AppCompatActivity() {
 
     private fun refreshToolbarTitle() {
         if (blockId <= 0) {
+            currentBlock = null
             updateToolbarTitle(null)
+            invalidateOptionsMenu()
             return
         }
         lifecycleScope.launch {
-            val current = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(blockId) }
-            updateToolbarTitle(current)
+            val (block, childName) = withContext(Dispatchers.IO) {
+                val entity = blocksRepository.getBlock(blockId)
+                val name = entity?.let { blocksRepository.getChildNameForBlock(blockId) }
+                entity to name
+            }
+            currentBlock = block
+            updateToolbarTitle(childName)
+            invalidateOptionsMenu()
         }
     }
 
     private fun updateToolbarTitle(name: String?) {
+        currentChildName = name
         val title = name?.takeIf { it.isNotBlank() } ?: ""
         supportActionBar?.title = title
+    }
+
+    private fun openLinkMenuForPhoto() {
+        val block = currentBlock ?: return
+        val anchor = toolbar
+        val mediaUri = (block.mediaUri ?: sourcePath).orEmpty()
+        val item = MediaStripItem.Image(
+            blockId = block.id,
+            mediaUri = mediaUri,
+            mimeType = block.mimeType,
+            type = block.type,
+            childOrdinal = block.childOrdinal,
+            childName = currentChildName
+        )
+        mediaActions.showMenu(anchor, item)
     }
 
     private fun sharePhoto() {
