@@ -194,15 +194,23 @@ class MediaActions(
         }
     }
 
+    @Suppress("UNUSED_PARAMETER")
+    fun showLinkOnly(anchor: View, item: MediaStripItem) {
+        uiScope.launch {
+            val block = loadBlock(item.blockId)
+            handleLinkAction(block)
+        }
+    }
+
     fun showMenu(
-    anchor: View,
-    item: MediaStripItem,
-    onConvertToList: (() -> Unit)? = null,
-    onConvertToText: (() -> Unit)? = null
-) {
+        anchor: View,
+        item: MediaStripItem,
+        onConvertToList: (() -> Unit)? = null,
+        onConvertToText: (() -> Unit)? = null
+    ) {
         uiScope.launch {
             val popup = PopupMenu(activity, anchor)
-            val block = withContext(Dispatchers.IO) { blocksRepo.getBlock(item.blockId) }
+            val block = loadBlock(item.blockId)
 
             if (item is MediaStripItem.Text) {
                 if (item.isList) {
@@ -241,7 +249,7 @@ class MediaActions(
                         if (pile != null) openLocationPileCoverInMaps(pile) else Unit
                         true
                     }
-                    MENU_LINK_TO_CHILD -> { block?.let { pickTargetAndLink(it.noteId, it.id) }; true }
+                    MENU_LINK_TO_CHILD -> { handleLinkAction(block); true }
                     MENU_GO_TO_LINK -> { block?.let { openLinkedTarget(it.id) }; true }
                     MENU_UNLINK_CHILD -> { block?.let { unlinkSource(it.id) }; true }
                     MENU_CONVERT_TO_LIST -> { onConvertToList?.invoke(); true }
@@ -251,6 +259,13 @@ class MediaActions(
             }
             popup.show()
         }
+    }
+
+    private suspend fun loadBlock(blockId: Long): BlockEntity? =
+        withContext(Dispatchers.IO) { blocksRepo.getBlock(blockId) }
+
+    private fun handleLinkAction(block: BlockEntity?) {
+        block?.let { pickTargetAndLink(it.noteId, it.id) }
     }
 
     private fun pickTargetAndLink(noteId: Long, sourceBlockId: Long) {
