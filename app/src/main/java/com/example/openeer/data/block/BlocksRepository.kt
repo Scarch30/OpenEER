@@ -1,5 +1,6 @@
 package com.example.openeer.data.block
 
+import android.content.Context
 import android.util.Log
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
@@ -16,14 +17,18 @@ import java.text.Normalizer
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 fun generateGroupId(): String = UUID.randomUUID().toString()
 
 class BlocksRepository(
+    private val appContext: Context,
     private val blockDao: BlockDao,
     private val noteDao: NoteDao? = null,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -34,9 +39,14 @@ class BlocksRepository(
     private val snapshotGson by lazy { Gson() }
     private val roomDatabase: RoomDatabase? by lazy { resolveRoomDatabase() }
     internal val hasListWrite: Boolean = true
+    private val migrationPrefs by lazy {
+        appContext.getSharedPreferences(MIGRATION_PREFS_NAME, Context.MODE_PRIVATE)
+    }
+    private val migrationScope = CoroutineScope(SupervisorJob() + io)
 
     init {
         Log.d(LIST_REPO_LOG_TAG, "INIT list write support = true (dao wired)")
+        ensureLegacyChildRefsMigrated()
     }
 
     private fun resolveRoomDatabase(): RoomDatabase? {
@@ -71,12 +81,45 @@ class BlocksRepository(
         }
     }
 
+    private fun ensureLegacyChildRefsMigrated() {
+        if (linkDao == null) return
+        if (migrationPrefs.getBoolean(PREF_KEY_CHILD_REF_MIGRATED, false)) return
+        migrationScope.launch {
+            migrateLegacyChildRefsToLinks()
+        }
+    }
+
+    private suspend fun migrateLegacyChildRefsToLinks() {
+        withContext(io) {
+            val legacyBlocks = blockDao.findAllWithChildRef()
+            if (legacyBlocks.isEmpty()) {
+                markLegacyMigrationDone()
+                return@withContext
+            }
+
+            for (block in legacyBlocks) {
+                val targetId = block.childRefTargetId ?: continue
+                linkBlocks(block.id, targetId)
+                val now = System.currentTimeMillis()
+                blockDao.update(block.copy(childRefTargetId = null, updatedAt = now))
+            }
+
+            markLegacyMigrationDone()
+        }
+    }
+
+    private fun markLegacyMigrationDone() {
+        migrationPrefs.edit().putBoolean(PREF_KEY_CHILD_REF_MIGRATED, true).apply()
+    }
+
     companion object {
         const val MIME_TYPE_TEXT_BLOCK_LIST = "text/x-openeer-list"
         private const val BLOCK_LIST_LOG_TAG = "BlockListUI"
         private const val LIST_REPO_LOG_TAG = "ListRepo"
         private const val EXTRA_KEY_TITLE = "title"
         private val DIACRITIC_REGEX = "\\p{Mn}+".toRegex()
+        private const val MIGRATION_PREFS_NAME = "block_links_migrations"
+        private const val PREF_KEY_CHILD_REF_MIGRATED = "child_ref_to_links_v1"
     }
 
     enum class AddEmptyReason {
@@ -1393,6 +1436,11 @@ class BlocksRepository(
         }
     }
 
+    suspend fun unlinkAll(blockId: Long): Boolean {
+        val dao = linkDao ?: return false
+        return withContext(io) { dao.deleteLinksTouching(blockId) > 0 }
+    }
+
     suspend fun getLinkedBlocks(blockId: Long): List<Block> {
         val dao = linkDao ?: return emptyList()
         return withContext(io) {
@@ -1451,35 +1499,6 @@ class BlocksRepository(
             } else {
                 dao.findAnyLinkedBlockId(targetBlockId)
             }
-        }
-    }
-    /**
-     * Lien “note-mère → note-fille” (typé CHILD_REF).
-     * fromBlockId = le bloc texte (ou item *représenté par un bloc*) de la note-mère
-     * toBlockId   = l’ID du bloc enfant (audio, photo, fichier, texte, etc.)
-     */
-    suspend fun linkChildRef(fromBlockId: Long, toBlockId: Long) {
-        withContext(io) {
-            blockDao.linkChildRef(fromBlockId, toBlockId)
-        }
-    }
-
-    suspend fun unlinkChildRef(sourceBlockId: Long) {
-        withContext(io) {
-            blockDao.unlinkChildRef(sourceBlockId)
-        }
-    }
-
-    suspend fun findLinkedTarget(sourceBlockId: Long): BlockEntity? {
-        return withContext(io) {
-            val source = blockDao.getById(sourceBlockId)
-            source?.childRefTargetId?.let { blockDao.getById(it) }
-        }
-    }
-
-    suspend fun findLinkedSources(targetBlockId: Long): List<BlockEntity> {
-        return withContext(io) {
-            blockDao.findLinkedSources(targetBlockId)
         }
     }
 }

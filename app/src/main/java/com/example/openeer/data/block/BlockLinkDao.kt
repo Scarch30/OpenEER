@@ -60,5 +60,5 @@ interface BlockLinkDao {
     @Query(
         "DELETE FROM block_links WHERE aBlockId = :blockId OR bBlockId = :blockId"
     )
-    suspend fun deleteLinksTouching(blockId: Long)
+    suspend fun deleteLinksTouching(blockId: Long): Int
 }

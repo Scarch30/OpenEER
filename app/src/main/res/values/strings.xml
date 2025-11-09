@@ -460,20 +460,23 @@
     <string name="document_viewer_read_error">Erreur de lecture du fichier</string>
     <string name="media_category_files">Fichiers</string>
     <string name="media_action_link">Lier à un élément</string>
-    <string name="media_action_link_to_child">Lier à un élément…</string>
-    <string name="media_action_go_to_link">Aller à la cible</string>
+    <string name="media_action_link_to_child">Lier à un élément</string>
     <string name="media_action_unlink_child">Délier</string>
+    <string name="media_action_view_links">Voir les éléments liés (%1$d)</string>
     <string name="link_hint_block_id">ID du bloc cible (ex: 123)</string>
     <string name="link_pick_id_message">Entrez l’identifiant du bloc à lier. (Temporaire, on ajoutera un sélecteur visuel ensuite.)</string>
     <string name="link_created">Lien créé</string>
     <string name="link_removed">Lien supprimé</string>
     <string name="link_failed">Échec de création du lien</string>
+    <string name="link_already_exists">Lien déjà présent</string>
     <string name="link_invalid_id">ID invalide</string>
     <string name="link_target_not_found">Cible introuvable, lien retiré</string>
     <string name="link_file_not_found">Fichier cible introuvable, lien retiré</string>
     <string name="link_circular_forbidden">Lien circulaire interdit</string>
     <string name="link_to_child_title">Lier à…</string>
     <string name="link_none_available">Aucun bloc cible disponible</string>
+    <string name="media_linked_items_title">Éléments liés</string>
+    <string name="media_linked_items_empty">Aucun lien pour l’instant</string>
     <string name="block_type_text">Texte</string>
     <string name="block_type_photo">Photo</string>
     <string name="block_type_sketch">Croquis</string>
@@ -482,6 +485,14 @@
     <string name="block_type_file">Fichier</string>
     <string name="block_type_location">Lieu</string>
     <string name="block_type_route">Itinéraire</string>
+    <string name="block_label_text_empty">(Post-it vide)</string>
+    <string name="block_label_image_generic">Image</string>
+    <string name="block_label_image_with_index">Image #%1$d</string>
+    <string name="block_label_video_generic">Vidéo</string>
+    <string name="block_label_video_with_index">Vidéo #%1$d</string>
+    <string name="block_label_file_generic">Fichier</string>
+    <string name="block_label_location_generic">Lieu</string>
+    <string name="block_label_unsupported">Bloc non pris en charge</string>
 
 
 
