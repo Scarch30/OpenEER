@@ -19,6 +19,7 @@ import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.sheets.ChildPostitSheet
 import com.example.openeer.ui.sheets.LinkTargetSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
+import com.example.openeer.ui.viewer.DocumentViewerActivity
 import com.example.openeer.ui.viewer.VideoPlayerActivity
 import com.google.gson.Gson
 import kotlinx.coroutines.*
@@ -181,11 +182,11 @@ class MediaActions(
             }
             is MediaStripItem.File -> {
                 // Ouvre la visionneuse interne (MVP TXT ; PDF & co viendront après)
-                val intent = Intent(activity, com.example.openeer.ui.viewer.DocumentViewerActivity::class.java).apply {
-                    putExtra("path", item.mediaUri)
-                    putExtra("mime", item.mimeType)
-                    putExtra("title", item.displayName)
-                    putExtra("blockId", item.blockId)
+                val intent = Intent(activity, DocumentViewerActivity::class.java).apply {
+                    putExtra(DocumentViewerActivity.EXTRA_PATH, item.mediaUri)
+                    putExtra(DocumentViewerActivity.EXTRA_MIME, item.mimeType)
+                    putExtra(DocumentViewerActivity.EXTRA_TITLE, item.displayName)
+                    putExtra(DocumentViewerActivity.EXTRA_BLOCK_ID, item.blockId)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 activity.startActivity(intent)
@@ -601,11 +602,11 @@ class MediaActions(
                         Toast.makeText(context, R.string.link_file_not_found, Toast.LENGTH_SHORT).show()
                         return false
                     }
-                    val intent = Intent(context, com.example.openeer.ui.viewer.DocumentViewerActivity::class.java).apply {
-                        putExtra("path", block.mediaUri)
-                        putExtra("mime", block.mimeType)
-                        putExtra("title", block.childName ?: block.text)
-                        putExtra("blockId", block.id)
+                    val intent = Intent(context, DocumentViewerActivity::class.java).apply {
+                        putExtra(DocumentViewerActivity.EXTRA_PATH, block.mediaUri)
+                        putExtra(DocumentViewerActivity.EXTRA_MIME, block.mimeType)
+                        putExtra(DocumentViewerActivity.EXTRA_TITLE, block.childName ?: block.text)
+                        putExtra(DocumentViewerActivity.EXTRA_BLOCK_ID, block.id)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     context.startActivity(intent)
