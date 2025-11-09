@@ -62,10 +62,8 @@ class BlocksRepository(
         }
     }
 
-    private fun normalizedLinkPair(firstBlockId: Long, secondBlockId: Long): Pair<Long, Long> {
-        require(firstBlockId != secondBlockId) {
-            "Cannot create a link with identical block ids: $firstBlockId"
-        }
+    private fun normalizedLinkPair(firstBlockId: Long, secondBlockId: Long): Pair<Long, Long>? {
+        if (firstBlockId == secondBlockId) return null
         return if (firstBlockId < secondBlockId) {
             firstBlockId to secondBlockId
         } else {
@@ -1255,7 +1253,8 @@ class BlocksRepository(
 
     suspend fun linkAudioToText(audioBlockId: Long, textBlockId: Long) {
         val dao = linkDao ?: error("BlockLinkDao not provided to BlocksRepository")
-        val (firstId, secondId) = normalizedLinkPair(audioBlockId, textBlockId)
+        val pair = normalizedLinkPair(audioBlockId, textBlockId) ?: return
+        val (firstId, secondId) = pair
         withContext(io) {
             dao.insert(
                 BlockLinkEntity(
@@ -1297,7 +1296,8 @@ class BlocksRepository(
 
     suspend fun linkVideoToText(videoBlockId: Long, textBlockId: Long) {
         val dao = linkDao ?: error("BlockLinkDao not provided to BlocksRepository")
-        val (firstId, secondId) = normalizedLinkPair(videoBlockId, textBlockId)
+        val pair = normalizedLinkPair(videoBlockId, textBlockId) ?: return
+        val (firstId, secondId) = pair
         withContext(io) {
             dao.insert(
                 BlockLinkEntity(
@@ -1363,28 +1363,54 @@ class BlocksRepository(
      * Crée un lien générique non orienté entre deux blocs.
      * Ne lance pas la création si linkDao n'est pas fourni.
      */
-    suspend fun linkBlocks(firstBlockId: Long, secondBlockId: Long) {
-        val dao = linkDao ?: return
-        val (firstId, secondId) = normalizedLinkPair(firstBlockId, secondBlockId)
-        withContext(io) {
-            dao.insert(
+    suspend fun linkBlocks(aId: Long, bId: Long): Boolean {
+        val dao = linkDao ?: return false
+        val pair = normalizedLinkPair(aId, bId) ?: return false
+        return withContext(io) {
+            val (firstId, secondId) = pair
+            val firstExists = blockDao.getById(firstId) != null
+            val secondExists = blockDao.getById(secondId) != null
+            if (!firstExists || !secondExists) {
+                return@withContext false
+            }
+
+            val insertedId = dao.insert(
                 BlockLinkEntity(
                     aBlockId = firstId,
                     bBlockId = secondId
                 )
             )
+            insertedId != -1L
         }
     }
 
-    suspend fun unlinkBlocks(firstBlockId: Long, secondBlockId: Long) {
-        val dao = linkDao ?: return
-        val (firstId, secondId) = normalizedLinkPair(firstBlockId, secondBlockId)
-        withContext(io) { dao.deletePair(firstId, secondId) }
+    suspend fun unlinkBlocks(aId: Long, bId: Long): Boolean {
+        val dao = linkDao ?: return false
+        val pair = normalizedLinkPair(aId, bId) ?: return false
+        return withContext(io) {
+            val (firstId, secondId) = pair
+            dao.deletePair(firstId, secondId) > 0
+        }
     }
 
-    suspend fun getLinkedBlocks(blockId: Long): List<Long> {
+    suspend fun getLinkedBlocks(blockId: Long): List<Block> {
         val dao = linkDao ?: return emptyList()
-        return withContext(io) { dao.findAllLinkedBlockIds(blockId) }
+        return withContext(io) {
+            val linkedIds = dao.findAllLinkedBlockIds(blockId)
+            if (linkedIds.isEmpty()) return@withContext emptyList()
+
+            val result = mutableListOf<Block>()
+            for (otherId in linkedIds) {
+                val block = blockDao.getById(otherId)
+                if (block != null) {
+                    result += block
+                } else {
+                    val pair = normalizedLinkPair(blockId, otherId) ?: continue
+                    dao.deletePair(pair.first, pair.second)
+                }
+            }
+            result
+        }
     }
 
     suspend fun getLinkCount(blockId: Long): Int {
