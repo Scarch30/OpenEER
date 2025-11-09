@@ -1,8 +1,11 @@
 package com.example.openeer.ui.viewer
 
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Typeface
 import android.graphics.pdf.PdfRenderer
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
@@ -10,11 +13,13 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.WindowInsetsController
+import android.webkit.MimeTypeMap
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.ViewCompat
@@ -26,15 +31,18 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.Injection
 import com.example.openeer.R
 import com.example.openeer.data.block.BlockEntity
+import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripItem
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
 import java.io.File
+import java.util.Locale
 import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.io.use
 
 
 class DocumentViewerActivity : AppCompatActivity() {
@@ -43,10 +51,14 @@ class DocumentViewerActivity : AppCompatActivity() {
         const val EXTRA_PATH  = "path"
         const val EXTRA_MIME  = "mime"
         const val EXTRA_TITLE = "title"
-        const val EXTRA_BLOCK = "blockId"
+        const val EXTRA_BLOCK_ID = "extra_block_id"
+        private const val EXTRA_BLOCK_LEGACY = "blockId"
     }
 
-    private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK, -1L) }
+    private val blockId: Long by lazy {
+        val explicit = intent.getLongExtra(EXTRA_BLOCK_ID, Long.MIN_VALUE)
+        if (explicit != Long.MIN_VALUE) explicit else intent.getLongExtra(EXTRA_BLOCK_LEGACY, -1L)
+    }
     private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
     private val mediaActions by lazy { MediaActions(this, blocksRepository) }
     private var currentBlock: BlockEntity? = null
@@ -62,7 +74,8 @@ class DocumentViewerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         val path  = intent.getStringExtra(EXTRA_PATH)
-        val mime  = (intent.getStringExtra(EXTRA_MIME) ?: "").lowercase()
+        val rawMime  = intent.getStringExtra(EXTRA_MIME).orEmpty()
+        val normalizedMime = rawMime.lowercase(Locale.US)
         val title = intent.getStringExtra(EXTRA_TITLE) ?: getString(R.string.document_viewer_title)
         defaultTitle = title
         updateToolbarTitle(currentChildName)
@@ -78,12 +91,12 @@ class DocumentViewerActivity : AppCompatActivity() {
         }
 
         documentPath = path
-        documentMime = mime
+        documentMime = rawMime
 
         // Dispatch simple
-        val isPdf = mime == "application/pdf" || path.endsWith(".pdf", true)
-        val isHtml = mime == "text/html" || path.endsWith(".html", true) || path.endsWith(".htm", true)
-        val isMd   = mime == "text/markdown" || mime == "text/x-markdown" || path.endsWith(".md", true)
+        val isPdf = normalizedMime == "application/pdf" || path.endsWith(".pdf", true)
+        val isHtml = normalizedMime == "text/html" || path.endsWith(".html", true) || path.endsWith(".htm", true)
+        val isMd   = normalizedMime == "text/markdown" || normalizedMime == "text/x-markdown" || path.endsWith(".md", true)
 
         when {
             isPdf -> renderPdf(file)
@@ -234,11 +247,16 @@ class DocumentViewerActivity : AppCompatActivity() {
             insets
         }
         updateToolbarTitle(currentChildName)
+        invalidateOptionsMenu()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.menu_viewer_doc, menu)
-        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
+        menuInflater.inflate(R.menu.menu_viewer_item, menu)
+        val hasBlock = blockId > 0 && currentBlock != null
+        menu.findItem(R.id.action_rename)?.isVisible = hasBlock
+        menu.findItem(R.id.action_delete)?.isVisible = hasBlock
+        menu.findItem(R.id.action_share)?.isVisible = canShareDocument()
+        menu.findItem(R.id.action_link_to_element)?.isVisible = hasBlock
         return true
     }
 
@@ -246,6 +264,18 @@ class DocumentViewerActivity : AppCompatActivity() {
         return when (item.itemId) {
             android.R.id.home -> {
                 finishAfterTransition()
+                true
+            }
+            R.id.action_rename -> {
+                promptRenameBlock()
+                true
+            }
+            R.id.action_delete -> {
+                confirmDeleteDocument()
+                true
+            }
+            R.id.action_share -> {
+                shareCurrentDocument()
                 true
             }
             R.id.action_link_to_element -> {
@@ -288,7 +318,7 @@ class DocumentViewerActivity : AppCompatActivity() {
 
     private fun startLinkFlowForDocument() {
         val block = currentBlock ?: return
-        val anchorView: View = viewerToolbar ?: findViewById<View>(android.R.id.content)
+        val anchorView = getAnchorView()
         val mediaUri = (block.mediaUri ?: documentPath).orEmpty()
         val item = MediaStripItem.File(
             blockId = block.id,
@@ -300,6 +330,143 @@ class DocumentViewerActivity : AppCompatActivity() {
         )
         mediaActions.showLinkOnly(anchorView, item)
     }
+
+    private fun promptRenameBlock() {
+        val id = blockId
+        if (id <= 0) return
+        lifecycleScope.launch {
+            val currentName = withContext(Dispatchers.IO) { blocksRepository.getChildNameForBlock(id) }
+            ChildNameDialog.show(
+                context = this@DocumentViewerActivity,
+                initialValue = currentName,
+                onSave = { newName ->
+                    lifecycleScope.launch {
+                        withContext(Dispatchers.IO) { blocksRepository.setChildNameForBlock(id, newName) }
+                        updateToolbarTitle(newName)
+                    }
+                },
+                onReset = {
+                    lifecycleScope.launch {
+                        withContext(Dispatchers.IO) { blocksRepository.setChildNameForBlock(id, null) }
+                        updateToolbarTitle(null)
+                    }
+                }
+            )
+        }
+    }
+
+    private fun confirmDeleteDocument() {
+        if (blockId <= 0 || currentBlock == null) return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.media_action_delete)
+            .setMessage(R.string.media_delete_confirm)
+            .setPositiveButton(R.string.action_validate) { _, _ ->
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.media_action_delete)
+                    .setMessage(R.string.media_delete_confirm_secondary)
+                    .setPositiveButton(R.string.media_action_delete) { _, _ -> deleteDocument() }
+                    .setNegativeButton(R.string.action_cancel, null)
+                    .show()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun deleteDocument() {
+        val path = documentPath
+        lifecycleScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                runCatching {
+                    path?.let { ViewerMediaUtils.deleteMediaFile(this@DocumentViewerActivity, it) }
+                    if (blockId > 0) {
+                        blocksRepository.deleteBlock(blockId)
+                    }
+                }.isSuccess
+            }
+            if (success) {
+                Toast.makeText(this@DocumentViewerActivity, getString(R.string.media_delete_done), Toast.LENGTH_SHORT).show()
+                finish()
+            } else {
+                Toast.makeText(this@DocumentViewerActivity, getString(R.string.media_delete_error), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun shareCurrentDocument() {
+        val source = documentPath ?: run {
+            Toast.makeText(this, getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val shareUri = ViewerMediaUtils.resolveShareUri(this, source) ?: run {
+            Toast.makeText(this, getString(R.string.media_missing_file), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val mime = resolveDocumentMime()
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, shareUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val targets = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        targets.forEach { info ->
+            grantUriPermission(info.activityInfo.packageName, shareUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching {
+            startActivity(Intent.createChooser(intent, getString(R.string.media_action_share)))
+        }.onFailure {
+            Toast.makeText(this, getString(R.string.media_share_error), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun resolveDocumentMime(): String {
+        val explicit = when {
+            documentMime.isNotBlank() -> documentMime
+            currentBlock?.mimeType?.isNullOrBlank() == false -> currentBlock?.mimeType
+            else -> null
+        }
+        if (!explicit.isNullOrBlank()) {
+            return explicit
+        }
+        val source = documentPath ?: return "*/*"
+        val uri = Uri.parse(source)
+        if (!uri.scheme.isNullOrEmpty()) {
+            contentResolver.getType(uri)?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+
+        val extension = when {
+            uri.scheme.isNullOrEmpty() -> source.substringAfterLast('.', "").lowercase(Locale.US)
+            uri.scheme.equals("file", true) -> (uri.path ?: "").substringAfterLast('.', "").lowercase(Locale.US)
+            else -> uri.toString().substringAfterLast('.', "").lowercase(Locale.US)
+        }
+        if (extension.isNotBlank()) {
+            MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)?.let { return it }
+        }
+        return "*/*"
+    }
+
+    private fun canShareDocument(): Boolean {
+        val source = documentPath ?: return false
+        val uri = Uri.parse(source)
+        return when {
+            uri.scheme.isNullOrEmpty() -> {
+                val file = File(source)
+                file.exists() && file.canRead()
+            }
+            uri.scheme.equals("file", true) -> {
+                val file = File(uri.path ?: return false)
+                file.exists() && file.canRead()
+            }
+            uri.scheme.equals("content", true) -> {
+                runCatching { contentResolver.openFileDescriptor(uri, "r")?.use { true } ?: false }.getOrDefault(false)
+            }
+            else -> {
+                val file = File(source)
+                file.exists() && file.canRead()
+            }
+        }
+    }
+
+    private fun getAnchorView(): View = viewerToolbar ?: window.decorView
 
     private class PdfPageAdapter(
         private val renderer: PdfRenderer
