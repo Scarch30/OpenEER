@@ -24,6 +24,7 @@ object Injection {
             } else {
                 val db = AppDatabase.get(appContext)
                 BlocksRepository(
+                    appContext = appContext,
                     blockDao = db.blockDao(),
                     noteDao = db.noteDao(),
                     linkDao = db.blockLinkDao(),

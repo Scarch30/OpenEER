@@ -124,51 +124,59 @@ class LinkTargetSheet : BottomSheetDialogFragment() {
 
             fun bind(block: BlockEntity) {
                 val context = itemView.context
-                icon.setImageResource(getIconForBlock(block.type))
-                label.text = getLabelForBlock(context, block)
-                type.text = getTypeTextForBlock(context, block.type)
-            }
-
-            private fun getIconForBlock(blockType: BlockType): Int {
-                return when (blockType) {
-                    BlockType.TEXT -> R.drawable.ic_postit_24
-                    BlockType.PHOTO, BlockType.SKETCH -> R.drawable.ic_image_24
-                    BlockType.VIDEO -> R.drawable.ic_video_24
-                    BlockType.AUDIO -> R.drawable.ic_audio_24
-                    BlockType.FILE -> R.drawable.ic_file_24
-                    BlockType.LOCATION, BlockType.ROUTE -> R.drawable.ic_location_24
-                    else -> R.drawable.ic_file_24
-                }
-            }
-             private fun getTypeTextForBlock(context: Context, blockType: BlockType): String {
-                return when (blockType) {
-                    BlockType.TEXT -> context.getString(R.string.block_type_text)
-                    BlockType.PHOTO -> context.getString(R.string.block_type_photo)
-                    BlockType.SKETCH -> context.getString(R.string.block_type_sketch)
-                    BlockType.VIDEO -> context.getString(R.string.block_type_video)
-                    BlockType.AUDIO -> context.getString(R.string.block_type_audio)
-                    BlockType.FILE -> context.getString(R.string.block_type_file)
-                    BlockType.LOCATION -> context.getString(R.string.block_type_location)
-                    BlockType.ROUTE -> context.getString(R.string.block_type_route)
-                }
-            }
-
-            private fun getLabelForBlock(context: Context, block: BlockEntity): String {
-                return when (block.type) {
-                    BlockType.TEXT -> block.text?.lineSequence()?.firstOrNull()?.trim() ?: "(Empty Post-it)"
-                    BlockType.PHOTO, BlockType.SKETCH -> block.childName ?: "Image #${block.childOrdinal}"
-                    BlockType.VIDEO -> block.childName ?: "Video #${block.childOrdinal}"
-                    BlockType.AUDIO -> {
-                        val duration = block.durationMs ?: 0
-                        val minutes = TimeUnit.MILLISECONDS.toMinutes(duration)
-                        val seconds = TimeUnit.MILLISECONDS.toSeconds(duration) % 60
-                        String.format("%02d:%02d", minutes, seconds)
-                    }
-                    BlockType.FILE -> block.childName ?: block.text ?: "File"
-                    BlockType.LOCATION, BlockType.ROUTE -> block.placeName ?: "Location"
-                    else -> "Unsupported Block"
-                }
+                icon.setImageResource(blockLinkIconFor(block.type))
+                label.text = blockLinkPrimaryLabel(context, block)
+                type.text = blockLinkTypeLabel(context, block.type)
             }
         }
+    }
+}
+
+internal fun blockLinkIconFor(blockType: BlockType): Int {
+    return when (blockType) {
+        BlockType.TEXT -> R.drawable.ic_postit_24
+        BlockType.PHOTO, BlockType.SKETCH -> R.drawable.ic_image_24
+        BlockType.VIDEO -> R.drawable.ic_video_24
+        BlockType.AUDIO -> R.drawable.ic_audio_24
+        BlockType.FILE -> R.drawable.ic_file_24
+        BlockType.LOCATION, BlockType.ROUTE -> R.drawable.ic_location_24
+        else -> R.drawable.ic_file_24
+    }
+}
+
+internal fun blockLinkTypeLabel(context: Context, blockType: BlockType): String {
+    return when (blockType) {
+        BlockType.TEXT -> context.getString(R.string.block_type_text)
+        BlockType.PHOTO -> context.getString(R.string.block_type_photo)
+        BlockType.SKETCH -> context.getString(R.string.block_type_sketch)
+        BlockType.VIDEO -> context.getString(R.string.block_type_video)
+        BlockType.AUDIO -> context.getString(R.string.block_type_audio)
+        BlockType.FILE -> context.getString(R.string.block_type_file)
+        BlockType.LOCATION -> context.getString(R.string.block_type_location)
+        BlockType.ROUTE -> context.getString(R.string.block_type_route)
+    }
+}
+
+internal fun blockLinkPrimaryLabel(context: Context, block: BlockEntity): String {
+    return when (block.type) {
+        BlockType.TEXT -> block.text?.lineSequence()?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+            ?: context.getString(R.string.block_label_text_empty)
+        BlockType.PHOTO, BlockType.SKETCH -> block.childName
+            ?: block.childOrdinal?.takeIf { it > 0 }?.let {
+                context.getString(R.string.block_label_image_with_index, it)
+            } ?: context.getString(R.string.block_label_image_generic)
+        BlockType.VIDEO -> block.childName
+            ?: block.childOrdinal?.takeIf { it > 0 }?.let {
+                context.getString(R.string.block_label_video_with_index, it)
+            } ?: context.getString(R.string.block_label_video_generic)
+        BlockType.AUDIO -> {
+            val duration = block.durationMs ?: 0
+            val minutes = TimeUnit.MILLISECONDS.toMinutes(duration)
+            val seconds = TimeUnit.MILLISECONDS.toSeconds(duration) % 60
+            String.format("%02d:%02d", minutes, seconds)
+        }
+        BlockType.FILE -> block.childName ?: block.text ?: context.getString(R.string.block_label_file_generic)
+        BlockType.LOCATION, BlockType.ROUTE -> block.placeName ?: context.getString(R.string.block_label_location_generic)
+        else -> context.getString(R.string.block_label_unsupported)
     }
 }
