@@ -148,7 +148,7 @@ class AudioViewerActivity : AppCompatActivity() {
                 confirmDelete(); true
             }
             R.id.action_link_to_element -> {
-                openLinkMenuForAudio(); true
+                startLinkFlowForAudio(); true
             }
             else -> super.onOptionsItemSelected(item)
         }
@@ -202,7 +202,7 @@ class AudioViewerActivity : AppCompatActivity() {
         supportActionBar?.title = title
     }
 
-    private fun openLinkMenuForAudio() {
+    private fun startLinkFlowForAudio() {
         val block = currentBlock ?: return
         val mediaUri = (block.mediaUri ?: uriString).orEmpty()
         val item = MediaStripItem.Audio(
@@ -213,7 +213,8 @@ class AudioViewerActivity : AppCompatActivity() {
             childOrdinal = block.childOrdinal,
             childName = currentChildName
         )
-        mediaActions.showMenu(binding.viewerToolbar, item)
+        val anchor = binding.viewerToolbar
+        mediaActions.showLinkOnly(anchor, item)
     }
 
     private fun shareCurrentAudio() {

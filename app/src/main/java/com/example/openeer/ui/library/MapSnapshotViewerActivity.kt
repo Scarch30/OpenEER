@@ -17,6 +17,8 @@ import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.RoutePayload
 import com.example.openeer.map.buildMapsUrl
 import com.example.openeer.ui.dialogs.ChildNameDialog
+import com.example.openeer.ui.panel.media.MediaActions
+import com.example.openeer.ui.panel.media.MediaStripItem
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
@@ -30,18 +32,23 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
 
     private val blockId: Long by lazy { intent.getLongExtra(EXTRA_BLOCK_ID, -1L) }
     private val routeGson by lazy { Gson() }
+    private val blocksRepository by lazy { Injection.provideBlocksRepository(this) }
+    private val mediaActions by lazy { MediaActions(this, blocksRepository) }
     private var openMapsAction: (() -> Unit)? = null
     private var hasShownMapsUnavailableMessage = false
+    private lateinit var viewerToolbar: MaterialToolbar
+    private var currentBlock: BlockEntity? = null
+    private var currentChildName: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_map_snapshot_viewer)
 
-        val toolbar = findViewById<MaterialToolbar>(R.id.viewerToolbar)
-        setSupportActionBar(toolbar)                         // ← attache la toolbar comme ActionBar
+        viewerToolbar = findViewById(R.id.viewerToolbar)
+        setSupportActionBar(viewerToolbar)                         // ← attache la toolbar comme ActionBar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        toolbar.setNavigationOnClickListener { finish() }
-        toolbar.title = intent.getStringExtra(EXTRA_TITLE)
+        viewerToolbar.setNavigationOnClickListener { finish() }
+        viewerToolbar.title = intent.getStringExtra(EXTRA_TITLE)
             ?: getString(R.string.map_snapshot_preview)
 
         val photoView = findViewById<PhotoView>(R.id.photoView)
@@ -60,11 +67,13 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         renameItem?.isVisible = hasValidBlock
         renameItem?.isEnabled = hasValidBlock
         menu.findItem(R.id.action_open_in_maps)?.isVisible = openMapsAction != null
+        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
         return true
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         menu.findItem(R.id.action_open_in_maps)?.isVisible = openMapsAction != null
+        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -86,27 +95,27 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
             true
         }
         R.id.action_share -> { sharePlace(); true }
+        R.id.action_link_to_element -> { startLinkFlowForMap(); true }
         R.id.action_delete -> { /* TODO: suppression */ true }
         else -> super.onOptionsItemSelected(item)
     }
 
     private fun showRenameDialog() {
         lifecycleScope.launch {
-            val repo = Injection.provideBlocksRepository(applicationContext)
             val currentName = withContext(Dispatchers.IO) {
-                repo.getChildNameForBlock(blockId)
+                blocksRepository.getChildNameForBlock(blockId)
             }
             ChildNameDialog.show(
                 context = this@MapSnapshotViewerActivity,
                 initialValue = currentName,
                 onSave = { newName ->
                     lifecycleScope.launch(Dispatchers.IO) {
-                        repo.setChildNameForBlock(blockId, newName)
+                        blocksRepository.setChildNameForBlock(blockId, newName)
                     }
                 },
                 onReset = {
                     lifecycleScope.launch(Dispatchers.IO) {
-                        repo.setChildNameForBlock(blockId, null)
+                        blocksRepository.setChildNameForBlock(blockId, null)
                     }
                 }
             )
@@ -137,14 +146,15 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val block = if (blockId > 0) {
-                val repo = Injection.provideBlocksRepository(applicationContext)
-                withContext(Dispatchers.IO) { repo.getBlock(blockId) }
+                withContext(Dispatchers.IO) { blocksRepository.getBlock(blockId) }
             } else {
                 null
             }
 
             val action = createMapsAction(block)
             openMapsAction = action
+            currentBlock = block
+            currentChildName = block?.childName
 
             if (action != null) {
                 button.visibility = View.VISIBLE
@@ -159,6 +169,27 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
 
             invalidateOptionsMenu()
         }
+    }
+
+    private fun startLinkFlowForMap() {
+        val block = currentBlock ?: return
+        val anchor: View = if (this::viewerToolbar.isInitialized) {
+            viewerToolbar
+        } else {
+            findViewById(android.R.id.content)
+        }
+        val mediaUri = block.mediaUri
+            ?: intent.getStringExtra(EXTRA_SNAPSHOT_URI)
+            ?: ""
+        val item = MediaStripItem.Image(
+            blockId = block.id,
+            mediaUri = mediaUri,
+            mimeType = block.mimeType,
+            type = block.type,
+            childOrdinal = block.childOrdinal,
+            childName = currentChildName
+        )
+        mediaActions.showLinkOnly(anchor, item)
     }
 
     private fun createMapsAction(block: BlockEntity?): (() -> Unit)? {

@@ -249,7 +249,7 @@ class DocumentViewerActivity : AppCompatActivity() {
                 true
             }
             R.id.action_link_to_element -> {
-                openLinkMenuForDocument()
+                startLinkFlowForDocument()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -286,7 +286,7 @@ class DocumentViewerActivity : AppCompatActivity() {
         }
     }
 
-    private fun openLinkMenuForDocument() {
+    private fun startLinkFlowForDocument() {
         val block = currentBlock ?: return
         val anchorView: View = viewerToolbar ?: findViewById<View>(android.R.id.content)
         val mediaUri = (block.mediaUri ?: documentPath).orEmpty()
@@ -298,7 +298,7 @@ class DocumentViewerActivity : AppCompatActivity() {
             childOrdinal = block.childOrdinal,
             childName = currentChildName
         )
-        mediaActions.showMenu(anchorView, item)
+        mediaActions.showLinkOnly(anchorView, item)
     }
 
     private class PdfPageAdapter(

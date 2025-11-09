@@ -117,7 +117,7 @@ class PhotoViewerActivity : AppCompatActivity() {
                 true
             }
             R.id.action_link_to_element -> {
-                openLinkMenuForPhoto()
+                startLinkFlowForPhoto()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -172,7 +172,7 @@ class PhotoViewerActivity : AppCompatActivity() {
         supportActionBar?.title = title
     }
 
-    private fun openLinkMenuForPhoto() {
+    private fun startLinkFlowForPhoto() {
         val block = currentBlock ?: return
         val anchor = toolbar
         val mediaUri = (block.mediaUri ?: sourcePath).orEmpty()
@@ -184,7 +184,7 @@ class PhotoViewerActivity : AppCompatActivity() {
             childOrdinal = block.childOrdinal,
             childName = currentChildName
         )
-        mediaActions.showMenu(anchor, item)
+        mediaActions.showLinkOnly(anchor, item)
     }
 
     private fun sharePhoto() {

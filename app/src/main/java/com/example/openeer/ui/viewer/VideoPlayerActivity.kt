@@ -151,7 +151,7 @@ class VideoPlayerActivity : AppCompatActivity() {
                 true
             }
             R.id.action_link_to_element -> {
-                openLinkMenuForVideo()
+                startLinkFlowForVideo()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -206,7 +206,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         supportActionBar?.title = title
     }
 
-    private fun openLinkMenuForVideo() {
+    private fun startLinkFlowForVideo() {
         val block = currentBlock ?: return
         val mediaUri = (block.mediaUri ?: sourceUri).orEmpty()
         val item = MediaStripItem.Image(
@@ -217,7 +217,8 @@ class VideoPlayerActivity : AppCompatActivity() {
             childOrdinal = block.childOrdinal,
             childName = currentChildName
         )
-        mediaActions.showMenu(binding.viewerToolbar, item)
+        val anchor = binding.viewerToolbar
+        mediaActions.showLinkOnly(anchor, item)
     }
 
     private fun shareVideo() {
