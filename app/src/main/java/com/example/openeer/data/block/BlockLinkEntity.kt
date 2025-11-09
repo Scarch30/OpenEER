@@ -11,8 +11,9 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "block_links",
     indices = [
-        Index(value = ["aBlockId"], name = "index_block_links_aBlockId"),
-        Index(value = ["bBlockId"], name = "index_block_links_bBlockId")
+        Index(value = ["aBlockId"]),
+        Index(value = ["bBlockId"]),
+        Index(value = ["aBlockId", "bBlockId"], unique = true, name = "index_block_links_pair")
     ],
     foreignKeys = [
         ForeignKey(

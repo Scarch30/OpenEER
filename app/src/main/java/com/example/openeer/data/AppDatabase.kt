@@ -309,19 +309,16 @@ abstract class AppDatabase : RoomDatabase() {
                         aBlockId INTEGER NOT NULL,
                         bBlockId INTEGER NOT NULL,
                         createdAt INTEGER NOT NULL,
-                        CHECK (aBlockId <> bBlockId),
                         FOREIGN KEY(aBlockId) REFERENCES blocks(id) ON DELETE CASCADE,
                         FOREIGN KEY(bBlockId) REFERENCES blocks(id) ON DELETE CASCADE
                     )
                 """.trimIndent())
+                db.execSQL("DROP INDEX IF EXISTS index_block_links_pair")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_aBlockId ON block_links(aBlockId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_bBlockId ON block_links(bBlockId)")
                 db.execSQL(
                     """
-                        CREATE UNIQUE INDEX IF NOT EXISTS index_block_links_pair ON block_links(
-                            CASE WHEN aBlockId < bBlockId THEN aBlockId ELSE bBlockId END,
-                            CASE WHEN aBlockId < bBlockId THEN bBlockId ELSE aBlockId END
-                        )
+                        CREATE UNIQUE INDEX IF NOT EXISTS index_block_links_pair ON block_links(aBlockId, bBlockId)
                     """.trimIndent()
                 )
             }
@@ -706,16 +703,25 @@ abstract class AppDatabase : RoomDatabase() {
                     names
                 }
 
-                val needsRewrite = columns.isNotEmpty() && "aBlockId" !in columns
+                val tableDefinition = db.query(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='block_links'"
+                ).use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+
+                val tableExists = tableDefinition != null
+
+                val needsRewrite = tableExists && run {
+                    val definition = tableDefinition!!
+                    "aBlockId" !in columns ||
+                        "bBlockId" !in columns ||
+                        definition.contains("CHECK (aBlockId <> bBlockId)") ||
+                        definition.contains("fromBlockId") ||
+                        definition.contains("toBlockId")
+                }
 
                 if (needsRewrite) {
-                    val tableExists = db.query(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name='block_links'"
-                    ).use { it.moveToFirst() }
-
-                    if (tableExists) {
-                        db.execSQL("ALTER TABLE block_links RENAME TO block_links_old")
-                    }
+                    db.execSQL("ALTER TABLE block_links RENAME TO block_links_old")
 
                     db.execSQL(
                         """
@@ -724,33 +730,30 @@ abstract class AppDatabase : RoomDatabase() {
                                 aBlockId INTEGER NOT NULL,
                                 bBlockId INTEGER NOT NULL,
                                 createdAt INTEGER NOT NULL,
-                                CHECK (aBlockId <> bBlockId),
                                 FOREIGN KEY(aBlockId) REFERENCES blocks(id) ON DELETE CASCADE,
                                 FOREIGN KEY(bBlockId) REFERENCES blocks(id) ON DELETE CASCADE
                             )
                         """.trimIndent()
                     )
 
-                    if (tableExists) {
-                        val now = System.currentTimeMillis()
-                        db.execSQL(
-                            """
-                                INSERT OR IGNORE INTO block_links (aBlockId, bBlockId, createdAt)
-                                SELECT
-                                    CASE WHEN fromBlockId < toBlockId THEN fromBlockId ELSE toBlockId END,
-                                    CASE WHEN fromBlockId < toBlockId THEN toBlockId ELSE fromBlockId END,
-                                    $now
-                                FROM block_links_old
-                                WHERE fromBlockId IS NOT NULL
-                                  AND toBlockId IS NOT NULL
-                                  AND fromBlockId <> toBlockId
-                                GROUP BY
-                                    CASE WHEN fromBlockId < toBlockId THEN fromBlockId ELSE toBlockId END,
-                                    CASE WHEN fromBlockId < toBlockId THEN toBlockId ELSE fromBlockId END
-                            """.trimIndent()
-                        )
-                        db.execSQL("DROP TABLE block_links_old")
-                    }
+                    val now = System.currentTimeMillis()
+                    db.execSQL(
+                        """
+                            INSERT OR IGNORE INTO block_links (aBlockId, bBlockId, createdAt)
+                            SELECT
+                                CASE WHEN fromBlockId < toBlockId THEN fromBlockId ELSE toBlockId END,
+                                CASE WHEN fromBlockId < toBlockId THEN toBlockId ELSE fromBlockId END,
+                                $now
+                            FROM block_links_old
+                            WHERE fromBlockId IS NOT NULL
+                              AND toBlockId IS NOT NULL
+                              AND fromBlockId <> toBlockId
+                            GROUP BY
+                                CASE WHEN fromBlockId < toBlockId THEN fromBlockId ELSE toBlockId END,
+                                CASE WHEN fromBlockId < toBlockId THEN toBlockId ELSE fromBlockId END
+                        """.trimIndent()
+                    )
+                    db.execSQL("DROP TABLE block_links_old")
                 } else {
                     db.execSQL(
                         """
@@ -759,7 +762,6 @@ abstract class AppDatabase : RoomDatabase() {
                                 aBlockId INTEGER NOT NULL,
                                 bBlockId INTEGER NOT NULL,
                                 createdAt INTEGER NOT NULL,
-                                CHECK (aBlockId <> bBlockId),
                                 FOREIGN KEY(aBlockId) REFERENCES blocks(id) ON DELETE CASCADE,
                                 FOREIGN KEY(bBlockId) REFERENCES blocks(id) ON DELETE CASCADE
                             )
@@ -767,14 +769,12 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                 }
 
+                db.execSQL("DROP INDEX IF EXISTS index_block_links_pair")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_aBlockId ON block_links(aBlockId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_bBlockId ON block_links(bBlockId)")
                 db.execSQL(
                     """
-                        CREATE UNIQUE INDEX IF NOT EXISTS index_block_links_pair ON block_links(
-                            CASE WHEN aBlockId < bBlockId THEN aBlockId ELSE bBlockId END,
-                            CASE WHEN aBlockId < bBlockId THEN bBlockId ELSE aBlockId END
-                        )
+                        CREATE UNIQUE INDEX IF NOT EXISTS index_block_links_pair ON block_links(aBlockId, bBlockId)
                     """.trimIndent()
                 )
             }
