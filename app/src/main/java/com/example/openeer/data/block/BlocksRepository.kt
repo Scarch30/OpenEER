@@ -62,6 +62,17 @@ class BlocksRepository(
         }
     }
 
+    private fun normalizedLinkPair(firstBlockId: Long, secondBlockId: Long): Pair<Long, Long> {
+        require(firstBlockId != secondBlockId) {
+            "Cannot create a link with identical block ids: $firstBlockId"
+        }
+        return if (firstBlockId < secondBlockId) {
+            firstBlockId to secondBlockId
+        } else {
+            secondBlockId to firstBlockId
+        }
+    }
+
     companion object {
         const val MIME_TYPE_TEXT_BLOCK_LIST = "text/x-openeer-list"
         private const val BLOCK_LIST_LOG_TAG = "BlockListUI"
@@ -1244,12 +1255,13 @@ class BlocksRepository(
 
     suspend fun linkAudioToText(audioBlockId: Long, textBlockId: Long) {
         val dao = linkDao ?: error("BlockLinkDao not provided to BlocksRepository")
+        val (firstId, secondId) = normalizedLinkPair(audioBlockId, textBlockId)
         withContext(io) {
             dao.insert(
                 BlockLinkEntity(
-                    aBlockId = audioBlockId,
-                    bBlockId = textBlockId
-                ).normalized()
+                    aBlockId = firstId,
+                    bBlockId = secondId
+                )
             )
         }
     }
@@ -1285,12 +1297,13 @@ class BlocksRepository(
 
     suspend fun linkVideoToText(videoBlockId: Long, textBlockId: Long) {
         val dao = linkDao ?: error("BlockLinkDao not provided to BlocksRepository")
+        val (firstId, secondId) = normalizedLinkPair(videoBlockId, textBlockId)
         withContext(io) {
             dao.insert(
                 BlockLinkEntity(
-                    aBlockId = videoBlockId,
-                    bBlockId = textBlockId
-                ).normalized()
+                    aBlockId = firstId,
+                    bBlockId = secondId
+                )
             )
         }
     }
@@ -1352,14 +1365,31 @@ class BlocksRepository(
      */
     suspend fun linkBlocks(firstBlockId: Long, secondBlockId: Long) {
         val dao = linkDao ?: return
+        val (firstId, secondId) = normalizedLinkPair(firstBlockId, secondBlockId)
         withContext(io) {
             dao.insert(
                 BlockLinkEntity(
-                    aBlockId = firstBlockId,
-                    bBlockId = secondBlockId
-                ).normalized()
+                    aBlockId = firstId,
+                    bBlockId = secondId
+                )
             )
         }
+    }
+
+    suspend fun unlinkBlocks(firstBlockId: Long, secondBlockId: Long) {
+        val dao = linkDao ?: return
+        val (firstId, secondId) = normalizedLinkPair(firstBlockId, secondBlockId)
+        withContext(io) { dao.deletePair(firstId, secondId) }
+    }
+
+    suspend fun getLinkedBlocks(blockId: Long): List<Long> {
+        val dao = linkDao ?: return emptyList()
+        return withContext(io) { dao.findAllLinkedBlockIds(blockId) }
+    }
+
+    suspend fun getLinkCount(blockId: Long): Int {
+        val dao = linkDao ?: return 0
+        return withContext(io) { dao.countLinks(blockId) }
     }
 
     /**
