@@ -49,7 +49,7 @@ import com.example.openeer.data.tag.TagEntity
         FavoriteEntity::class,
         ListItemEntity::class
     ],
-    version = 27, // 🔼 bump : childRefTargetId
+    version = 28, // 🔼 bump : block_links graph
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -300,20 +300,30 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // 8 -> 9 : table block_links + index
+        // 8 -> 9 : table block_links (graphe non orienté)
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS block_links (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        fromBlockId INTEGER NOT NULL,
-                        toBlockId   INTEGER NOT NULL,
-                        type TEXT NOT NULL
+                        aBlockId INTEGER NOT NULL,
+                        bBlockId INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        CHECK (aBlockId <> bBlockId),
+                        FOREIGN KEY(aBlockId) REFERENCES blocks(id) ON DELETE CASCADE,
+                        FOREIGN KEY(bBlockId) REFERENCES blocks(id) ON DELETE CASCADE
                     )
                 """.trimIndent())
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_fromBlockId ON block_links(fromBlockId)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_toBlockId ON block_links(toBlockId)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_type ON block_links(type)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_aBlockId ON block_links(aBlockId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_bBlockId ON block_links(bBlockId)")
+                db.execSQL(
+                    """
+                        CREATE UNIQUE INDEX IF NOT EXISTS index_block_links_pair ON block_links(
+                            CASE WHEN aBlockId < bBlockId THEN aBlockId ELSE bBlockId END,
+                            CASE WHEN aBlockId < bBlockId THEN bBlockId ELSE aBlockId END
+                        )
+                    """.trimIndent()
+                )
             }
         }
 
@@ -686,6 +696,90 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val columns = db.query("PRAGMA table_info(block_links)").use { cursor ->
+                    val names = mutableSetOf<String>()
+                    while (cursor.moveToNext()) {
+                        names += cursor.getString(1)
+                    }
+                    names
+                }
+
+                val needsRewrite = columns.isNotEmpty() && "aBlockId" !in columns
+
+                if (needsRewrite) {
+                    val tableExists = db.query(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='block_links'"
+                    ).use { it.moveToFirst() }
+
+                    if (tableExists) {
+                        db.execSQL("ALTER TABLE block_links RENAME TO block_links_old")
+                    }
+
+                    db.execSQL(
+                        """
+                            CREATE TABLE IF NOT EXISTS block_links (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                                aBlockId INTEGER NOT NULL,
+                                bBlockId INTEGER NOT NULL,
+                                createdAt INTEGER NOT NULL,
+                                CHECK (aBlockId <> bBlockId),
+                                FOREIGN KEY(aBlockId) REFERENCES blocks(id) ON DELETE CASCADE,
+                                FOREIGN KEY(bBlockId) REFERENCES blocks(id) ON DELETE CASCADE
+                            )
+                        """.trimIndent()
+                    )
+
+                    if (tableExists) {
+                        val now = System.currentTimeMillis()
+                        db.execSQL(
+                            """
+                                INSERT OR IGNORE INTO block_links (aBlockId, bBlockId, createdAt)
+                                SELECT
+                                    CASE WHEN fromBlockId < toBlockId THEN fromBlockId ELSE toBlockId END,
+                                    CASE WHEN fromBlockId < toBlockId THEN toBlockId ELSE fromBlockId END,
+                                    $now
+                                FROM block_links_old
+                                WHERE fromBlockId IS NOT NULL
+                                  AND toBlockId IS NOT NULL
+                                  AND fromBlockId <> toBlockId
+                                GROUP BY
+                                    CASE WHEN fromBlockId < toBlockId THEN fromBlockId ELSE toBlockId END,
+                                    CASE WHEN fromBlockId < toBlockId THEN toBlockId ELSE fromBlockId END
+                            """.trimIndent()
+                        )
+                        db.execSQL("DROP TABLE block_links_old")
+                    }
+                } else {
+                    db.execSQL(
+                        """
+                            CREATE TABLE IF NOT EXISTS block_links (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                                aBlockId INTEGER NOT NULL,
+                                bBlockId INTEGER NOT NULL,
+                                createdAt INTEGER NOT NULL,
+                                CHECK (aBlockId <> bBlockId),
+                                FOREIGN KEY(aBlockId) REFERENCES blocks(id) ON DELETE CASCADE,
+                                FOREIGN KEY(bBlockId) REFERENCES blocks(id) ON DELETE CASCADE
+                            )
+                        """.trimIndent()
+                    )
+                }
+
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_aBlockId ON block_links(aBlockId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_block_links_bBlockId ON block_links(bBlockId)")
+                db.execSQL(
+                    """
+                        CREATE UNIQUE INDEX IF NOT EXISTS index_block_links_pair ON block_links(
+                            CASE WHEN aBlockId < bBlockId THEN aBlockId ELSE bBlockId END,
+                            CASE WHEN aBlockId < bBlockId THEN bBlockId ELSE aBlockId END
+                        )
+                    """.trimIndent()
+                )
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -719,7 +813,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_23_24,
                         MIGRATION_24_25,
                         MIGRATION_25_26,
-                        MIGRATION_26_27
+                        MIGRATION_26_27,
+                        MIGRATION_27_28
                     )
                     .build()
                     .also { INSTANCE = it }

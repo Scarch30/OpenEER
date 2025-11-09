@@ -6,37 +6,41 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 
 /**
- * Liens génériques entre blocs (AUDIO↔TEXT, VIDEO↔TEXT, etc.)
- * Le champ "type" permet de distinguer :
- *  - "AUDIO_TRANSCRIPTION"
- *  - "VIDEO_TRANSCRIPTION"
- * ou tout autre type futur.
+ * Liens non orientés entre blocs (graphe).
  */
 @Dao
 interface BlockLinkDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(link: BlockLinkEntity): Long
 
-    /** Renvoie le bloc destination (ex: TEXT) lié à un bloc source (ex: AUDIO/VIDEO) pour un type donné. */
-    @Query("""
-        SELECT toBlockId
+    @Query(
+        """
+        SELECT CASE WHEN aBlockId = :blockId THEN bBlockId ELSE aBlockId END
         FROM block_links
-        WHERE fromBlockId = :fromBlockId AND type = :type
+        WHERE aBlockId = :blockId OR bBlockId = :blockId
+        ORDER BY createdAt DESC
         LIMIT 1
-    """)
-    suspend fun findLinkedTo(fromBlockId: Long, type: String): Long?
+        """
+    )
+    suspend fun findAnyLinkedBlockId(blockId: Long): Long?
 
-    /** Renvoie le bloc source (ex: AUDIO/VIDEO) lié à un TEXT pour un type donné. */
-    @Query("""
-        SELECT fromBlockId
-        FROM block_links
-        WHERE toBlockId = :toBlockId AND type = :type
+    @Query(
+        """
+        SELECT other.id
+        FROM block_links AS bl
+        JOIN blocks AS other
+            ON other.id = CASE WHEN bl.aBlockId = :blockId THEN bl.bBlockId ELSE bl.aBlockId END
+        WHERE (bl.aBlockId = :blockId OR bl.bBlockId = :blockId)
+          AND other.type = :targetType
+        ORDER BY bl.createdAt DESC
         LIMIT 1
-    """)
-    suspend fun findLinkedFrom(toBlockId: Long, type: String): Long?
+        """
+    )
+    suspend fun findLinkedBlockIdOfType(blockId: Long, targetType: BlockType): Long?
 
-    /** Supprime tous les liens touchant l’un ou l’autre des deux ids. */
-    @Query("DELETE FROM block_links WHERE fromBlockId = :fromId OR toBlockId = :toId")
-    suspend fun deleteLinksFor(fromId: Long, toId: Long)
+    @Query(
+        "DELETE FROM block_links WHERE aBlockId = :blockId OR bBlockId = :blockId"
+    )
+    suspend fun deleteLinksTouching(blockId: Long)
 }
