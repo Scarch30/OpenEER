@@ -45,3 +45,5 @@ data class BlockEntity(
     val createdAt: Long,
     val updatedAt: Long
 )
+
+typealias Block = BlockEntity
