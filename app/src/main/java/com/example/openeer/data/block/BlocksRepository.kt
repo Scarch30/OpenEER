@@ -63,10 +63,6 @@ class BlocksRepository(
     }
 
     companion object {
-        const val LINK_AUDIO_TRANSCRIPTION = "AUDIO_TRANSCRIPTION"
-        const val LINK_VIDEO_TRANSCRIPTION = "VIDEO_TRANSCRIPTION"
-        // ✅ Lien générique “from block → to block” (ex: note-mère → note-fille)
-        const val LINK_CHILD_REF = "CHILD_REF"
         const val MIME_TYPE_TEXT_BLOCK_LIST = "text/x-openeer-list"
         private const val BLOCK_LIST_LOG_TAG = "BlockListUI"
         private const val LIST_REPO_LOG_TAG = "ListRepo"
@@ -1251,25 +1247,24 @@ class BlocksRepository(
         withContext(io) {
             dao.insert(
                 BlockLinkEntity(
-                    id = 0L,
-                    fromBlockId = audioBlockId,
-                    toBlockId = textBlockId,
-                    type = LINK_AUDIO_TRANSCRIPTION
-                )
+                    aBlockId = audioBlockId,
+                    bBlockId = textBlockId
+                ).normalized()
             )
         }
     }
 
     suspend fun findTextForAudio(audioBlockId: Long): Long? {
         val dao = linkDao ?: error("BlockLinkDao not provided to BlocksRepository")
-        return withContext(io) { dao.findLinkedTo(audioBlockId, LINK_AUDIO_TRANSCRIPTION) }
+        return withContext(io) { dao.findLinkedBlockIdOfType(audioBlockId, BlockType.TEXT) }
     }
 
     /** Inverse : retrouver l’AUDIO lié à un bloc TEXTE (fallback groupId si pas de table de liens). */
     suspend fun findAudioForText(textBlockId: Long): Long? {
         // 1) Via table de liens (meilleur chemin)
         linkDao?.let { dao ->
-            return withContext(io) { dao.findLinkedFrom(textBlockId, LINK_AUDIO_TRANSCRIPTION) }
+            val viaGraph = withContext(io) { dao.findLinkedBlockIdOfType(textBlockId, BlockType.AUDIO) }
+            if (viaGraph != null) return viaGraph
         }
 
         // 2) Fallback via groupId (pas besoin d'un “getAllForNote”)
@@ -1293,11 +1288,9 @@ class BlocksRepository(
         withContext(io) {
             dao.insert(
                 BlockLinkEntity(
-                    id = 0L,
-                    fromBlockId = videoBlockId,
-                    toBlockId = textBlockId,
-                    type = LINK_VIDEO_TRANSCRIPTION
-                )
+                    aBlockId = videoBlockId,
+                    bBlockId = textBlockId
+                ).normalized()
             )
         }
     }
@@ -1305,7 +1298,7 @@ class BlocksRepository(
     /** Trouve l’ID du texte lié à une vidéo (table de liens, sinon fallback groupId partagé). */
     suspend fun findTextForVideo(videoBlockId: Long): Long? {
         linkDao?.let { dao ->
-            val viaLink = withContext(io) { dao.findLinkedTo(videoBlockId, LINK_VIDEO_TRANSCRIPTION) }
+            val viaLink = withContext(io) { dao.findLinkedBlockIdOfType(videoBlockId, BlockType.TEXT) }
             if (viaLink != null) return viaLink
         }
         return withContext(io) {
@@ -1322,7 +1315,7 @@ class BlocksRepository(
     /** Retrouve la vidéo liée à un texte (table de liens, sinon fallback groupId partagé). */
     suspend fun findVideoForText(textBlockId: Long): Long? {
         linkDao?.let { dao ->
-            val viaLink = withContext(io) { dao.findLinkedFrom(textBlockId, LINK_VIDEO_TRANSCRIPTION) }
+            val viaLink = withContext(io) { dao.findLinkedBlockIdOfType(textBlockId, BlockType.VIDEO) }
             if (viaLink != null) return viaLink
         }
         return withContext(io) {
@@ -1354,49 +1347,55 @@ class BlocksRepository(
 // --------------------------------------------------------------------
 
     /**
-     * Crée un lien générique from → to avec un type (par défaut CHILD_REF).
+     * Crée un lien générique non orienté entre deux blocs.
      * Ne lance pas la création si linkDao n'est pas fourni.
      */
-    suspend fun linkBlocks(
-        fromBlockId: Long,
-        toBlockId: Long,
-        type: String = LINK_CHILD_REF
-    ) {
+    suspend fun linkBlocks(firstBlockId: Long, secondBlockId: Long) {
         val dao = linkDao ?: return
         withContext(io) {
             dao.insert(
                 BlockLinkEntity(
-                    id = 0L,
-                    fromBlockId = fromBlockId,
-                    toBlockId = toBlockId,
-                    type = type
-                )
+                    aBlockId = firstBlockId,
+                    bBlockId = secondBlockId
+                ).normalized()
             )
         }
     }
 
     /**
-     * Trouve (au plus un) bloc cible lié à `fromBlockId` pour un type donné.
-     * Utile pour les liens 1→1 (ex: un item pointe vers UNE note-fille).
+     * Trouve (au plus un) bloc lié à `sourceBlockId`.
+     * Si `expectedType` est fourni, restreint au type visé.
      */
     suspend fun findLinkedTarget(
-        fromBlockId: Long,
-        type: String = LINK_CHILD_REF
+        sourceBlockId: Long,
+        expectedType: BlockType? = null
     ): Long? {
         val dao = linkDao ?: return null
-        return withContext(io) { dao.findLinkedTo(fromBlockId, type) }
+        return withContext(io) {
+            if (expectedType != null) {
+                dao.findLinkedBlockIdOfType(sourceBlockId, expectedType)
+            } else {
+                dao.findAnyLinkedBlockId(sourceBlockId)
+            }
+        }
     }
 
     /**
-     * Trouve (au plus un) bloc source qui pointe vers `toBlockId` pour un type donné.
-     * Utile pour remonter “qui pointe vers ce bloc ?”.
+     * Trouve (au plus un) bloc lié à `targetBlockId`.
+     * Identique à [findLinkedTarget] car le graphe est non orienté.
      */
     suspend fun findLinkedSource(
-        toBlockId: Long,
-        type: String = LINK_CHILD_REF
+        targetBlockId: Long,
+        expectedType: BlockType? = null
     ): Long? {
         val dao = linkDao ?: return null
-        return withContext(io) { dao.findLinkedFrom(toBlockId, type) }
+        return withContext(io) {
+            if (expectedType != null) {
+                dao.findLinkedBlockIdOfType(targetBlockId, expectedType)
+            } else {
+                dao.findAnyLinkedBlockId(targetBlockId)
+            }
+        }
     }
     /**
      * Lien “note-mère → note-fille” (typé CHILD_REF).
