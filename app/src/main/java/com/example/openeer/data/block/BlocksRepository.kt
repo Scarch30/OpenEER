@@ -7,6 +7,10 @@ import androidx.room.withTransaction
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteDao
 import com.example.openeer.data.NoteType
+import com.example.openeer.data.link.InlineLinkDao
+import com.example.openeer.data.link.InlineLinkEntity
+import com.example.openeer.data.link.ListItemLinkDao
+import com.example.openeer.data.link.ListItemLinkEntity
 import com.example.openeer.data.list.ListItemDao
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.data.merge.BlockSnapshot
@@ -34,6 +38,8 @@ class BlocksRepository(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val linkDao: BlockLinkDao? = null, // 🔗 optionnel pour liens AUDIO↔TEXTE / VIDEO↔TEXTE
     private val listItemDao: ListItemDao,
+    private val inlineLinkDao: InlineLinkDao,
+    private val listItemLinkDao: ListItemLinkDao,
 ) {
 
     private val snapshotGson by lazy { Gson() }
@@ -50,7 +56,7 @@ class BlocksRepository(
     }
 
     private fun resolveRoomDatabase(): RoomDatabase? {
-        val daos = listOf(blockDao, listItemDao, noteDao, linkDao)
+        val daos = listOf(blockDao, listItemDao, noteDao, linkDao, inlineLinkDao, listItemLinkDao)
         for (dao in daos) {
             if (dao == null) continue
             val db = runCatching {
@@ -79,6 +85,24 @@ class BlocksRepository(
         } else {
             secondBlockId to firstBlockId
         }
+    }
+
+    private suspend fun ensureBlockLinkExists(firstBlockId: Long, secondBlockId: Long): Boolean {
+        val dao = linkDao ?: return false
+        val pair = normalizedLinkPair(firstBlockId, secondBlockId) ?: return false
+        val (aId, bId) = pair
+        val firstExists = blockDao.getById(aId) != null
+        val secondExists = blockDao.getById(bId) != null
+        if (!firstExists || !secondExists) {
+            return false
+        }
+        val insertedId = dao.insert(
+            BlockLinkEntity(
+                aBlockId = aId,
+                bBlockId = bId,
+            )
+        )
+        return insertedId != -1L
     }
 
     private fun ensureLegacyChildRefsMigrated() {
@@ -1407,24 +1431,7 @@ class BlocksRepository(
      * Ne lance pas la création si linkDao n'est pas fourni.
      */
     suspend fun linkBlocks(aId: Long, bId: Long): Boolean {
-        val dao = linkDao ?: return false
-        val pair = normalizedLinkPair(aId, bId) ?: return false
-        return withContext(io) {
-            val (firstId, secondId) = pair
-            val firstExists = blockDao.getById(firstId) != null
-            val secondExists = blockDao.getById(secondId) != null
-            if (!firstExists || !secondExists) {
-                return@withContext false
-            }
-
-            val insertedId = dao.insert(
-                BlockLinkEntity(
-                    aBlockId = firstId,
-                    bBlockId = secondId
-                )
-            )
-            insertedId != -1L
-        }
+        return withContext(io) { ensureBlockLinkExists(aId, bId) }
     }
 
     suspend fun unlinkBlocks(aId: Long, bId: Long): Boolean {
@@ -1498,6 +1505,164 @@ class BlocksRepository(
                 dao.findLinkedBlockIdOfType(targetBlockId, expectedType)
             } else {
                 dao.findAnyLinkedBlockId(targetBlockId)
+            }
+        }
+    }
+
+    // --------------------------------------------------------------------
+    // 🔗 Ancres inline (texte de note “mère”)
+    // --------------------------------------------------------------------
+
+    suspend fun createInlineLink(
+        hostBlockId: Long,
+        start: Int,
+        end: Int,
+        targetBlockId: Long,
+    ): Boolean {
+        if (start < 0 || end < 0) return false
+        if (start >= end) return false
+        if (hostBlockId == targetBlockId) return false
+        return withContext(io) {
+            runInRoomTransaction {
+                val host = blockDao.getById(hostBlockId) ?: return@runInRoomTransaction false
+                if (host.type != BlockType.TEXT) {
+                    return@runInRoomTransaction false
+                }
+                if (blockDao.getById(targetBlockId) == null) {
+                    return@runInRoomTransaction false
+                }
+                ensureBlockLinkExists(hostBlockId, targetBlockId)
+                val inserted = inlineLinkDao.insertOrIgnore(
+                    InlineLinkEntity(
+                        hostBlockId = hostBlockId,
+                        start = start,
+                        end = end,
+                        targetBlockId = targetBlockId,
+                    )
+                )
+                inserted != -1L
+            }
+        }
+    }
+
+    suspend fun removeInlineLinkById(id: Long): Boolean =
+        withContext(io) { inlineLinkDao.deleteById(id) > 0 }
+
+    suspend fun removeInlineLink(
+        hostBlockId: Long,
+        start: Int,
+        end: Int,
+        targetBlockId: Long,
+    ): Boolean = withContext(io) {
+        inlineLinkDao.deleteByHostRangeTarget(hostBlockId, start, end, targetBlockId) > 0
+    }
+
+    suspend fun getInlineLinks(hostBlockId: Long): List<InlineLinkEntity> =
+        withContext(io) { inlineLinkDao.selectAllForHost(hostBlockId) }
+
+    // --------------------------------------------------------------------
+    // ✅ Liens d’items de liste
+    // --------------------------------------------------------------------
+
+    suspend fun createListItemLink(listItemId: Long, targetBlockId: Long): Boolean {
+        return withContext(io) {
+            runInRoomTransaction {
+                val item = listItemDao.findById(listItemId) ?: return@runInRoomTransaction false
+                val hostBlockId = item.ownerBlockId ?: return@runInRoomTransaction false
+                val hostBlock = blockDao.getById(hostBlockId) ?: return@runInRoomTransaction false
+                if (hostBlock.type != BlockType.TEXT) {
+                    return@runInRoomTransaction false
+                }
+                if (blockDao.getById(targetBlockId) == null) {
+                    return@runInRoomTransaction false
+                }
+                ensureBlockLinkExists(hostBlockId, targetBlockId)
+                val inserted = listItemLinkDao.insertOrIgnore(
+                    ListItemLinkEntity(
+                        listItemId = listItemId,
+                        targetBlockId = targetBlockId,
+                    )
+                )
+                inserted != -1L
+            }
+        }
+    }
+
+    suspend fun removeListItemLink(listItemId: Long, targetBlockId: Long): Boolean =
+        withContext(io) { listItemLinkDao.deleteByPair(listItemId, targetBlockId) > 0 }
+
+    suspend fun getLinksForListItem(listItemId: Long): List<ListItemLinkEntity> =
+        withContext(io) { listItemLinkDao.selectAllForItem(listItemId) }
+
+    // --------------------------------------------------------------------
+    // 🧰 Utilitaires pour l’UI (prompts suivants)
+    // --------------------------------------------------------------------
+
+    suspend fun ensureCanonicalMotherTextBlock(noteId: Long): Long {
+        return withContext(io) {
+            runInRoomTransaction {
+                val existing = blockDao.findFirstRootTextBlock(noteId)
+                if (existing != null) {
+                    return@runInRoomTransaction existing.id
+                }
+
+                val now = System.currentTimeMillis()
+                val template = BlockEntity(
+                    noteId = noteId,
+                    type = BlockType.TEXT,
+                    position = 0,
+                    text = "",
+                    createdAt = now,
+                    updatedAt = now,
+                )
+
+                val newId = blockDao.insertAtEnd(noteId, template)
+                val orderedIds = blockDao.getBlockIdsForNote(noteId)
+                val reordered = buildList {
+                    add(newId)
+                    orderedIds.filterNot { it == newId }.forEach { add(it) }
+                }
+                if (reordered.isNotEmpty()) {
+                    blockDao.reorder(noteId, reordered)
+                }
+                newId
+            }
+        }
+    }
+
+    suspend fun appendLinkedLine(
+        hostTextBlockId: Long,
+        label: String,
+        targetBlockId: Long,
+    ): Pair<Int, Int> {
+        val sanitizedLabel = label.trim()
+        require(sanitizedLabel.isNotEmpty()) { "label must not be blank" }
+        return withContext(io) {
+            runInRoomTransaction {
+                val hostBlock = blockDao.getById(hostTextBlockId)
+                    ?: throw IllegalArgumentException("Host block $hostTextBlockId not found")
+                require(hostBlock.type == BlockType.TEXT) { "Host block must be TEXT" }
+                blockDao.getById(targetBlockId)
+                    ?: throw IllegalArgumentException("Target block $targetBlockId not found")
+
+                val content = extractTextContent(hostBlock)
+                val existingBody = content.body
+                val linePrefix = "- "
+                val appendedLine = linePrefix + sanitizedLabel
+                val newBody = buildString {
+                    if (existingBody.isNotEmpty()) {
+                        append(existingBody)
+                        append('\n')
+                    }
+                    append(appendedLine)
+                }
+                val combinedText = buildCombinedText(content.title, newBody)
+                val now = System.currentTimeMillis()
+                blockDao.update(hostBlock.copy(text = combinedText, updatedAt = now))
+
+                val anchorStart = combinedText.length - appendedLine.length + linePrefix.length
+                val anchorEnd = anchorStart + sanitizedLabel.length
+                anchorStart to anchorEnd
             }
         }
     }
