@@ -153,6 +153,7 @@
     <string name="media_action_share">Partager</string>
     <string name="media_action_rename">Renommer</string>
     <string name="media_action_delete">Supprimer</string>
+    <string name="media_action_inject_into_mother">Injecter dans la note mère</string>
     <string name="media_delete_confirm">Supprimer cet élément ?</string>
     <string name="media_delete_confirm_secondary">Confirmez-vous la suppression définitive de ce document ?</string>
     <string name="media_delete_done">Élément supprimé</string>
@@ -479,6 +480,10 @@
     <string name="link_none_available">Aucun bloc cible disponible</string>
     <string name="media_linked_items_title">Éléments liés</string>
     <string name="media_linked_items_empty">Aucun lien pour l’instant</string>
+    <string name="mother_injection_success">Lien injecté dans la note.</string>
+    <string name="mother_injection_error">Impossible d’injecter ce lien.</string>
+    <string name="mother_injection_default_label">Élément</string>
+    <string name="mother_injection_fallback_sketch">Dessin</string>
     <string name="block_type_text">Texte</string>
     <string name="block_type_photo">Photo</string>
     <string name="block_type_sketch">Croquis</string>

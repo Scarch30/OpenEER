@@ -34,6 +34,7 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripItem
+import com.example.openeer.ui.MotherLinkInjector
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
 import java.io.File
@@ -258,6 +259,7 @@ class DocumentViewerActivity : AppCompatActivity() {
         menu.findItem(R.id.action_rename)?.isVisible = hasBlock
         menu.findItem(R.id.action_delete)?.isVisible = hasBlock
         menu.findItem(R.id.action_share)?.isVisible = canShareDocument()
+        menu.findItem(R.id.action_inject_into_mother)?.isVisible = hasBlock
         menu.findItem(R.id.action_link_to_element)?.isVisible = hasBlock
         updateLinkedMenuItems(menu)
         return true
@@ -310,6 +312,10 @@ class DocumentViewerActivity : AppCompatActivity() {
             }
             R.id.action_share -> {
                 shareCurrentDocument()
+                true
+            }
+            R.id.action_inject_into_mother -> {
+                injectIntoMother()
                 true
             }
             R.id.action_link_to_element -> {
@@ -382,6 +388,20 @@ class DocumentViewerActivity : AppCompatActivity() {
         if (blockId <= 0) return
         mediaActions.startUnlinkFlow(getAnchorView(), blockId) {
             invalidateOptionsMenu()
+        }
+    }
+
+    private fun injectIntoMother() {
+        val id = blockId
+        if (id <= 0) return
+        lifecycleScope.launch {
+            val result = MotherLinkInjector.inject(this@DocumentViewerActivity, blocksRepository, id)
+            val message = if (result is MotherLinkInjector.Result.Success) {
+                R.string.mother_injection_success
+            } else {
+                R.string.mother_injection_error
+            }
+            Toast.makeText(this@DocumentViewerActivity, getString(message), Toast.LENGTH_SHORT).show()
         }
     }
 

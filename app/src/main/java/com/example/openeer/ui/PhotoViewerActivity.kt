@@ -24,6 +24,7 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripItem
+import com.example.openeer.ui.MotherLinkInjector
 import com.google.android.material.appbar.MaterialToolbar
 import com.example.openeer.ui.viewer.ViewerMediaUtils
 import kotlinx.coroutines.Dispatchers
@@ -96,8 +97,10 @@ class PhotoViewerActivity : AppCompatActivity() {
         menuInflater.inflate(R.menu.menu_viewer_item, menu)
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
         menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
+        val canInject = blockId > 0 && currentBlock != null
         menu.findItem(R.id.action_share)?.isVisible = !sourcePath.isNullOrBlank()
-        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
+        menu.findItem(R.id.action_inject_into_mother)?.isVisible = canInject
+        menu.findItem(R.id.action_link_to_element)?.isVisible = canInject
         updateLinkedMenuItems(menu)
         return true
     }
@@ -145,6 +148,10 @@ class PhotoViewerActivity : AppCompatActivity() {
             }
             R.id.action_share -> {
                 sharePhoto()
+                true
+            }
+            R.id.action_inject_into_mother -> {
+                injectIntoMother()
                 true
             }
             R.id.action_delete -> {
@@ -247,6 +254,20 @@ class PhotoViewerActivity : AppCompatActivity() {
         val anchor = resolveMenuAnchor()
         mediaActions.startUnlinkFlow(anchor, blockId) {
             invalidateOptionsMenu()
+        }
+    }
+
+    private fun injectIntoMother() {
+        val id = blockId
+        if (id <= 0) return
+        lifecycleScope.launch {
+            val result = MotherLinkInjector.inject(this@PhotoViewerActivity, blocksRepository, id)
+            val message = if (result is MotherLinkInjector.Result.Success) {
+                R.string.mother_injection_success
+            } else {
+                R.string.mother_injection_error
+            }
+            Toast.makeText(this@PhotoViewerActivity, getString(message), Toast.LENGTH_SHORT).show()
         }
     }
 

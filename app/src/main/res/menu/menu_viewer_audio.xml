@@ -9,6 +9,10 @@
         android:title="@string/media_action_share"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_inject_into_mother"
+        android:title="@string/media_action_inject_into_mother"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_link_to_element"
         android:icon="@drawable/ic_link_small"
         android:title="@string/media_action_link"
