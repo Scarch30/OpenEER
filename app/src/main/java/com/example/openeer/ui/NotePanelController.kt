@@ -2,9 +2,14 @@
 package com.example.openeer.ui
 
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.Typeface
 import android.text.Editable
+import android.text.SpannableString
 import android.text.Spanned
+import android.text.TextPaint
+import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
 import android.text.style.StyleSpan
 import android.view.View
 import android.widget.EditText
@@ -24,10 +29,12 @@ import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.NoteType
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlocksRepository
+import com.example.openeer.data.link.InlineLinkEntity
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.library.LibraryFragment
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.ReminderListSheet
+import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.util.toast
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
@@ -93,6 +100,7 @@ class NotePanelController(
     private var motherBodyJob: Job? = null
     private var motherHostBlockId: Long? = null
     private var latestMotherBody: String = ""
+    private var latestMotherInlineLinks: List<InlineLinkRenderInfo> = emptyList()
 
     // Empêche la toute prochaine passe de render() d’écraser le corps appliqué en optimiste
     private var suppressNextBodyResync = false
@@ -267,6 +275,8 @@ class NotePanelController(
         motherBodyJob = null
         motherHostBlockId = null
         latestMotherBody = ""
+        latestMotherInlineLinks = emptyList()
+        latestMotherInlineLinks = emptyList()
 
         blocksRenderer.reset()
         mediaController.reset()
@@ -474,12 +484,37 @@ class NotePanelController(
         if (sanitizedBody != rawBody) {
             withContext(Dispatchers.IO) { blocksRepo.updateMotherBody(noteId, sanitizedBody) }
         }
+        val inlineLinks = loadInlineLinks(hostId)
         latestMotherBody = sanitizedBody
+        latestMotherInlineLinks = inlineLinks
         currentNote = currentNote?.copy(body = sanitizedBody)
-        bindMotherBody(hostId, sanitizedBody)
+        bindMotherBody(hostId, sanitizedBody, inlineLinks)
     }
 
-    private fun bindMotherBody(hostId: Long, text: String) {
+    private suspend fun loadInlineLinks(hostId: Long): List<InlineLinkRenderInfo> {
+        val entities = withContext(Dispatchers.IO) { blocksRepo.getInlineLinks(hostId) }
+        if (entities.isEmpty()) return emptyList()
+        val resolved = mutableListOf<InlineLinkRenderInfo>()
+        val invalidIds = mutableListOf<Long>()
+        for (entity in entities) {
+            val target = withContext(Dispatchers.IO) { blocksRepo.getBlock(entity.targetBlockId) }
+            if (target != null) {
+                resolved += InlineLinkRenderInfo(entity, target)
+            } else {
+                invalidIds += entity.id
+            }
+        }
+        if (invalidIds.isNotEmpty()) {
+            invalidIds.forEach { id -> blocksRepo.removeInlineLinkById(id) }
+        }
+        return resolved
+    }
+
+    private fun bindMotherBody(
+        hostId: Long,
+        text: String,
+        inlineLinks: List<InlineLinkRenderInfo> = latestMotherInlineLinks,
+    ) {
         val openId = openNoteId ?: return
         val noteType = currentNote?.type
         if (noteType == NoteType.LIST) return
@@ -489,9 +524,10 @@ class NotePanelController(
             return
         }
         val editor = binding.bodyEditor
+        editor.movementMethod = LinkMovementMethod.getInstance()
+        editor.highlightColor = Color.TRANSPARENT
         val editorText = editor.text
         val current = editorText?.toString() ?: ""
-        if (current == text) return
         val keepCurrentStyled =
             (editorText is Spanned) &&
                     editorText.getSpans(0, editor.length(), StyleSpan::class.java)
@@ -501,17 +537,57 @@ class NotePanelController(
                 TAG,
                 "Temporary body styling detected for note=$openId; forcing resync with canonical body",
             )
+            return
         }
         Log.wtf("MotherBody", "bind host=$hostId len=${text.length}")
-        editor.setText(text)
-        if (text.isNotEmpty()) {
-            editor.setSelection(text.length)
+        val spannable = SpannableString(text)
+        inlineLinks.forEach { info ->
+            val start = info.entity.start
+            val end = info.entity.end
+            if (start < 0 || end > spannable.length || start >= end) {
+                Log.w(
+                    TAG,
+                    "Skipping inline span host=$hostId start=$start end=$end length=${spannable.length}",
+                )
+                return@forEach
+            }
+            spannable.setSpan(
+                MotherInlineClickableSpan(info.target),
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
         }
+        val targetSelection = if (current == text) {
+            editor.selectionEnd.coerceIn(0, text.length)
+        } else {
+            text.length
+        }
+        editor.setText(spannable)
+        editor.setSelection(targetSelection)
     }
 
     fun highlightBlock(blockId: Long) {
         if (openNoteId == null) return
         blocksRenderer.highlightBlock(blockId)
+    }
+
+    private data class InlineLinkRenderInfo(
+        val entity: InlineLinkEntity,
+        val target: BlockEntity,
+    )
+
+    private inner class MotherInlineClickableSpan(
+        private val target: BlockEntity,
+    ) : ClickableSpan() {
+        override fun onClick(widget: View) {
+            MediaActions.openBlock(activity, target)
+        }
+
+        override fun updateDrawState(ds: TextPaint) {
+            super.updateDrawState(ds)
+            ds.isUnderlineText = true
+        }
     }
 
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)

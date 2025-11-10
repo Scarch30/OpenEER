@@ -484,6 +484,14 @@
     <string name="mother_injection_error">Impossible d’injecter ce lien.</string>
     <string name="mother_injection_default_label">Élément</string>
     <string name="mother_injection_fallback_sketch">Dessin</string>
+    <string name="mother_injection_type_text">Post-it</string>
+    <string name="mother_injection_type_photo">Photo</string>
+    <string name="mother_injection_type_video">Vidéo</string>
+    <string name="mother_injection_type_audio">Audio</string>
+    <string name="mother_injection_type_sketch">Croquis</string>
+    <string name="mother_injection_type_location">Carte</string>
+    <string name="mother_injection_type_route">Itinéraire</string>
+    <string name="mother_injection_type_file">Fichier</string>
     <string name="block_type_text">Texte</string>
     <string name="block_type_photo">Photo</string>
     <string name="block_type_sketch">Croquis</string>
