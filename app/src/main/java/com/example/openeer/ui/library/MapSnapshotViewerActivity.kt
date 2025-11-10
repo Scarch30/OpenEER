@@ -19,6 +19,7 @@ import com.example.openeer.map.buildMapsUrl
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripItem
+import com.example.openeer.ui.MotherLinkInjector
 import com.github.chrisbanes.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
@@ -68,8 +69,10 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         val hasValidBlock = blockId > 0
         renameItem?.isVisible = hasValidBlock
         renameItem?.isEnabled = hasValidBlock
+        val canInject = blockId > 0 && currentBlock != null
         menu.findItem(R.id.action_open_in_maps)?.isVisible = openMapsAction != null
-        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
+        menu.findItem(R.id.action_inject_into_mother)?.isVisible = canInject
+        menu.findItem(R.id.action_link_to_element)?.isVisible = canInject
         updateLinkedMenuItems(menu)
         return true
     }
@@ -106,8 +109,10 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        val canInject = blockId > 0 && currentBlock != null
         menu.findItem(R.id.action_open_in_maps)?.isVisible = openMapsAction != null
-        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
+        menu.findItem(R.id.action_inject_into_mother)?.isVisible = canInject
+        menu.findItem(R.id.action_link_to_element)?.isVisible = canInject
         updateLinkedMenuItems(menu)
         return super.onPrepareOptionsMenu(menu)
     }
@@ -130,6 +135,9 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
             true
         }
         R.id.action_share -> { sharePlace(); true }
+        R.id.action_inject_into_mother -> {
+            injectIntoMother(); true
+        }
         R.id.action_link_to_element -> { startLinkFlowForMap(); true }
         R.id.action_view_linked_items -> { openLinkedItems(); true }
         R.id.action_unlink -> { startUnlinkFlow(); true }
@@ -240,6 +248,23 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         if (blockId <= 0) return
         mediaActions.startUnlinkFlow(resolveMenuAnchor(), blockId) {
             invalidateOptionsMenu()
+        }
+    }
+
+    private fun injectIntoMother() {
+        val id = blockId
+        if (id <= 0) {
+            Toast.makeText(this, R.string.mother_injection_error, Toast.LENGTH_SHORT).show()
+            return
+        }
+        lifecycleScope.launch {
+            val result = MotherLinkInjector.inject(this@MapSnapshotViewerActivity, blocksRepository, id)
+            val message = if (result is MotherLinkInjector.Result.Success) {
+                R.string.mother_injection_success
+            } else {
+                R.string.mother_injection_error
+            }
+            Toast.makeText(this@MapSnapshotViewerActivity, getString(message), Toast.LENGTH_SHORT).show()
         }
     }
 

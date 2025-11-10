@@ -24,6 +24,7 @@ import com.example.openeer.databinding.ActivityVideoPlayerBinding
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripItem
+import com.example.openeer.ui.MotherLinkInjector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -131,8 +132,10 @@ class VideoPlayerActivity : AppCompatActivity() {
         menuInflater.inflate(R.menu.menu_viewer_item, menu)
         menu.findItem(R.id.action_rename)?.isVisible = blockId > 0
         menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
+        val canInject = blockId > 0 && currentBlock != null
         menu.findItem(R.id.action_share)?.isVisible = !sourceUri.isNullOrBlank()
-        menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
+        menu.findItem(R.id.action_inject_into_mother)?.isVisible = canInject
+        menu.findItem(R.id.action_link_to_element)?.isVisible = canInject
         updateLinkedMenuItems(menu)
         return true
     }
@@ -180,6 +183,10 @@ class VideoPlayerActivity : AppCompatActivity() {
             }
             R.id.action_share -> {
                 shareVideo()
+                true
+            }
+            R.id.action_inject_into_mother -> {
+                injectIntoMother()
                 true
             }
             R.id.action_delete -> {
@@ -276,6 +283,20 @@ class VideoPlayerActivity : AppCompatActivity() {
         val anchor = resolveMenuAnchor()
         mediaActions.startUnlinkFlow(anchor, blockId) {
             invalidateOptionsMenu()
+        }
+    }
+
+    private fun injectIntoMother() {
+        val id = blockId
+        if (id <= 0) return
+        lifecycleScope.launch {
+            val result = MotherLinkInjector.inject(this@VideoPlayerActivity, blocksRepository, id)
+            val message = if (result is MotherLinkInjector.Result.Success) {
+                R.string.mother_injection_success
+            } else {
+                R.string.mother_injection_error
+            }
+            Toast.makeText(this@VideoPlayerActivity, getString(message), Toast.LENGTH_SHORT).show()
         }
     }
 

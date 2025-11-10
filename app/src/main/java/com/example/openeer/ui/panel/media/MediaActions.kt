@@ -30,6 +30,7 @@ import java.io.File
 import java.util.Locale
 import com.example.openeer.ui.library.MapSnapshotViewerActivity
 import com.example.openeer.ui.viewer.AudioViewerActivity
+import com.example.openeer.ui.MotherLinkInjector
 
 
 class MediaActions(
@@ -226,6 +227,9 @@ class MediaActions(
             }
 
             popup.menu.add(0, MENU_SHARE, 0, activity.getString(R.string.media_action_share))
+            if (block != null) {
+                popup.menu.add(0, MENU_INJECT_INTO_MOTHER, 0, activity.getString(R.string.media_action_inject_into_mother))
+            }
 
             popup.menu.add(0, MENU_LINK_TO_CHILD, 1, activity.getString(R.string.media_action_link_to_child))
             if (linkCount > 0) {
@@ -259,6 +263,10 @@ class MediaActions(
                         true
                     }
                     MENU_LINK_TO_CHILD -> { handleLinkAction(block); true }
+                    MENU_INJECT_INTO_MOTHER -> {
+                        injectIntoMother(block)
+                        true
+                    }
                     MENU_VIEW_LINKS -> {
                         block?.let { openLinkedItemsSheet(anchor, it.id) }
                         true
@@ -281,6 +289,19 @@ class MediaActions(
 
     private fun handleLinkAction(block: BlockEntity?) {
         block?.let { pickTargetAndLink(it.noteId, it.id) }
+    }
+
+    private fun injectIntoMother(block: BlockEntity?) {
+        val target = block ?: return
+        uiScope.launch {
+            val result = MotherLinkInjector.inject(activity, blocksRepo, target.id)
+            val message = if (result is MotherLinkInjector.Result.Success) {
+                R.string.mother_injection_success
+            } else {
+                R.string.mother_injection_error
+            }
+            Toast.makeText(activity, activity.getString(message), Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun pickTargetAndLink(noteId: Long, sourceBlockId: Long) {
@@ -618,6 +639,7 @@ class MediaActions(
         private const val MENU_UNLINK_CHILD = 7
         private const val MENU_CONVERT_TO_LIST = 8
         private const val MENU_CONVERT_TO_TEXT = 9
+        private const val MENU_INJECT_INTO_MOTHER = 10
 
         fun openBlock(activity: AppCompatActivity, block: BlockEntity): Boolean {
             val context = activity
