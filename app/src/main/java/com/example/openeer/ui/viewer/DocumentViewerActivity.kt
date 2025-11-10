@@ -40,6 +40,7 @@ import java.io.File
 import java.util.Locale
 import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.io.use
@@ -69,6 +70,7 @@ class DocumentViewerActivity : AppCompatActivity() {
     private var viewerToolbar: MaterialToolbar? = null
     private var pfd: ParcelFileDescriptor? = null
     private var pdfRenderer: PdfRenderer? = null
+    private var linkMenuJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -257,7 +259,39 @@ class DocumentViewerActivity : AppCompatActivity() {
         menu.findItem(R.id.action_delete)?.isVisible = hasBlock
         menu.findItem(R.id.action_share)?.isVisible = canShareDocument()
         menu.findItem(R.id.action_link_to_element)?.isVisible = hasBlock
+        updateLinkedMenuItems(menu)
         return true
+    }
+
+    private fun updateLinkedMenuItems(menu: Menu) {
+        val viewItem = menu.findItem(R.id.action_view_linked_items)
+        val unlinkItem = menu.findItem(R.id.action_unlink)
+        viewItem?.isVisible = false
+        unlinkItem?.isVisible = false
+        val id = blockId
+        if (id <= 0) {
+            linkMenuJob?.cancel()
+            linkMenuJob = null
+            return
+        }
+        linkMenuJob?.cancel()
+        val job = lifecycleScope.launch {
+            val count = withContext(Dispatchers.IO) { blocksRepository.getLinkCount(id) }
+            if (count > 0) {
+                viewItem?.isVisible = true
+                viewItem?.title = getString(R.string.media_action_view_links, count)
+                unlinkItem?.isVisible = true
+            } else {
+                viewItem?.isVisible = false
+                unlinkItem?.isVisible = false
+            }
+        }
+        linkMenuJob = job
+        job.invokeOnCompletion {
+            if (linkMenuJob === job) {
+                linkMenuJob = null
+            }
+        }
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -280,6 +314,14 @@ class DocumentViewerActivity : AppCompatActivity() {
             }
             R.id.action_link_to_element -> {
                 startLinkFlowForDocument()
+                true
+            }
+            R.id.action_view_linked_items -> {
+                openLinkedItems()
+                true
+            }
+            R.id.action_unlink -> {
+                startUnlinkFlow()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -329,6 +371,18 @@ class DocumentViewerActivity : AppCompatActivity() {
             childName = currentChildName
         )
         mediaActions.showLinkOnly(anchorView, item)
+    }
+
+    private fun openLinkedItems() {
+        if (blockId <= 0) return
+        mediaActions.openLinkedItemsSheet(getAnchorView(), blockId)
+    }
+
+    private fun startUnlinkFlow() {
+        if (blockId <= 0) return
+        mediaActions.startUnlinkFlow(getAnchorView(), blockId) {
+            invalidateOptionsMenu()
+        }
     }
 
     private fun promptRenameBlock() {
@@ -466,7 +520,9 @@ class DocumentViewerActivity : AppCompatActivity() {
         }
     }
 
-    private fun getAnchorView(): View = viewerToolbar ?: window.decorView
+    private fun getAnchorView(): View = viewerToolbar
+        ?: window.decorView
+        ?: findViewById(android.R.id.content)
 
     private class PdfPageAdapter(
         private val renderer: PdfRenderer
@@ -583,6 +639,8 @@ class DocumentViewerActivity : AppCompatActivity() {
 
 
     override fun onDestroy() {
+        linkMenuJob?.cancel()
+        linkMenuJob = null
         runCatching { pdfRenderer?.close() }
         runCatching { pfd?.close() }
         super.onDestroy()

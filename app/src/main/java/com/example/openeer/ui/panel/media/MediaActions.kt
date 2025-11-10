@@ -20,6 +20,7 @@ import com.example.openeer.ui.sheets.ChildPostitSheet
 import com.example.openeer.ui.sheets.LinkTargetSheet
 import com.example.openeer.ui.sheets.LinkedBlocksSheet
 import com.example.openeer.ui.sheets.MediaGridSheet
+import com.example.openeer.ui.sheets.blockLinkPrimaryLabel
 import com.example.openeer.ui.viewer.DocumentViewerActivity
 import com.example.openeer.ui.viewer.VideoPlayerActivity
 import com.google.gson.Gson
@@ -38,6 +39,7 @@ class MediaActions(
     private val uiScope = CoroutineScope(Dispatchers.Main)
     private val routeGson = Gson()
     var onChildLabelChanged: (() -> Unit)? = null
+    var onLinksChanged: (() -> Unit)? = null
 
     fun handlePileClick(noteId: Long, category: MediaCategory) {
         // La grille sait déjà filtrer par catégorie ; on l’utilise aussi pour LOCATION.
@@ -200,7 +202,6 @@ class MediaActions(
     fun showLinkOnly(anchor: View, item: MediaStripItem) {
         uiScope.launch {
             val block = loadBlock(item.blockId)
-            val linkCount = withContext(Dispatchers.IO) { blocksRepo.getLinkCount(item.blockId) }
             handleLinkAction(block)
         }
     }
@@ -234,7 +235,7 @@ class MediaActions(
                     1,
                     activity.getString(R.string.media_action_view_links, linkCount)
                 )
-                popup.menu.add(0, MENU_UNLINK_CHILD, 1, activity.getString(R.string.media_action_unlink_child))
+                popup.menu.add(0, MENU_UNLINK_CHILD, 1, activity.getString(R.string.media_action_unlink))
             }
 
             popup.menu.add(0, MENU_RENAME, 2, activity.getString(R.string.media_action_rename))
@@ -258,8 +259,14 @@ class MediaActions(
                         true
                     }
                     MENU_LINK_TO_CHILD -> { handleLinkAction(block); true }
-                    MENU_VIEW_LINKS -> { block?.let { showLinkedBlocks(it.id) }; true }
-                    MENU_UNLINK_CHILD -> { block?.let { unlinkSource(it.id) }; true }
+                    MENU_VIEW_LINKS -> {
+                        block?.let { openLinkedItemsSheet(anchor, it.id) }
+                        true
+                    }
+                    MENU_UNLINK_CHILD -> {
+                        block?.let { startUnlinkFlow(anchor, it.id) }
+                        true
+                    }
                     MENU_CONVERT_TO_LIST -> { onConvertToList?.invoke(); true }
                     MENU_CONVERT_TO_TEXT -> { onConvertToText?.invoke(); true }
                     else -> false
@@ -295,7 +302,10 @@ class MediaActions(
                     }
                 }
                 when (result) {
-                    LinkAttemptResult.SUCCESS -> Toast.makeText(activity, R.string.link_created, Toast.LENGTH_SHORT).show()
+                    LinkAttemptResult.SUCCESS -> {
+                        Toast.makeText(activity, R.string.link_created, Toast.LENGTH_SHORT).show()
+                        onLinksChanged?.invoke()
+                    }
                     LinkAttemptResult.ALREADY_EXISTS -> Toast.makeText(activity, R.string.link_already_exists, Toast.LENGTH_SHORT).show()
                     LinkAttemptResult.CIRCULAR -> Toast.makeText(activity, R.string.link_circular_forbidden, Toast.LENGTH_SHORT).show()
                     LinkAttemptResult.FAILED -> Toast.makeText(activity, R.string.link_failed, Toast.LENGTH_SHORT).show()
@@ -305,25 +315,68 @@ class MediaActions(
         sheet.show(activity.supportFragmentManager, "link_target_picker")
     }
 
-    private fun unlinkSource(sourceBlockId: Long) {
-        uiScope.launch {
-            val removed = withContext(Dispatchers.IO) {
-                blocksRepo.unlinkAll(sourceBlockId)
-            }
-            val message = if (removed) R.string.link_removed else R.string.link_failed
-            Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun showLinkedBlocks(sourceBlockId: Long) {
-        val sheet = LinkedBlocksSheet.newInstance(sourceBlockId)
+    @Suppress("UNUSED_PARAMETER")
+    fun openLinkedItemsSheet(anchor: View, blockId: Long) {
+        val sheet = LinkedBlocksSheet.newInstance(blockId)
         sheet.onBlockSelected = { block ->
             val opened = openBlock(activity, block)
             if (!opened) {
                 Toast.makeText(activity, R.string.link_target_not_found, Toast.LENGTH_SHORT).show()
             }
         }
-        sheet.show(activity.supportFragmentManager, "linked_blocks_sheet_$sourceBlockId")
+        sheet.show(activity.supportFragmentManager, "linked_blocks_sheet_$blockId")
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    fun startUnlinkFlow(anchor: View, blockId: Long, onLinksUpdated: (() -> Unit)? = null) {
+        val notify = onLinksUpdated ?: onLinksChanged
+        uiScope.launch {
+            val linked = withContext(Dispatchers.IO) { blocksRepo.getLinkedBlocks(blockId) }
+            when {
+                linked.isEmpty() -> {
+                    Toast.makeText(activity, R.string.media_linked_items_empty, Toast.LENGTH_SHORT).show()
+                }
+                linked.size == 1 -> {
+                    val target = linked.first()
+                    val label = blockLinkPrimaryLabel(activity, target)
+                    AlertDialog.Builder(activity)
+                        .setMessage(activity.getString(R.string.media_unlink_confirm_single, label))
+                        .setPositiveButton(R.string.action_validate) { _, _ ->
+                            uiScope.launch {
+                                val success = withContext(Dispatchers.IO) { blocksRepo.unlinkBlocks(blockId, target.id) }
+                                val messageRes = if (success) R.string.link_removed else R.string.link_failed
+                                Toast.makeText(activity, messageRes, Toast.LENGTH_SHORT).show()
+                                if (success) {
+                                    notify?.invoke()
+                                }
+                            }
+                        }
+                        .setNegativeButton(R.string.action_cancel, null)
+                        .show()
+                }
+                else -> {
+                    val sheet = LinkedBlocksSheet.newInstance(blockId)
+                    sheet.onBlockSelected = { block ->
+                        val opened = openBlock(activity, block)
+                        if (!opened) {
+                            Toast.makeText(activity, R.string.link_target_not_found, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    sheet.onBlockUnlinked = { other ->
+                        uiScope.launch {
+                            val success = withContext(Dispatchers.IO) { blocksRepo.unlinkBlocks(blockId, other.id) }
+                            val messageRes = if (success) R.string.link_removed else R.string.link_failed
+                            Toast.makeText(activity, messageRes, Toast.LENGTH_SHORT).show()
+                            if (success) {
+                                sheet.removeBlock(other.id)
+                                notify?.invoke()
+                            }
+                        }
+                    }
+                    sheet.show(activity.supportFragmentManager, "linked_blocks_sheet_${blockId}_unlink")
+                }
+            }
+        }
     }
 
     private fun rename(item: MediaStripItem) {

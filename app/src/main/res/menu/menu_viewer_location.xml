@@ -18,6 +18,14 @@
         android:title="@string/media_action_link"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_view_linked_items"
+        android:title="@string/media_action_view_links"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_unlink"
+        android:title="@string/media_action_unlink"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_delete"
         android:title="@string/action_delete"
         app:showAsAction="never" />

@@ -24,6 +24,7 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
@@ -39,6 +40,7 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
     private lateinit var viewerToolbar: MaterialToolbar
     private var currentBlock: BlockEntity? = null
     private var currentChildName: String? = null
+    private var linkMenuJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,12 +70,45 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         renameItem?.isEnabled = hasValidBlock
         menu.findItem(R.id.action_open_in_maps)?.isVisible = openMapsAction != null
         menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
+        updateLinkedMenuItems(menu)
         return true
+    }
+
+    private fun updateLinkedMenuItems(menu: Menu) {
+        val viewItem = menu.findItem(R.id.action_view_linked_items)
+        val unlinkItem = menu.findItem(R.id.action_unlink)
+        viewItem?.isVisible = false
+        unlinkItem?.isVisible = false
+        val id = blockId
+        if (id <= 0) {
+            linkMenuJob?.cancel()
+            linkMenuJob = null
+            return
+        }
+        linkMenuJob?.cancel()
+        val job = lifecycleScope.launch {
+            val count = withContext(Dispatchers.IO) { blocksRepository.getLinkCount(id) }
+            if (count > 0) {
+                viewItem?.isVisible = true
+                viewItem?.title = getString(R.string.media_action_view_links, count)
+                unlinkItem?.isVisible = true
+            } else {
+                viewItem?.isVisible = false
+                unlinkItem?.isVisible = false
+            }
+        }
+        linkMenuJob = job
+        job.invokeOnCompletion {
+            if (linkMenuJob === job) {
+                linkMenuJob = null
+            }
+        }
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         menu.findItem(R.id.action_open_in_maps)?.isVisible = openMapsAction != null
         menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
+        updateLinkedMenuItems(menu)
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -96,8 +131,16 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
         }
         R.id.action_share -> { sharePlace(); true }
         R.id.action_link_to_element -> { startLinkFlowForMap(); true }
+        R.id.action_view_linked_items -> { openLinkedItems(); true }
+        R.id.action_unlink -> { startUnlinkFlow(); true }
         R.id.action_delete -> { /* TODO: suppression */ true }
         else -> super.onOptionsItemSelected(item)
+    }
+
+    override fun onDestroy() {
+        linkMenuJob?.cancel()
+        linkMenuJob = null
+        super.onDestroy()
     }
 
     private fun showRenameDialog() {
@@ -173,11 +216,7 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
 
     private fun startLinkFlowForMap() {
         val block = currentBlock ?: return
-        val anchor: View = if (this::viewerToolbar.isInitialized) {
-            viewerToolbar
-        } else {
-            findViewById(android.R.id.content)
-        }
+        val anchor = resolveMenuAnchor()
         val mediaUri = block.mediaUri
             ?: intent.getStringExtra(EXTRA_SNAPSHOT_URI)
             ?: ""
@@ -190,6 +229,26 @@ class MapSnapshotViewerActivity : AppCompatActivity() {
             childName = currentChildName
         )
         mediaActions.showLinkOnly(anchor, item)
+    }
+
+    private fun openLinkedItems() {
+        if (blockId <= 0) return
+        mediaActions.openLinkedItemsSheet(resolveMenuAnchor(), blockId)
+    }
+
+    private fun startUnlinkFlow() {
+        if (blockId <= 0) return
+        mediaActions.startUnlinkFlow(resolveMenuAnchor(), blockId) {
+            invalidateOptionsMenu()
+        }
+    }
+
+    private fun resolveMenuAnchor(): View {
+        return if (this::viewerToolbar.isInitialized) {
+            viewerToolbar
+        } else {
+            window?.decorView ?: findViewById(android.R.id.content)
+        }
     }
 
     private fun createMapsAction(block: BlockEntity?): (() -> Unit)? {
