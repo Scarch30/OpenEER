@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
@@ -283,15 +284,32 @@ class AudioViewerActivity : AppCompatActivity() {
     }
 
     private fun injectIntoMother() {
+        Log.wtf("InjectMother", "canary: handler entered, blockId=${blockId}")
         val id = blockId
-        if (id <= 0) return
+        if (id <= 0) {
+            Log.wtf("InjectMother", "canary: ERROR")
+            return
+        }
         lifecycleScope.launch {
             logD { "resolveChild: id=$id" }
+            Log.wtf("InjectMother", "canary: about to call repo.ensureMotherMainTextBlock")
             val result = MotherLinkInjector.inject(this@AudioViewerActivity, blocksRepository, id)
             val message = if (result is MotherLinkInjector.Result.Success) {
                 R.string.mother_injection_success
             } else {
                 R.string.mother_injection_error
+            }
+            if (result is MotherLinkInjector.Result.Success) {
+                Log.wtf("InjectMother", "canary: hostTextId=${result.hostTextId}")
+                Log.wtf("InjectMother", "canary: appendLinkedLine start=${result.start} end=${result.end}")
+                Log.wtf("InjectMother", "canary: createInlineLink created=true")
+                Log.wtf("InjectMother", "canary: SUCCESS")
+            } else if (result is MotherLinkInjector.Result.Failure) {
+                result.hostTextId?.let { hostId ->
+                    Log.wtf("InjectMother", "canary: hostTextId=$hostId")
+                }
+                Log.wtf("InjectMother", "canary: createInlineLink created=false")
+                Log.wtf("InjectMother", "canary: ERROR")
             }
             Toast.makeText(this@AudioViewerActivity, getString(message), Toast.LENGTH_SHORT).show()
             if (result is MotherLinkInjector.Result.Success) {

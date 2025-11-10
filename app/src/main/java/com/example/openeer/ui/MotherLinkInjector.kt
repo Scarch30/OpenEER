@@ -52,7 +52,9 @@ object MotherLinkInjector {
 
         var hostTextId: Long = -1
         return try {
+            android.util.Log.wtf("InjectMother", "canary: about to call repo.ensureMotherMainTextBlock")
             hostTextId = repository.ensureMotherMainTextBlock(child.noteId)
+            android.util.Log.wtf("InjectMother", "canary: hostTextId=$hostTextId")
             val hostBlock = repository.getBlock(hostTextId)
                 ?: return Result.Failure(Reason.HOST_NOT_FOUND)
             val isMain = hostBlock.groupId == null && hostBlock.childOrdinal == null
@@ -65,6 +67,7 @@ object MotherLinkInjector {
                 "appendStart: host=$hostTextId child=${child.id} label='${label.take(32)}' len=${label.length}"
             }
             val (start, end) = repository.appendLinkedLine(hostTextId, label, child.id)
+            android.util.Log.wtf("InjectMother", "canary: appendLinkedLine start=$start end=$end")
             logD { "appendDone: start=$start end=$end spanLen=${end - start}" }
 
             if (start >= end) {
@@ -72,6 +75,7 @@ object MotherLinkInjector {
             }
 
             val created = repository.createInlineLink(hostTextId, start, end, child.id)
+            android.util.Log.wtf("InjectMother", "canary: createInlineLink created=$created")
             logD { "inlineLink: created=$created" }
             if (created) {
                 Result.Success(hostTextId, start, end)
@@ -80,6 +84,7 @@ object MotherLinkInjector {
             }
         } catch (error: Throwable) {
             val safeHost = if (hostTextId > 0) hostTextId else -1
+            android.util.Log.wtf("InjectMother", "canary: ERROR", error)
             logE({ "injectFailed: host=$safeHost child=${child.id}" }, error)
             Result.Failure(Reason.HOST_NOT_FOUND, hostTextId.takeIf { it > 0 })
         }
