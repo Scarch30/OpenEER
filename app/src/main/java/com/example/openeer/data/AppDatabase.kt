@@ -17,6 +17,8 @@ import com.example.openeer.data.favorites.FavoriteDao
 import com.example.openeer.data.favorites.FavoriteEntity
 import com.example.openeer.data.list.ListItemDao
 import com.example.openeer.data.list.ListItemEntity
+import com.example.openeer.data.link.InlineLinkEntity
+import com.example.openeer.data.link.ListItemLinkEntity
 import com.example.openeer.data.location.NoteLocationEntity
 import com.example.openeer.data.reminders.PendingVoiceReminderDao
 import com.example.openeer.data.reminders.PendingVoiceReminderEntity
@@ -47,9 +49,11 @@ import com.example.openeer.data.tag.TagEntity
         ReminderEntity::class,
         PendingVoiceReminderEntity::class,
         FavoriteEntity::class,
-        ListItemEntity::class
+        ListItemEntity::class,
+        InlineLinkEntity::class,
+        ListItemLinkEntity::class
     ],
-    version = 28, // 🔼 bump : block_links graph
+    version = 29, // 🔼 bump : inline & list item links
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -780,6 +784,57 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS inline_links")
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS inline_links (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            hostBlockId INTEGER NOT NULL,
+                            start INTEGER NOT NULL,
+                            end INTEGER NOT NULL,
+                            targetBlockId INTEGER NOT NULL,
+                            createdAt INTEGER NOT NULL,
+                            FOREIGN KEY(hostBlockId) REFERENCES blocks(id) ON DELETE CASCADE,
+                            FOREIGN KEY(targetBlockId) REFERENCES blocks(id) ON DELETE CASCADE,
+                            CHECK (start < end)
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_inline_links_hostBlockId ON inline_links(hostBlockId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_inline_links_targetBlockId ON inline_links(targetBlockId)")
+                db.execSQL(
+                    """
+                        CREATE UNIQUE INDEX IF NOT EXISTS index_inline_links_unique_span
+                        ON inline_links(hostBlockId, start, end, targetBlockId)
+                    """.trimIndent()
+                )
+
+                db.execSQL("DROP TABLE IF EXISTS list_item_links")
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS list_item_links (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            listItemId INTEGER NOT NULL,
+                            targetBlockId INTEGER NOT NULL,
+                            createdAt INTEGER NOT NULL,
+                            FOREIGN KEY(listItemId) REFERENCES list_items(id) ON DELETE CASCADE,
+                            FOREIGN KEY(targetBlockId) REFERENCES blocks(id) ON DELETE CASCADE
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_list_item_links_listItemId ON list_item_links(listItemId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_list_item_links_targetBlockId ON list_item_links(targetBlockId)")
+                db.execSQL(
+                    """
+                        CREATE UNIQUE INDEX IF NOT EXISTS index_list_item_links_unique
+                        ON list_item_links(listItemId, targetBlockId)
+                    """.trimIndent()
+                )
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -814,7 +869,16 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_24_25,
                         MIGRATION_25_26,
                         MIGRATION_26_27,
-                        MIGRATION_27_28
+                        MIGRATION_27_28,
+                        MIGRATION_28_29
+                    )
+                    .addCallback(
+                        object : RoomDatabase.Callback() {
+                            override fun onCreate(db: SupportSQLiteDatabase) {
+                                super.onCreate(db)
+                                MIGRATION_28_29.migrate(db)
+                            }
+                        }
                     )
                     .build()
                     .also { INSTANCE = it }
