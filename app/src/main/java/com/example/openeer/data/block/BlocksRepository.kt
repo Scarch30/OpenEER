@@ -278,22 +278,11 @@ class BlocksRepository(
     }
 
     suspend fun updateNoteBody(noteId: Long, body: String) {
-        withContext(io) {
-            val dao = noteDao
-            if (dao == null) {
-                Log.w(
-                    BLOCK_LIST_LOG_TAG,
-                    "updateNoteBody appelé sans noteDao disponible (noteId=$noteId)",
-                )
-                return@withContext
-            }
-            val now = System.currentTimeMillis()
-            dao.updateBody(noteId, body, now)
-        }
+        updateMotherBody(noteId, body)
     }
 
     suspend fun getNoteBody(noteId: Long): String? = withContext(io) {
-        noteDao?.getByIdOnce(noteId)?.body
+        readMotherBody(noteId)
     }
     fun observeBlocks(noteId: Long): Flow<List<BlockEntity>> = blockDao.observeBlocks(noteId)
 
@@ -1644,6 +1633,34 @@ class BlocksRepository(
     // 🧰 Utilitaires pour l’UI (prompts suivants)
     // --------------------------------------------------------------------
 
+    suspend fun findMotherMainTextBlock(noteId: Long): BlockEntity? {
+        return withContext(io) { blockDao.findMotherMainTextBlock(noteId) }
+    }
+
+    suspend fun readMotherBody(noteId: Long): String {
+        val block = findMotherMainTextBlock(noteId) ?: return ""
+        return extractTextContent(block).body
+    }
+
+    suspend fun updateMotherBody(noteId: Long, newText: String): Boolean {
+        val hostId = findMotherMainTextBlock(noteId)?.id ?: ensureMotherMainTextBlock(noteId)
+        return withContext(io) {
+            runInRoomTransaction {
+                val hostBlock = blockDao.getById(hostId) ?: return@runInRoomTransaction false
+                val content = extractTextContent(hostBlock)
+                val combinedText = buildCombinedText(content.title, newText)
+                val changed = hostBlock.text != combinedText
+                val now = System.currentTimeMillis()
+                Log.wtf("MotherBody", "update note=$noteId host=$hostId len=${newText.length}")
+                if (changed) {
+                    blockDao.update(hostBlock.copy(text = combinedText, updatedAt = now))
+                }
+                noteDao?.updateBody(noteId, newText, now)
+                changed
+            }
+        }
+    }
+
     suspend fun ensureMotherMainTextBlock(noteId: Long): Long {
         Log.wtf("InjectMother", "repo.ensureMotherMainTextBlock noteId=$noteId")
         logD { "ensureMain.in: noteId=$noteId" }
@@ -1679,53 +1696,6 @@ class BlocksRepository(
                 logD { "hostCreated id=$newId (main body)" }
                 Log.wtf("InjectMother", "repo.ensureMotherMainTextBlock CREATED id=$newId")
                 newId
-            }
-        }
-    }
-
-    suspend fun appendLinkedLine(
-        hostTextBlockId: Long,
-        label: String,
-        targetBlockId: Long,
-    ): Pair<Int, Int> {
-        Log.wtf(
-            "InjectMother",
-            "repo.append in host=$hostTextBlockId target=$targetBlockId labelLen=${label.length}"
-        )
-        logD { "append.in: host=$hostTextBlockId target=$targetBlockId labelLen=${label.length}" }
-        val sanitizedLabel = label.trim()
-        require(sanitizedLabel.isNotEmpty()) { "label must not be blank" }
-        return withContext(io) {
-            runInRoomTransaction {
-                val hostBlock = blockDao.getById(hostTextBlockId)
-                    ?: throw IllegalArgumentException("Host block $hostTextBlockId not found")
-                require(hostBlock.type == BlockType.TEXT) { "Host block must be TEXT" }
-                blockDao.getById(targetBlockId)
-                    ?: throw IllegalArgumentException("Target block $targetBlockId not found")
-
-                val content = extractTextContent(hostBlock)
-                val existingBody = content.body
-                val linePrefix = "- "
-                val appendedLine = linePrefix + sanitizedLabel
-                val newBody = buildString {
-                    if (existingBody.isNotEmpty()) {
-                        append(existingBody)
-                        append('\n')
-                    }
-                    append(appendedLine)
-                }
-                val combinedText = buildCombinedText(content.title, newBody)
-                val now = System.currentTimeMillis()
-                blockDao.update(hostBlock.copy(text = combinedText, updatedAt = now))
-
-                val anchorStart = combinedText.length - appendedLine.length + linePrefix.length
-                val anchorEnd = anchorStart + sanitizedLabel.length
-                val newLen = combinedText.length
-                logD {
-                    "append.out: host=$hostTextBlockId start=$anchorStart end=$anchorEnd newTextLen=$newLen"
-                }
-                Log.wtf("InjectMother", "repo.append out start=$anchorStart end=$anchorEnd")
-                anchorStart to anchorEnd
             }
         }
     }
