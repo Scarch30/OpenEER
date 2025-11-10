@@ -29,6 +29,8 @@ object Injection {
                     noteDao = db.noteDao(),
                     linkDao = db.blockLinkDao(),
                     listItemDao = db.listItemDao(),
+                    inlineLinkDao = db.inlineLinkDao(),
+                    listItemLinkDao = db.listItemLinkDao(),
                 ).also { repo ->
                     blocksRepository = repo
                     Log.d("ListRepo", "PROVIDE repo singleton (dao wired)")

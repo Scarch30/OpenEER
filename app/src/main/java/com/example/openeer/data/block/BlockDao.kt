@@ -27,6 +27,18 @@ interface BlockDao {
     @Query("SELECT * FROM blocks WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): BlockEntity?
 
+    @Query(
+        """
+        SELECT * FROM blocks
+        WHERE noteId = :noteId
+          AND type = :type
+          AND (groupId IS NULL OR TRIM(groupId) = '')
+        ORDER BY position ASC
+        LIMIT 1
+        """
+    )
+    suspend fun findFirstRootTextBlock(noteId: Long, type: BlockType = BlockType.TEXT): BlockEntity?
+
     @Query("UPDATE blocks SET childName = :name WHERE id = :id")
     suspend fun updateChildName(id: Long, name: String?)
 

@@ -17,7 +17,9 @@ import com.example.openeer.data.favorites.FavoriteDao
 import com.example.openeer.data.favorites.FavoriteEntity
 import com.example.openeer.data.list.ListItemDao
 import com.example.openeer.data.list.ListItemEntity
+import com.example.openeer.data.link.InlineLinkDao
 import com.example.openeer.data.link.InlineLinkEntity
+import com.example.openeer.data.link.ListItemLinkDao
 import com.example.openeer.data.link.ListItemLinkEntity
 import com.example.openeer.data.location.NoteLocationEntity
 import com.example.openeer.data.reminders.PendingVoiceReminderDao
@@ -79,6 +81,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun blockLinkDao(): BlockLinkDao
 
     abstract fun listItemDao(): ListItemDao
+
+    abstract fun inlineLinkDao(): InlineLinkDao
+
+    abstract fun listItemLinkDao(): ListItemLinkDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
