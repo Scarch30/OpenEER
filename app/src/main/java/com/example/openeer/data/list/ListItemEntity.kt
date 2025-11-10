@@ -3,6 +3,7 @@ package com.example.openeer.data.list
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
+import androidx.room.Ignore
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.example.openeer.data.Note
@@ -40,4 +41,5 @@ data class ListItemEntity(
     @ColumnInfo(name = "ordering") val order: Int,
     val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(defaultValue = "0") val provisional: Boolean = false,
+    @Ignore val linkCount: Int = 0,
 )
