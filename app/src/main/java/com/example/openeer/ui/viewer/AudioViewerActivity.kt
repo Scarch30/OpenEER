@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
@@ -24,6 +25,7 @@ import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripItem
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.content.pm.PackageManager
@@ -53,6 +55,7 @@ class AudioViewerActivity : AppCompatActivity() {
     private val mediaActions by lazy { MediaActions(this, blocksRepository) }
     private var currentBlock: BlockEntity? = null
     private var currentChildName: String? = null
+    private var linkMenuJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,6 +120,8 @@ class AudioViewerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        linkMenuJob?.cancel()
+        linkMenuJob = null
         super.onDestroy()
         binding.playerView.player = null
         player?.release()
@@ -129,7 +134,39 @@ class AudioViewerActivity : AppCompatActivity() {
         menu.findItem(R.id.action_delete)?.isVisible = blockId > 0
         menu.findItem(R.id.action_share)?.isVisible = !uriString.isNullOrBlank()
         menu.findItem(R.id.action_link_to_element)?.isVisible = blockId > 0 && currentBlock != null
+        updateLinkedMenuItems(menu)
         return true
+    }
+
+    private fun updateLinkedMenuItems(menu: android.view.Menu) {
+        val viewItem = menu.findItem(R.id.action_view_linked_items)
+        val unlinkItem = menu.findItem(R.id.action_unlink)
+        viewItem?.isVisible = false
+        unlinkItem?.isVisible = false
+        val id = blockId
+        if (id <= 0) {
+            linkMenuJob?.cancel()
+            linkMenuJob = null
+            return
+        }
+        linkMenuJob?.cancel()
+        val job = lifecycleScope.launch {
+            val count = withContext(Dispatchers.IO) { blocksRepository.getLinkCount(id) }
+            if (count > 0) {
+                viewItem?.isVisible = true
+                viewItem?.title = getString(R.string.media_action_view_links, count)
+                unlinkItem?.isVisible = true
+            } else {
+                viewItem?.isVisible = false
+                unlinkItem?.isVisible = false
+            }
+        }
+        linkMenuJob = job
+        job.invokeOnCompletion {
+            if (linkMenuJob === job) {
+                linkMenuJob = null
+            }
+        }
     }
 
     override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
@@ -149,6 +186,12 @@ class AudioViewerActivity : AppCompatActivity() {
             }
             R.id.action_link_to_element -> {
                 startLinkFlowForAudio(); true
+            }
+            R.id.action_view_linked_items -> {
+                openLinkedItems(); true
+            }
+            R.id.action_unlink -> {
+                startUnlinkFlow(); true
             }
             else -> super.onOptionsItemSelected(item)
         }
@@ -213,8 +256,28 @@ class AudioViewerActivity : AppCompatActivity() {
             childOrdinal = block.childOrdinal,
             childName = currentChildName
         )
-        val anchor = binding.viewerToolbar
+        val anchor = resolveMenuAnchor()
         mediaActions.showLinkOnly(anchor, item)
+    }
+
+    private fun openLinkedItems() {
+        if (blockId <= 0) return
+        val anchor = resolveMenuAnchor()
+        mediaActions.openLinkedItemsSheet(anchor, blockId)
+    }
+
+    private fun startUnlinkFlow() {
+        if (blockId <= 0) return
+        val anchor = resolveMenuAnchor()
+        mediaActions.startUnlinkFlow(anchor, blockId) {
+            invalidateOptionsMenu()
+        }
+    }
+
+    private fun resolveMenuAnchor(): View {
+        return binding.viewerToolbar.takeIf { it.parent != null }
+            ?: window?.decorView
+            ?: findViewById(android.R.id.content)
     }
 
     private fun shareCurrentAudio() {
