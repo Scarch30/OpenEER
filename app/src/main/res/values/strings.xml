@@ -492,6 +492,10 @@
     <string name="mother_injection_type_location">Carte</string>
     <string name="mother_injection_type_route">Itinéraire</string>
     <string name="mother_injection_type_file">Fichier</string>
+    <plurals name="note_list_item_link_badge">
+        <item quantity="one">%d lien</item>
+        <item quantity="other">%d liens</item>
+    </plurals>
     <string name="block_type_text">Texte</string>
     <string name="block_type_photo">Photo</string>
     <string name="block_type_sketch">Croquis</string>

@@ -25,7 +25,12 @@ private inline fun logE(msg: () -> String, t: Throwable? = null) {
 
 object MotherLinkInjector {
     sealed class Result {
-        data class Success(val hostTextId: Long, val start: Int, val end: Int) : Result()
+        data class Success(
+            val hostTextId: Long,
+            val start: Int? = null,
+            val end: Int? = null,
+            val listItemId: Long? = null,
+        ) : Result()
         data class Failure(val reason: Reason, val hostTextId: Long? = null) : Result()
     }
 
@@ -44,52 +49,62 @@ object MotherLinkInjector {
         val child = withContext(Dispatchers.IO) { repository.getBlock(blockId) }
             ?: return Result.Failure(Reason.CHILD_NOT_FOUND)
 
-        val label = resolveLabel(context, child)
-            .takeIf { it.isNotBlank() }
+        val label = withContext(Dispatchers.IO) {
+            repository.buildRichLabelForBlock(child.id)
+        }?.takeIf { it.isNotBlank() }
             ?: context.getString(R.string.mother_injection_default_label)
+
+        val sanitizedLabel = label.trim()
+        if (sanitizedLabel.isEmpty()) {
+            return Result.Failure(Reason.EMPTY_LABEL)
+        }
 
         var hostTextId: Long = -1
         return try {
             val result = withContext(Dispatchers.IO) {
-                android.util.Log.wtf(
-                    "InjectMother",
-                    "canary: about to call repo.ensureMotherMainTextBlock",
-                )
-                hostTextId = repository.ensureMotherMainTextBlock(child.noteId)
+                val listMode = repository.isNoteInListMode(child.noteId)
+                android.util.Log.wtf("InjectMother", "canary: about to call repo.ensureMotherMainTextBlock")
+                hostTextId = repository.ensureCanonicalMotherTextBlock(child.noteId)
                 android.util.Log.wtf("InjectMother", "canary: hostTextId=$hostTextId")
                 val hostBlock = repository.getBlock(hostTextId)
                     ?: return@withContext Result.Failure(Reason.HOST_NOT_FOUND)
                 if (hostBlock.type != BlockType.TEXT) {
                     return@withContext Result.Failure(Reason.HOST_NOT_FOUND)
                 }
-                val currentBody = repository.readMotherBody(child.noteId)
-                val sanitizedLabel = label.trim()
-                if (sanitizedLabel.isEmpty()) {
-                    return@withContext Result.Failure(Reason.EMPTY_LABEL, hostTextId)
-                }
-                val combinedBody = appendLabelLine(currentBody, sanitizedLabel)
-                logD {
-                    "appendStart: host=$hostTextId child=${child.id} label='${sanitizedLabel.take(32)}' len=${sanitizedLabel.length}"
-                }
-                val updated = repository.updateMotherBody(child.noteId, combinedBody)
-                android.util.Log.wtf("InjectMother", "canary: bodyUpdated=$updated")
-                val updatedHost = repository.getBlock(hostTextId)
-                    ?: return@withContext Result.Failure(Reason.HOST_NOT_FOUND, hostTextId)
-                val fullText = updatedHost.text.orEmpty()
-                val end = fullText.length
-                val start = end - sanitizedLabel.length
-                android.util.Log.wtf("InjectMother", "canary: computed start=$start end=$end")
-                if (start < 0 || end <= start) {
-                    return@withContext Result.Failure(Reason.EMPTY_LABEL, hostTextId)
-                }
-                val created = repository.createInlineLink(hostTextId, start, end, child.id)
-                android.util.Log.wtf("InjectMother", "canary: createInlineLink created=$created")
-                logD { "inlineLink: created=$created" }
-                repository.linkBlocks(hostTextId, child.id)
-                if (created) {
-                    Result.Success(hostTextId, start, end)
+
+                if (listMode) {
+                    val listItemId = repository.insertListItemForOwner(hostTextId, sanitizedLabel)
+                    if (listItemId <= 0) {
+                        return@withContext Result.Failure(Reason.EMPTY_LABEL, hostTextId)
+                    }
+                    repository.createListItemLink(listItemId, child.id)
+                    Result.Success(hostTextId, listItemId = listItemId)
                 } else {
-                    Result.Failure(Reason.LINK_FAILED, hostTextId)
+                    val currentBody = repository.readMotherBody(child.noteId)
+                    val combinedBody = appendLabelLine(currentBody, sanitizedLabel)
+                    logD {
+                        "appendStart: host=$hostTextId child=${child.id} label='${sanitizedLabel.take(32)}' len=${sanitizedLabel.length}"
+                    }
+                    val updated = repository.updateMotherBody(child.noteId, combinedBody)
+                    android.util.Log.wtf("InjectMother", "canary: bodyUpdated=$updated")
+                    val updatedHost = repository.getBlock(hostTextId)
+                        ?: return@withContext Result.Failure(Reason.HOST_NOT_FOUND, hostTextId)
+                    val fullText = updatedHost.text.orEmpty()
+                    val end = fullText.length
+                    val start = end - sanitizedLabel.length
+                    android.util.Log.wtf("InjectMother", "canary: computed start=$start end=$end")
+                    if (start < 0 || end <= start) {
+                        return@withContext Result.Failure(Reason.EMPTY_LABEL, hostTextId)
+                    }
+                    val created = repository.createInlineLink(hostTextId, start, end, child.id)
+                    android.util.Log.wtf("InjectMother", "canary: createInlineLink created=$created")
+                    logD { "inlineLink: created=$created" }
+                    repository.linkBlocks(hostTextId, child.id)
+                    if (created) {
+                        Result.Success(hostTextId, start, end)
+                    } else {
+                        Result.Failure(Reason.LINK_FAILED, hostTextId)
+                    }
                 }
             }
             result
@@ -113,28 +128,4 @@ object MotherLinkInjector {
         }
     }
 
-    private fun resolveLabel(
-        context: Context,
-        child: BlockEntity,
-    ): String {
-        val typeText = child.type.displayName(context)
-        val idText = "#${child.id}"
-        val nameText = child.childName?.trim()?.takeIf { it.isNotEmpty() }
-        return if (nameText != null) {
-            "$typeText $idText — $nameText"
-        } else {
-            "$typeText $idText"
-        }
-    }
-
-    private fun BlockType.displayName(context: Context): String = when (this) {
-        BlockType.TEXT -> context.getString(R.string.mother_injection_type_text)
-        BlockType.PHOTO -> context.getString(R.string.mother_injection_type_photo)
-        BlockType.VIDEO -> context.getString(R.string.mother_injection_type_video)
-        BlockType.AUDIO -> context.getString(R.string.mother_injection_type_audio)
-        BlockType.SKETCH -> context.getString(R.string.mother_injection_type_sketch)
-        BlockType.LOCATION -> context.getString(R.string.mother_injection_type_location)
-        BlockType.ROUTE -> context.getString(R.string.mother_injection_type_route)
-        BlockType.FILE -> context.getString(R.string.mother_injection_type_file)
-    }
 }

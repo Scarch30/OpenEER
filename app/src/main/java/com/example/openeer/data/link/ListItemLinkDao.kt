@@ -1,5 +1,6 @@
 package com.example.openeer.data.link
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -28,4 +29,19 @@ interface ListItemLinkDao {
 
     @Query("SELECT COUNT(*) FROM list_item_links WHERE listItemId = :listItemId")
     suspend fun countForItem(listItemId: Long): Int
+
+    @Query(
+        """
+        SELECT listItemId, COUNT(*) AS linkCount
+        FROM list_item_links
+        WHERE listItemId IN (:itemIds)
+        GROUP BY listItemId
+        """
+    )
+    suspend fun countForItems(itemIds: List<Long>): List<ListItemLinkCount>
 }
+
+data class ListItemLinkCount(
+    @ColumnInfo(name = "listItemId") val listItemId: Long,
+    @ColumnInfo(name = "linkCount") val linkCount: Int,
+)

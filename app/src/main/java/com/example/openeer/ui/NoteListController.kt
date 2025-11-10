@@ -19,6 +19,7 @@ import com.example.openeer.core.FeatureFlags
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.NoteType
+import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.editor.NoteListItemsAdapter
@@ -39,6 +40,7 @@ class NoteListController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
     private val repo: NoteRepository,
+    private val blocksRepo: BlocksRepository,
 ) {
     val adapter = NoteListItemsAdapter(
         onToggle = { itemId -> toggleListItem(itemId) },
@@ -249,7 +251,13 @@ class NoteListController(
         listItemsJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 repo.listItems(noteId).collectLatest { items ->
-                    renderListItems(items)
+                    val enriched = if (items.isEmpty()) {
+                        items
+                    } else {
+                        val counts = blocksRepo.getListItemLinkCounts(items.map { it.id })
+                        items.map { item -> item.copy(linkCount = counts[item.id] ?: 0) }
+                    }
+                    renderListItems(enriched)
                 }
             }
         }

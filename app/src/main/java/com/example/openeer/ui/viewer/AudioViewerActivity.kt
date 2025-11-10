@@ -301,8 +301,15 @@ class AudioViewerActivity : AppCompatActivity() {
             }
             if (result is MotherLinkInjector.Result.Success) {
                 Log.wtf("InjectMother", "canary: hostTextId=${result.hostTextId}")
-                Log.wtf("InjectMother", "canary: motherInline start=${result.start} end=${result.end}")
-                Log.wtf("InjectMother", "canary: createInlineLink created=true")
+                val start = result.start
+                val end = result.end
+                if (start != null && end != null) {
+                    Log.wtf("InjectMother", "canary: motherInline start=$start end=$end")
+                    Log.wtf("InjectMother", "canary: createInlineLink created=true")
+                }
+                result.listItemId?.let { listItemId ->
+                    Log.wtf("InjectMother", "canary: motherListItem id=$listItemId")
+                }
                 Log.wtf("InjectMother", "canary: SUCCESS")
             } else if (result is MotherLinkInjector.Result.Failure) {
                 result.hostTextId?.let { hostId ->

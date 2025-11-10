@@ -9,6 +9,8 @@ import android.view.inputmethod.EditorInfo
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import androidx.core.view.isVisible
+import com.example.openeer.R
 import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.databinding.ItemNoteListEntryBinding
 
@@ -115,6 +117,28 @@ class NoteListItemsAdapter(
                 binding.inputText.isFocusableInTouchMode = true
                 binding.inputText.isCursorVisible = true
                 binding.inputText.isLongClickable = true
+            }
+
+            val linkCount = item.linkCount
+            if (linkCount > 0) {
+                val badgeText = if (linkCount == 1) {
+                    "\uD83D\uDD17"
+                } else {
+                    "\uD83D\uDD17×$linkCount"
+                }
+                binding.linkBadge.text = badgeText
+                binding.linkBadge.isVisible = true
+                val resources = binding.root.resources
+                binding.linkBadge.contentDescription =
+                    resources.getQuantityString(
+                        R.plurals.note_list_item_link_badge,
+                        linkCount,
+                        linkCount,
+                    )
+            } else {
+                binding.linkBadge.isVisible = false
+                binding.linkBadge.text = ""
+                binding.linkBadge.contentDescription = null
             }
         }
 

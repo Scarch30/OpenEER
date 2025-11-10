@@ -84,7 +84,7 @@ class NotePanelController(
     }
     private val blocksRenderer by lazy { NoteBlockRenderer(binding, mediaController) }
     private val listController by lazy {
-        NoteListController(activity, binding, repo).apply {
+        NoteListController(activity, binding, repo, blocksRepo).apply {
             onListModeChanged = this@NotePanelController::onListModeChanged
         }
     }

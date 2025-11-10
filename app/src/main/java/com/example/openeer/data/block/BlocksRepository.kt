@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
+import com.example.openeer.R
 import com.example.openeer.core.DebugConfig
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteDao
@@ -628,6 +629,28 @@ class BlocksRepository(
                 Log.i(BLOCK_LIST_LOG_TAG, "add block=$blockId item=$id")
                 updateBlockTextFromItems(blockId)
                 id
+            }
+        }
+    }
+
+    suspend fun insertListItemForOwner(blockId: Long, text: String): Long {
+        return withContext(io) {
+            runInRoomTransaction {
+                val dao = listItemDao
+                val nextOrder = (dao.maxOrderForBlock(blockId) ?: -1) + 1
+                val sanitized = text.trim()
+                if (sanitized.isEmpty()) {
+                    logW { "insertListItemForOwner skipped — empty label for block=$blockId" }
+                    return@runInRoomTransaction -1L
+                }
+                val entity = ListItemEntity(
+                    noteId = null,
+                    ownerBlockId = blockId,
+                    text = sanitized,
+                    order = nextOrder,
+                    createdAt = System.currentTimeMillis(),
+                )
+                dao.insert(entity)
             }
         }
     }
@@ -1629,9 +1652,39 @@ class BlocksRepository(
     suspend fun getLinksForListItem(listItemId: Long): List<ListItemLinkEntity> =
         withContext(io) { listItemLinkDao.selectAllForItem(listItemId) }
 
+    suspend fun getListItemLinkCounts(itemIds: List<Long>): Map<Long, Int> {
+        if (itemIds.isEmpty()) return emptyMap()
+        return withContext(io) {
+            val rows = listItemLinkDao.countForItems(itemIds)
+            rows.associate { it.listItemId to it.linkCount }
+        }
+    }
+
     // --------------------------------------------------------------------
     // 🧰 Utilitaires pour l’UI (prompts suivants)
     // --------------------------------------------------------------------
+
+    suspend fun isNoteInListMode(noteId: Long): Boolean {
+        val dao = noteDao ?: return false
+        return withContext(io) { dao.getByIdOnce(noteId)?.type == NoteType.LIST }
+    }
+
+    suspend fun ensureCanonicalMotherTextBlock(noteId: Long): Long = ensureMotherMainTextBlock(noteId)
+
+    suspend fun buildRichLabelForBlock(blockId: Long): String? {
+        return withContext(io) {
+            val block = blockDao.getById(blockId) ?: return@withContext null
+            val typeText = block.type.displayName()
+            val idText = "#${block.id}"
+            val nameText = block.childName?.trim()?.takeIf { it.isNotEmpty() }
+            val label = if (nameText != null) {
+                "$typeText $idText — $nameText"
+            } else {
+                "$typeText $idText"
+            }
+            label.trim()
+        }
+    }
 
     suspend fun findMotherMainTextBlock(noteId: Long): BlockEntity? {
         return withContext(io) { blockDao.findMotherMainTextBlock(noteId) }
@@ -1698,5 +1751,16 @@ class BlocksRepository(
                 newId
             }
         }
+    }
+
+    private fun BlockType.displayName(): String = when (this) {
+        BlockType.TEXT -> appContext.getString(R.string.mother_injection_type_text)
+        BlockType.PHOTO -> appContext.getString(R.string.mother_injection_type_photo)
+        BlockType.VIDEO -> appContext.getString(R.string.mother_injection_type_video)
+        BlockType.AUDIO -> appContext.getString(R.string.mother_injection_type_audio)
+        BlockType.SKETCH -> appContext.getString(R.string.mother_injection_type_sketch)
+        BlockType.LOCATION -> appContext.getString(R.string.mother_injection_type_location)
+        BlockType.ROUTE -> appContext.getString(R.string.mother_injection_type_route)
+        BlockType.FILE -> appContext.getString(R.string.mother_injection_type_file)
     }
 }
