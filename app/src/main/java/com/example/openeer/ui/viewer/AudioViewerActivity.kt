@@ -16,7 +16,7 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
-import com.example.openeer.BuildConfig
+import com.example.openeer.core.DebugConfig
 import com.example.openeer.Injection
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.R
@@ -391,13 +391,13 @@ class AudioViewerActivity : AppCompatActivity() {
 private const val LM_TAG = "InjectMother"
 
 private inline fun logD(msg: () -> String) {
-    if (BuildConfig.DEBUG) android.util.Log.d(LM_TAG, msg())
+    if (DebugConfig.isDebug) android.util.Log.d(LM_TAG, msg())
 }
 
 private inline fun logW(msg: () -> String) {
-    if (BuildConfig.DEBUG) android.util.Log.w(LM_TAG, msg())
+    if (DebugConfig.isDebug) android.util.Log.w(LM_TAG, msg())
 }
 
 private inline fun logE(msg: () -> String, t: Throwable? = null) {
-    if (BuildConfig.DEBUG) android.util.Log.e(LM_TAG, msg(), t)
+    if (DebugConfig.isDebug) android.util.Log.e(LM_TAG, msg(), t)
 }
