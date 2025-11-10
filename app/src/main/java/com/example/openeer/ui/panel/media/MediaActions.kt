@@ -311,7 +311,7 @@ class MediaActions(
             }
             if (result is MotherLinkInjector.Result.Success) {
                 Log.wtf("InjectMother", "canary: hostTextId=${result.hostTextId}")
-                Log.wtf("InjectMother", "canary: appendLinkedLine start=${result.start} end=${result.end}")
+                Log.wtf("InjectMother", "canary: motherInline start=${result.start} end=${result.end}")
                 Log.wtf("InjectMother", "canary: createInlineLink created=true")
                 Log.wtf("InjectMother", "canary: SUCCESS")
             } else if (result is MotherLinkInjector.Result.Failure) {

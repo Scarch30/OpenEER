@@ -52,41 +52,66 @@ object MotherLinkInjector {
 
         var hostTextId: Long = -1
         return try {
-            android.util.Log.wtf("InjectMother", "canary: about to call repo.ensureMotherMainTextBlock")
-            hostTextId = repository.ensureMotherMainTextBlock(child.noteId)
-            android.util.Log.wtf("InjectMother", "canary: hostTextId=$hostTextId")
-            val hostBlock = repository.getBlock(hostTextId)
-                ?: return Result.Failure(Reason.HOST_NOT_FOUND)
-            val isMain = hostBlock.groupId == null && hostBlock.childOrdinal == null
-            logD {
-                "hostPicked id=$hostTextId groupId=${hostBlock.groupId} " +
-                    "childOrdinal=${hostBlock.childOrdinal} isMain=$isMain"
+            val result = withContext(Dispatchers.IO) {
+                android.util.Log.wtf(
+                    "InjectMother",
+                    "canary: about to call repo.ensureMotherMainTextBlock",
+                )
+                hostTextId = repository.ensureMotherMainTextBlock(child.noteId)
+                android.util.Log.wtf("InjectMother", "canary: hostTextId=$hostTextId")
+                val hostBlock = repository.getBlock(hostTextId)
+                    ?: return@withContext Result.Failure(Reason.HOST_NOT_FOUND)
+                if (hostBlock.type != BlockType.TEXT) {
+                    return@withContext Result.Failure(Reason.HOST_NOT_FOUND)
+                }
+                val currentBody = repository.readMotherBody(child.noteId)
+                val sanitizedLabel = label.trim()
+                if (sanitizedLabel.isEmpty()) {
+                    return@withContext Result.Failure(Reason.EMPTY_LABEL, hostTextId)
+                }
+                val combinedBody = appendLabelLine(currentBody, sanitizedLabel)
+                logD {
+                    "appendStart: host=$hostTextId child=${child.id} label='${sanitizedLabel.take(32)}' len=${sanitizedLabel.length}"
+                }
+                val updated = repository.updateMotherBody(child.noteId, combinedBody)
+                android.util.Log.wtf("InjectMother", "canary: bodyUpdated=$updated")
+                val updatedHost = repository.getBlock(hostTextId)
+                    ?: return@withContext Result.Failure(Reason.HOST_NOT_FOUND, hostTextId)
+                val fullText = updatedHost.text.orEmpty()
+                val end = fullText.length
+                val start = end - sanitizedLabel.length
+                android.util.Log.wtf("InjectMother", "canary: computed start=$start end=$end")
+                if (start < 0 || end <= start) {
+                    return@withContext Result.Failure(Reason.EMPTY_LABEL, hostTextId)
+                }
+                val created = repository.createInlineLink(hostTextId, start, end, child.id)
+                android.util.Log.wtf("InjectMother", "canary: createInlineLink created=$created")
+                logD { "inlineLink: created=$created" }
+                repository.linkBlocks(hostTextId, child.id)
+                if (created) {
+                    Result.Success(hostTextId, start, end)
+                } else {
+                    Result.Failure(Reason.LINK_FAILED, hostTextId)
+                }
             }
-
-            logD {
-                "appendStart: host=$hostTextId child=${child.id} label='${label.take(32)}' len=${label.length}"
-            }
-            val (start, end) = repository.appendLinkedLine(hostTextId, label, child.id)
-            android.util.Log.wtf("InjectMother", "canary: appendLinkedLine start=$start end=$end")
-            logD { "appendDone: start=$start end=$end spanLen=${end - start}" }
-
-            if (start >= end) {
-                return Result.Failure(Reason.EMPTY_LABEL, hostTextId)
-            }
-
-            val created = repository.createInlineLink(hostTextId, start, end, child.id)
-            android.util.Log.wtf("InjectMother", "canary: createInlineLink created=$created")
-            logD { "inlineLink: created=$created" }
-            if (created) {
-                Result.Success(hostTextId, start, end)
-            } else {
-                Result.Failure(Reason.LINK_FAILED, hostTextId)
-            }
+            result
         } catch (error: Throwable) {
             val safeHost = if (hostTextId > 0) hostTextId else -1
             android.util.Log.wtf("InjectMother", "canary: ERROR", error)
             logE({ "injectFailed: host=$safeHost child=${child.id}" }, error)
             Result.Failure(Reason.HOST_NOT_FOUND, hostTextId.takeIf { it > 0 })
+        }
+    }
+
+    private fun appendLabelLine(current: String, label: String): String {
+        val trimmedCurrent = current.trimEnd()
+        return buildString {
+            if (trimmedCurrent.isNotEmpty()) {
+                append(trimmedCurrent)
+                append('\n')
+            }
+            append("- ")
+            append(label)
         }
     }
 

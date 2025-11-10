@@ -89,6 +89,9 @@ class NotePanelController(
     private var blocksJob: Job? = null
     private var noteJob: Job? = null
     private var plainConversionJob: Job? = null
+    private var motherBodyJob: Job? = null
+    private var motherHostBlockId: Long? = null
+    private var latestMotherBody: String = ""
 
     // Empêche la toute prochaine passe de render() d’écraser le corps appliqué en optimiste
     private var suppressNextBodyResync = false
@@ -179,6 +182,9 @@ class NotePanelController(
         binding.noteMetaFooter.isGone = true
         binding.noteMetaFooterRow.isGone = true
 
+        motherHostBlockId = null
+        latestMotherBody = ""
+
         noteJob?.cancel()
         noteJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -212,6 +218,24 @@ class NotePanelController(
             }
         }
 
+        motherBodyJob?.cancel()
+        motherBodyJob = activity.lifecycleScope.launch {
+            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                val hostId = withContext(Dispatchers.IO) {
+                    blocksRepo.ensureMotherMainTextBlock(noteId)
+                }
+                motherHostBlockId = hostId
+                val initial = withContext(Dispatchers.IO) { blocksRepo.readMotherBody(noteId) }
+                applyMotherBody(noteId, hostId, initial)
+                blocksRepo.observeBlocks(noteId).collectLatest { blocks ->
+                    if (openNoteId != noteId) return@collectLatest
+                    val hostBlock = blocks.firstOrNull { it.id == hostId }
+                    val rawBody = hostBlock?.let { blocksRepo.extractTextContent(it).body }.orEmpty()
+                    applyMotherBody(noteId, hostId, rawBody)
+                }
+            }
+        }
+
         reminderController.onNoteOpened(noteId)
 
         binding.scrollBody.post {
@@ -238,6 +262,10 @@ class NotePanelController(
         plainConversionJob = null
         blocksJob?.cancel()
         blocksJob = null
+        motherBodyJob?.cancel()
+        motherBodyJob = null
+        motherHostBlockId = null
+        latestMotherBody = ""
 
         blocksRenderer.reset()
         mediaController.reset()
@@ -417,7 +445,7 @@ class NotePanelController(
 
         val nid = openNoteId ?: return
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            blocksRepo.updateNoteBody(nid, displayBody)
+            blocksRepo.updateMotherBody(nid, displayBody)
         }
     }
 
@@ -425,13 +453,12 @@ class NotePanelController(
         val nid = openNoteId ?: return
         val toAppend = if (addNewline) finalBody + "\n" else finalBody
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            val baseline = runCatching { repo.noteOnce(nid) }
+            val baseline = runCatching { blocksRepo.readMotherBody(nid) }
                 .getOrNull()
-                ?.body
                 .orEmpty()
             val cleanedBaseline = stripTranscriptionPlaceholder(baseline)
             val baselineForAppend = if (cleanedBaseline.isBlank()) "" else cleanedBaseline
-            blocksRepo.updateNoteBody(nid, baselineForAppend + toAppend)
+            blocksRepo.updateMotherBody(nid, baselineForAppend + toAppend)
         }
     }
 
@@ -439,6 +466,45 @@ class NotePanelController(
         if (!body.contains(TRANSCRIPTION_PLACEHOLDER)) return body
         val cleaned = body.replace(TRANSCRIPTION_PLACEHOLDER, "")
         return if (cleaned.isBlank()) "" else cleaned.trimStart()
+    }
+
+    private suspend fun applyMotherBody(noteId: Long, hostId: Long, rawBody: String) {
+        val sanitizedBody = stripTranscriptionPlaceholder(rawBody)
+        if (sanitizedBody != rawBody) {
+            withContext(Dispatchers.IO) { blocksRepo.updateMotherBody(noteId, sanitizedBody) }
+        }
+        latestMotherBody = sanitizedBody
+        currentNote = currentNote?.copy(body = sanitizedBody)
+        bindMotherBody(hostId, sanitizedBody)
+    }
+
+    private fun bindMotherBody(hostId: Long, text: String) {
+        val openId = openNoteId ?: return
+        val noteType = currentNote?.type
+        if (noteType == NoteType.LIST) return
+        if (suppressNextBodyResync) {
+            Log.d(TAG, "Skip canonical body resync once (optimistic plain body already applied)")
+            suppressNextBodyResync = false
+            return
+        }
+        val editor = binding.bodyEditor
+        val current = editor.text?.toString() ?: ""
+        if (current == text) return
+        val keepCurrentStyled =
+            (editor.text is Spanned) &&
+                    editor.text.getSpans(0, editor.length(), StyleSpan::class.java)
+                        .any { it.style == Typeface.ITALIC }
+        if (keepCurrentStyled) {
+            Log.w(
+                TAG,
+                "Temporary body styling detected for note=$openId; forcing resync with canonical body",
+            )
+        }
+        Log.wtf("MotherBody", "bind host=$hostId len=${text.length}")
+        editor.setText(text)
+        if (text.isNotEmpty()) {
+            editor.setSelection(text.length)
+        }
     }
 
     fun highlightBlock(blockId: Long) {
@@ -475,6 +541,7 @@ class NotePanelController(
         // Mémorise le nouvel état local
         currentNote = currentNote?.copy(body = body, type = NoteType.PLAIN)
             ?: Note(id = noteId, body = body, type = NoteType.PLAIN)
+        latestMotherBody = body
 
         // Bloque la toute prochaine passe de render() (évite d'écraser ce corps optimiste)
         suppressNextBodyResync = true
@@ -535,30 +602,45 @@ class NotePanelController(
         }
 
         // 2) Sinon, note PLAIN → on peut resynchroniser l'éditeur
-        val sanitizedBody = stripTranscriptionPlaceholder(note.body)
-        if (sanitizedBody != note.body) {
+        val fallbackBody = stripTranscriptionPlaceholder(note.body)
+        if (fallbackBody != note.body) {
             activity.lifecycleScope.launch(Dispatchers.IO) {
-                blocksRepo.updateNoteBody(note.id, sanitizedBody)
+                blocksRepo.updateMotherBody(note.id, fallbackBody)
             }
         }
 
-        val editorText = binding.bodyEditor.text
-        val keepCurrentStyled =
-            (editorText is Spanned) &&
-                    editorText.getSpans(0, editorText.length, StyleSpan::class.java)
-                        .any { it.style == Typeface.ITALIC }
+        if (latestMotherBody.isEmpty() && fallbackBody.isNotEmpty()) {
+            latestMotherBody = fallbackBody
+        }
 
-        if (suppressNextBodyResync) {
-            Log.d(TAG, "Skip canonical body resync once (optimistic plain body already applied)")
-            suppressNextBodyResync = false
-        } else if (keepCurrentStyled) {
-            val currentPlain = editorText?.toString()
-            if (currentPlain != sanitizedBody) {
-                Log.w(TAG, "Temporary body styling detected for note=${note.id}; forcing resync with canonical body")
-                binding.bodyEditor.setText(sanitizedBody)
-            }
+        val bodyToDisplay = latestMotherBody.ifEmpty { fallbackBody }
+        currentNote = note.copy(body = bodyToDisplay)
+
+        val hostId = motherHostBlockId
+        if (hostId != null) {
+            bindMotherBody(hostId, bodyToDisplay)
         } else {
-            binding.bodyEditor.setText(sanitizedBody)
+            val editor = binding.bodyEditor
+            val current = editor.text?.toString() ?: ""
+            if (suppressNextBodyResync) {
+                Log.d(TAG, "Skip canonical body resync once (optimistic plain body already applied)")
+                suppressNextBodyResync = false
+            } else if (current != bodyToDisplay) {
+                val keepCurrentStyled =
+                    (editor.text is Spanned) &&
+                            editor.text.getSpans(0, editor.length(), StyleSpan::class.java)
+                                .any { it.style == Typeface.ITALIC }
+                if (keepCurrentStyled) {
+                    Log.w(
+                        TAG,
+                        "Temporary body styling detected for note=${note.id}; forcing resync with canonical body",
+                    )
+                }
+                editor.setText(bodyToDisplay)
+                if (bodyToDisplay.isNotEmpty()) {
+                    editor.setSelection(bodyToDisplay.length)
+                }
+            }
         }
 
         // Assure la vue: éditeur visible, liste masquée
