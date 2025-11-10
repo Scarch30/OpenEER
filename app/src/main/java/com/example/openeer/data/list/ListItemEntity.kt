@@ -41,5 +41,7 @@ data class ListItemEntity(
     @ColumnInfo(name = "ordering") val order: Int,
     val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(defaultValue = "0") val provisional: Boolean = false,
-    @Ignore val linkCount: Int = 0,
-)
+) {
+    @Ignore
+    var linkCount: Int = 0
+}
