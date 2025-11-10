@@ -214,6 +214,7 @@ class MediaActions(
         uiScope.launch {
             val popup = PopupMenu(activity, anchor)
             val block = loadBlock(item.blockId)
+            val linkCount = withContext(Dispatchers.IO) { blocksRepo.getLinkCount(item.blockId) }
 
             if (item is MediaStripItem.Text) {
                 if (item.isList) {
