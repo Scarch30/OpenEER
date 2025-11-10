@@ -1542,26 +1542,35 @@ class BlocksRepository(
         end: Int,
         targetBlockId: Long,
     ): Boolean {
+        Log.wtf(
+            "InjectMother",
+            "repo.inline in host=$hostBlockId target=$targetBlockId span=${end - start}"
+        )
         logD { "inline.in: host=$hostBlockId target=$targetBlockId span=${end - start}" }
         if (start < 0 || end < 0 || start >= end) {
+            Log.wtf("InjectMother", "repo.inline REJECT sameIds/start>=end/hostInvalid/targetMissing")
             logW { "inline.reject.badSpan start=$start end=$end" }
             return false
         }
         if (hostBlockId == targetBlockId) {
+            Log.wtf("InjectMother", "repo.inline REJECT sameIds/start>=end/hostInvalid/targetMissing")
             logW { "inline.reject.sameIds" }
             return false
         }
         return withContext(io) {
             runInRoomTransaction {
                 val host = blockDao.getById(hostBlockId) ?: run {
+                    Log.wtf("InjectMother", "repo.inline REJECT sameIds/start>=end/hostInvalid/targetMissing")
                     logW { "inline.reject.hostInvalid" }
                     return@runInRoomTransaction false
                 }
                 if (host.type != BlockType.TEXT) {
+                    Log.wtf("InjectMother", "repo.inline REJECT sameIds/start>=end/hostInvalid/targetMissing")
                     logW { "inline.reject.hostInvalid" }
                     return@runInRoomTransaction false
                 }
                 if (blockDao.getById(targetBlockId) == null) {
+                    Log.wtf("InjectMother", "repo.inline REJECT sameIds/start>=end/hostInvalid/targetMissing")
                     logW { "inline.reject.targetMissing" }
                     return@runInRoomTransaction false
                 }
@@ -1575,6 +1584,7 @@ class BlocksRepository(
                     )
                 )
                 val created = inserted != -1L
+                Log.wtf("InjectMother", "repo.inline out created=$created")
                 logD { "inline.out: created=$created" }
                 created
             }
@@ -1635,11 +1645,13 @@ class BlocksRepository(
     // --------------------------------------------------------------------
 
     suspend fun ensureMotherMainTextBlock(noteId: Long): Long {
+        Log.wtf("InjectMother", "repo.ensureMotherMainTextBlock noteId=$noteId")
         logD { "ensureMain.in: noteId=$noteId" }
         return withContext(io) {
             runInRoomTransaction {
                 val existing = blockDao.findMotherMainTextBlock(noteId)
                 if (existing != null) {
+                    Log.wtf("InjectMother", "repo.ensureMotherMainTextBlock FOUND id=${existing.id}")
                     logD { "ensureMain.hit: id=${existing.id}" }
                     return@runInRoomTransaction existing.id
                 }
@@ -1665,6 +1677,7 @@ class BlocksRepository(
                     blockDao.reorder(noteId, reordered)
                 }
                 logD { "hostCreated id=$newId (main body)" }
+                Log.wtf("InjectMother", "repo.ensureMotherMainTextBlock CREATED id=$newId")
                 newId
             }
         }
@@ -1675,6 +1688,10 @@ class BlocksRepository(
         label: String,
         targetBlockId: Long,
     ): Pair<Int, Int> {
+        Log.wtf(
+            "InjectMother",
+            "repo.append in host=$hostTextBlockId target=$targetBlockId labelLen=${label.length}"
+        )
         logD { "append.in: host=$hostTextBlockId target=$targetBlockId labelLen=${label.length}" }
         val sanitizedLabel = label.trim()
         require(sanitizedLabel.isNotEmpty()) { "label must not be blank" }
@@ -1707,6 +1724,7 @@ class BlocksRepository(
                 logD {
                     "append.out: host=$hostTextBlockId start=$anchorStart end=$anchorEnd newTextLen=$newLen"
                 }
+                Log.wtf("InjectMother", "repo.append out start=$anchorStart end=$anchorEnd")
                 anchorStart to anchorEnd
             }
         }

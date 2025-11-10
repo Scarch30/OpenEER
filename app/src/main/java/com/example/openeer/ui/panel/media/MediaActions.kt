@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.view.View
+import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -294,14 +295,31 @@ class MediaActions(
     }
 
     private fun injectIntoMother(block: BlockEntity?) {
-        val target = block ?: return
+        Log.wtf("InjectMother", "canary: handler entered, blockId=${block?.id}")
+        val target = block ?: run {
+            Log.wtf("InjectMother", "canary: ERROR")
+            return
+        }
         uiScope.launch {
             logD { "resolveChild: id=${target.id}" }
+            Log.wtf("InjectMother", "canary: about to call repo.ensureMotherMainTextBlock")
             val result = MotherLinkInjector.inject(activity, blocksRepo, target.id)
             val message = if (result is MotherLinkInjector.Result.Success) {
                 R.string.mother_injection_success
             } else {
                 R.string.mother_injection_error
+            }
+            if (result is MotherLinkInjector.Result.Success) {
+                Log.wtf("InjectMother", "canary: hostTextId=${result.hostTextId}")
+                Log.wtf("InjectMother", "canary: appendLinkedLine start=${result.start} end=${result.end}")
+                Log.wtf("InjectMother", "canary: createInlineLink created=true")
+                Log.wtf("InjectMother", "canary: SUCCESS")
+            } else if (result is MotherLinkInjector.Result.Failure) {
+                result.hostTextId?.let { hostId ->
+                    Log.wtf("InjectMother", "canary: hostTextId=$hostId")
+                }
+                Log.wtf("InjectMother", "canary: createInlineLink created=false")
+                Log.wtf("InjectMother", "canary: ERROR")
             }
             Toast.makeText(activity, activity.getString(message), Toast.LENGTH_SHORT).show()
             if (result is MotherLinkInjector.Result.Success) {
