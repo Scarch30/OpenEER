@@ -1634,27 +1634,28 @@ class BlocksRepository(
     // 🧰 Utilitaires pour l’UI (prompts suivants)
     // --------------------------------------------------------------------
 
-    suspend fun ensureCanonicalMotherTextBlock(noteId: Long): Long {
-        logD { "ensureHost: noteId=$noteId" }
+    suspend fun ensureMotherMainTextBlock(noteId: Long): Long {
+        logD { "ensureMain.in: noteId=$noteId" }
         return withContext(io) {
             runInRoomTransaction {
-                val existing = blockDao.findFirstRootTextBlock(noteId)
+                val existing = blockDao.findMotherMainTextBlock(noteId)
                 if (existing != null) {
-                    logD { "ensureHost.exists: id=${existing.id}" }
+                    logD { "ensureMain.hit: id=${existing.id}" }
                     return@runInRoomTransaction existing.id
                 }
 
                 val now = System.currentTimeMillis()
+                val nextPosition = (blockDao.getMaxPosition(noteId) ?: -1) + 1
                 val template = BlockEntity(
                     noteId = noteId,
                     type = BlockType.TEXT,
-                    position = 0,
+                    position = nextPosition,
                     text = "",
                     createdAt = now,
                     updatedAt = now,
                 )
 
-                val newId = blockDao.insertAtEnd(noteId, template)
+                val newId = blockDao.insert(template)
                 val orderedIds = blockDao.getBlockIdsForNote(noteId)
                 val reordered = buildList {
                     add(newId)
@@ -1663,7 +1664,7 @@ class BlocksRepository(
                 if (reordered.isNotEmpty()) {
                     blockDao.reorder(noteId, reordered)
                 }
-                logD { "ensureHost.created: id=$newId" }
+                logD { "hostCreated id=$newId (main body)" }
                 newId
             }
         }

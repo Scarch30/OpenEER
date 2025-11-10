@@ -52,8 +52,14 @@ object MotherLinkInjector {
 
         var hostTextId: Long = -1
         return try {
-            hostTextId = repository.ensureCanonicalMotherTextBlock(child.noteId)
-            logD { "hostResolved: noteId=${child.noteId} hostTextId=$hostTextId" }
+            hostTextId = repository.ensureMotherMainTextBlock(child.noteId)
+            val hostBlock = repository.getBlock(hostTextId)
+                ?: return Result.Failure(Reason.HOST_NOT_FOUND)
+            val isMain = hostBlock.groupId == null && hostBlock.childOrdinal == null
+            logD {
+                "hostPicked id=$hostTextId groupId=${hostBlock.groupId} " +
+                    "childOrdinal=${hostBlock.childOrdinal} isMain=$isMain"
+            }
 
             logD {
                 "appendStart: host=$hostTextId child=${child.id} label='${label.take(32)}' len=${label.length}"
