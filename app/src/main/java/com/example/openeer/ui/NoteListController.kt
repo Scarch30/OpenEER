@@ -255,7 +255,9 @@ class NoteListController(
                         items
                     } else {
                         val counts = blocksRepo.getListItemLinkCounts(items.map { it.id })
-                        items.map { item -> item.copy(linkCount = counts[item.id] ?: 0) }
+                        items.map { item ->
+                            item.copy().apply { linkCount = counts[item.id] ?: 0 }
+                        }
                     }
                     renderListItems(enriched)
                 }
