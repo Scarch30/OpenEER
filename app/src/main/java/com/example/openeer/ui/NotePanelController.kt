@@ -3,6 +3,7 @@ package com.example.openeer.ui
 
 import android.content.Intent
 import android.graphics.Typeface
+import android.text.Editable
 import android.text.Spanned
 import android.text.style.StyleSpan
 import android.view.View
@@ -488,11 +489,12 @@ class NotePanelController(
             return
         }
         val editor = binding.bodyEditor
-        val current = editor.text?.toString() ?: ""
+        val editorText = editor.text
+        val current = editorText?.toString() ?: ""
         if (current == text) return
         val keepCurrentStyled =
-            (editor.text is Spanned) &&
-                    editor.text.getSpans(0, editor.length(), StyleSpan::class.java)
+            (editorText is Spanned) &&
+                    editorText.getSpans(0, editor.length(), StyleSpan::class.java)
                         .any { it.style == Typeface.ITALIC }
         if (keepCurrentStyled) {
             Log.w(
@@ -621,14 +623,15 @@ class NotePanelController(
             bindMotherBody(hostId, bodyToDisplay)
         } else {
             val editor = binding.bodyEditor
-            val current = editor.text?.toString() ?: ""
+            val editorText = editor.text
+            val current = editorText?.toString() ?: ""
             if (suppressNextBodyResync) {
                 Log.d(TAG, "Skip canonical body resync once (optimistic plain body already applied)")
                 suppressNextBodyResync = false
             } else if (current != bodyToDisplay) {
                 val keepCurrentStyled =
-                    (editor.text is Spanned) &&
-                            editor.text.getSpans(0, editor.length(), StyleSpan::class.java)
+                    (editorText is Spanned) &&
+                            editorText.getSpans(0, editor.length(), StyleSpan::class.java)
                                 .any { it.style == Typeface.ITALIC }
                 if (keepCurrentStyled) {
                     Log.w(
