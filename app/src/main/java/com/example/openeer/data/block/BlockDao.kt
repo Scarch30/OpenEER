@@ -39,6 +39,23 @@ interface BlockDao {
     )
     suspend fun findFirstRootTextBlock(noteId: Long, type: BlockType = BlockType.TEXT): BlockEntity?
 
+    @Query(
+        """
+        SELECT * FROM blocks
+        WHERE noteId = :noteId
+          AND type = :type
+          AND groupId IS NULL
+          AND childOrdinal IS NULL
+          AND (childName IS NULL OR TRIM(childName) = '')
+        ORDER BY position ASC
+        LIMIT 1
+        """
+    )
+    suspend fun findMotherMainTextBlock(
+        noteId: Long,
+        type: BlockType = BlockType.TEXT,
+    ): BlockEntity?
+
     @Query("UPDATE blocks SET childName = :name WHERE id = :id")
     suspend fun updateChildName(id: Long, name: String?)
 
