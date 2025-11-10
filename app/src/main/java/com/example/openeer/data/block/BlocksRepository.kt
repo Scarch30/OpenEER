@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
+import com.example.openeer.BuildConfig
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteDao
 import com.example.openeer.data.NoteType
@@ -30,6 +31,20 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 fun generateGroupId(): String = UUID.randomUUID().toString()
+
+private const val LM_TAG = "InjectMother"
+
+private inline fun logD(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.d(LM_TAG, msg())
+}
+
+private inline fun logW(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.w(LM_TAG, msg())
+}
+
+private inline fun logE(msg: () -> String, t: Throwable? = null) {
+    if (BuildConfig.DEBUG) android.util.Log.e(LM_TAG, msg(), t)
+}
 
 class BlocksRepository(
     private val appContext: Context,
@@ -88,12 +103,14 @@ class BlocksRepository(
     }
 
     private suspend fun ensureBlockLinkExists(firstBlockId: Long, secondBlockId: Long): Boolean {
+        logD { "graph.in: a=$firstBlockId b=$secondBlockId" }
         val dao = linkDao ?: return false
         val pair = normalizedLinkPair(firstBlockId, secondBlockId) ?: return false
         val (aId, bId) = pair
         val firstExists = blockDao.getById(aId) != null
         val secondExists = blockDao.getById(bId) != null
         if (!firstExists || !secondExists) {
+            logW { "graph.reject.missingBlock" }
             return false
         }
         val insertedId = dao.insert(
@@ -102,7 +119,13 @@ class BlocksRepository(
                 bBlockId = bId,
             )
         )
-        return insertedId != -1L
+        return if (insertedId != -1L) {
+            logD { "graph.inserted" }
+            true
+        } else {
+            logD { "graph.exists" }
+            false
+        }
     }
 
     private fun ensureLegacyChildRefsMigrated() {
@@ -1519,16 +1542,27 @@ class BlocksRepository(
         end: Int,
         targetBlockId: Long,
     ): Boolean {
-        if (start < 0 || end < 0) return false
-        if (start >= end) return false
-        if (hostBlockId == targetBlockId) return false
+        logD { "inline.in: host=$hostBlockId target=$targetBlockId span=${end - start}" }
+        if (start < 0 || end < 0 || start >= end) {
+            logW { "inline.reject.badSpan start=$start end=$end" }
+            return false
+        }
+        if (hostBlockId == targetBlockId) {
+            logW { "inline.reject.sameIds" }
+            return false
+        }
         return withContext(io) {
             runInRoomTransaction {
-                val host = blockDao.getById(hostBlockId) ?: return@runInRoomTransaction false
+                val host = blockDao.getById(hostBlockId) ?: run {
+                    logW { "inline.reject.hostInvalid" }
+                    return@runInRoomTransaction false
+                }
                 if (host.type != BlockType.TEXT) {
+                    logW { "inline.reject.hostInvalid" }
                     return@runInRoomTransaction false
                 }
                 if (blockDao.getById(targetBlockId) == null) {
+                    logW { "inline.reject.targetMissing" }
                     return@runInRoomTransaction false
                 }
                 ensureBlockLinkExists(hostBlockId, targetBlockId)
@@ -1540,7 +1574,9 @@ class BlocksRepository(
                         targetBlockId = targetBlockId,
                     )
                 )
-                inserted != -1L
+                val created = inserted != -1L
+                logD { "inline.out: created=$created" }
+                created
             }
         }
     }
@@ -1599,10 +1635,12 @@ class BlocksRepository(
     // --------------------------------------------------------------------
 
     suspend fun ensureCanonicalMotherTextBlock(noteId: Long): Long {
+        logD { "ensureHost: noteId=$noteId" }
         return withContext(io) {
             runInRoomTransaction {
                 val existing = blockDao.findFirstRootTextBlock(noteId)
                 if (existing != null) {
+                    logD { "ensureHost.exists: id=${existing.id}" }
                     return@runInRoomTransaction existing.id
                 }
 
@@ -1625,6 +1663,7 @@ class BlocksRepository(
                 if (reordered.isNotEmpty()) {
                     blockDao.reorder(noteId, reordered)
                 }
+                logD { "ensureHost.created: id=$newId" }
                 newId
             }
         }
@@ -1635,6 +1674,7 @@ class BlocksRepository(
         label: String,
         targetBlockId: Long,
     ): Pair<Int, Int> {
+        logD { "append.in: host=$hostTextBlockId target=$targetBlockId labelLen=${label.length}" }
         val sanitizedLabel = label.trim()
         require(sanitizedLabel.isNotEmpty()) { "label must not be blank" }
         return withContext(io) {
@@ -1662,6 +1702,10 @@ class BlocksRepository(
 
                 val anchorStart = combinedText.length - appendedLine.length + linePrefix.length
                 val anchorEnd = anchorStart + sanitizedLabel.length
+                val newLen = combinedText.length
+                logD {
+                    "append.out: host=$hostTextBlockId start=$anchorStart end=$anchorEnd newTextLen=$newLen"
+                }
                 anchorStart to anchorEnd
             }
         }

@@ -9,6 +9,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.FileProvider
+import com.example.openeer.BuildConfig
 import com.example.openeer.R
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
@@ -264,6 +265,7 @@ class MediaActions(
                     }
                     MENU_LINK_TO_CHILD -> { handleLinkAction(block); true }
                     MENU_INJECT_INTO_MOTHER -> {
+                        logD { "click: blockId=${block?.id}" }
                         injectIntoMother(block)
                         true
                     }
@@ -294,6 +296,7 @@ class MediaActions(
     private fun injectIntoMother(block: BlockEntity?) {
         val target = block ?: return
         uiScope.launch {
+            logD { "resolveChild: id=${target.id}" }
             val result = MotherLinkInjector.inject(activity, blocksRepo, target.id)
             val message = if (result is MotherLinkInjector.Result.Success) {
                 R.string.mother_injection_success
@@ -301,6 +304,11 @@ class MediaActions(
                 R.string.mother_injection_error
             }
             Toast.makeText(activity, activity.getString(message), Toast.LENGTH_SHORT).show()
+            if (result is MotherLinkInjector.Result.Success) {
+                logD { "inject.completed: host=${result.hostTextId} child=${target.id}" }
+            } else {
+                logW { "toastFailureShown" }
+            }
         }
     }
 
@@ -745,4 +753,18 @@ class MediaActions(
             return File(path).exists()
         }
     }
+}
+
+private const val LM_TAG = "InjectMother"
+
+private inline fun logD(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.d(LM_TAG, msg())
+}
+
+private inline fun logW(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.w(LM_TAG, msg())
+}
+
+private inline fun logE(msg: () -> String, t: Throwable? = null) {
+    if (BuildConfig.DEBUG) android.util.Log.e(LM_TAG, msg(), t)
 }

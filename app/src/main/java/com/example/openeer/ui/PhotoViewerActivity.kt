@@ -18,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
+import com.example.openeer.BuildConfig
 import com.example.openeer.Injection
 import com.example.openeer.R
 import com.example.openeer.data.block.BlockEntity
@@ -151,6 +152,7 @@ class PhotoViewerActivity : AppCompatActivity() {
                 true
             }
             R.id.action_inject_into_mother -> {
+                logD { "click: blockId=$blockId" }
                 injectIntoMother()
                 true
             }
@@ -261,6 +263,7 @@ class PhotoViewerActivity : AppCompatActivity() {
         val id = blockId
         if (id <= 0) return
         lifecycleScope.launch {
+            logD { "resolveChild: id=$id" }
             val result = MotherLinkInjector.inject(this@PhotoViewerActivity, blocksRepository, id)
             val message = if (result is MotherLinkInjector.Result.Success) {
                 R.string.mother_injection_success
@@ -268,6 +271,11 @@ class PhotoViewerActivity : AppCompatActivity() {
                 R.string.mother_injection_error
             }
             Toast.makeText(this@PhotoViewerActivity, getString(message), Toast.LENGTH_SHORT).show()
+            if (result is MotherLinkInjector.Result.Success) {
+                logD { "inject.completed: host=${result.hostTextId} child=$id" }
+            } else {
+                logW { "toastFailureShown" }
+            }
         }
     }
 
@@ -331,4 +339,18 @@ class PhotoViewerActivity : AppCompatActivity() {
             }
         }
     }
+}
+
+private const val LM_TAG = "InjectMother"
+
+private inline fun logD(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.d(LM_TAG, msg())
+}
+
+private inline fun logW(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.w(LM_TAG, msg())
+}
+
+private inline fun logE(msg: () -> String, t: Throwable? = null) {
+    if (BuildConfig.DEBUG) android.util.Log.e(LM_TAG, msg(), t)
 }
