@@ -2,6 +2,7 @@ package com.example.openeer.ui
 
 import android.content.Context
 import android.net.Uri
+import com.example.openeer.BuildConfig
 import com.example.openeer.R
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
@@ -10,10 +11,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
+private const val LM_TAG = "InjectMother"
+
+private inline fun logD(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.d(LM_TAG, msg())
+}
+
+private inline fun logW(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.w(LM_TAG, msg())
+}
+
+private inline fun logE(msg: () -> String, t: Throwable? = null) {
+    if (BuildConfig.DEBUG) android.util.Log.e(LM_TAG, msg(), t)
+}
+
 object MotherLinkInjector {
     sealed class Result {
-        object Success : Result()
-        data class Failure(val reason: Reason) : Result()
+        data class Success(val hostTextId: Long, val start: Int, val end: Int) : Result()
+        data class Failure(val reason: Reason, val hostTextId: Long? = null) : Result()
     }
 
     enum class Reason {
@@ -35,27 +50,32 @@ object MotherLinkInjector {
             .takeIf { it.isNotBlank() }
             ?: context.getString(R.string.mother_injection_default_label)
 
-        val hostTextId = try {
-            repository.ensureCanonicalMotherTextBlock(child.noteId)
+        var hostTextId: Long = -1
+        return try {
+            hostTextId = repository.ensureCanonicalMotherTextBlock(child.noteId)
+            logD { "hostResolved: noteId=${child.noteId} hostTextId=$hostTextId" }
+
+            logD {
+                "appendStart: host=$hostTextId child=${child.id} label='${label.take(32)}' len=${label.length}"
+            }
+            val (start, end) = repository.appendLinkedLine(hostTextId, label, child.id)
+            logD { "appendDone: start=$start end=$end spanLen=${end - start}" }
+
+            if (start >= end) {
+                return Result.Failure(Reason.EMPTY_LABEL, hostTextId)
+            }
+
+            val created = repository.createInlineLink(hostTextId, start, end, child.id)
+            logD { "inlineLink: created=$created" }
+            if (created) {
+                Result.Success(hostTextId, start, end)
+            } else {
+                Result.Failure(Reason.LINK_FAILED, hostTextId)
+            }
         } catch (error: Throwable) {
-            return Result.Failure(Reason.HOST_NOT_FOUND)
-        }
-
-        val (start, end) = try {
-            repository.appendLinkedLine(hostTextId, label, child.id)
-        } catch (error: Throwable) {
-            return Result.Failure(Reason.HOST_NOT_FOUND)
-        }
-
-        if (start >= end) {
-            return Result.Failure(Reason.EMPTY_LABEL)
-        }
-
-        val linkCreated = repository.createInlineLink(hostTextId, start, end, child.id)
-        return if (linkCreated) {
-            Result.Success
-        } else {
-            Result.Failure(Reason.LINK_FAILED)
+            val safeHost = if (hostTextId > 0) hostTextId else -1
+            logE({ "injectFailed: host=$safeHost child=${child.id}" }, error)
+            Result.Failure(Reason.HOST_NOT_FOUND, hostTextId.takeIf { it > 0 })
         }
     }
 

@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.example.openeer.BuildConfig
 import com.example.openeer.Injection
 import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.R
@@ -186,6 +187,7 @@ class VideoPlayerActivity : AppCompatActivity() {
                 true
             }
             R.id.action_inject_into_mother -> {
+                logD { "click: blockId=$blockId" }
                 injectIntoMother()
                 true
             }
@@ -290,6 +292,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         val id = blockId
         if (id <= 0) return
         lifecycleScope.launch {
+            logD { "resolveChild: id=$id" }
             val result = MotherLinkInjector.inject(this@VideoPlayerActivity, blocksRepository, id)
             val message = if (result is MotherLinkInjector.Result.Success) {
                 R.string.mother_injection_success
@@ -297,6 +300,11 @@ class VideoPlayerActivity : AppCompatActivity() {
                 R.string.mother_injection_error
             }
             Toast.makeText(this@VideoPlayerActivity, getString(message), Toast.LENGTH_SHORT).show()
+            if (result is MotherLinkInjector.Result.Success) {
+                logD { "inject.completed: host=${result.hostTextId} child=$id" }
+            } else {
+                logW { "toastFailureShown" }
+            }
         }
     }
 
@@ -358,4 +366,18 @@ class VideoPlayerActivity : AppCompatActivity() {
             }
         }
     }
+}
+
+private const val LM_TAG = "InjectMother"
+
+private inline fun logD(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.d(LM_TAG, msg())
+}
+
+private inline fun logW(msg: () -> String) {
+    if (BuildConfig.DEBUG) android.util.Log.w(LM_TAG, msg())
+}
+
+private inline fun logE(msg: () -> String, t: Throwable? = null) {
+    if (BuildConfig.DEBUG) android.util.Log.e(LM_TAG, msg(), t)
 }
