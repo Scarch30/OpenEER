@@ -52,6 +52,7 @@ class NoteListController(
     private var listMode = false
     private var listItemsJob: Job? = null
     private var observedListNoteId: Long? = null
+    private var observedListOwnerId: Long? = null
     private var pendingScrollToBottom = false
     private var suppressListUpdatesForConversion = false
     private var currentNoteType: NoteType? = null
@@ -242,15 +243,21 @@ class NoteListController(
 
     private fun ensureListObservation(noteId: Long) {
         if (observedListNoteId == noteId && listItemsJob?.isActive == true) {
-            Log.d(TAG_UI, "ListUI: observation already active for note=$noteId.")
+            val ownerToken = observedListOwnerId ?: "<none>"
+            Log.d(TAG_UI, "ListUI: observation already active for note=$noteId owner=$ownerToken.")
             return
         }
         listItemsJob?.cancel()
         observedListNoteId = noteId
+        observedListOwnerId = null
         Log.d(TAG_UI, "ListUI: start observing items for note=$noteId.")
         listItemsJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                repo.listItems(noteId).collectLatest { items ->
+                val ownerId = repo.getMotherOwnerId(noteId)
+                observedListOwnerId = ownerId
+                repo.observeMotherListItems(noteId).collectLatest { items ->
+                    val idsForLog = items.joinToString { it.id.toString() }
+                    Log.d(TAG_UI, "ListUI: emit ownerId=$ownerId count=${items.size} ids=[$idsForLog]")
                     val enriched = if (items.isEmpty()) {
                         items
                     } else {
@@ -270,6 +277,7 @@ class NoteListController(
         listItemsJob?.cancel()
         listItemsJob = null
         observedListNoteId = null
+        observedListOwnerId = null
     }
 
     private fun renderListItems(items: List<ListItemEntity>) {
