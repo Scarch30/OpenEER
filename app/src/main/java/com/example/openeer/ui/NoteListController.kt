@@ -260,7 +260,11 @@ class NoteListController(
                 observedListOwnerId = ownerId
                 repo.observeMotherListItems(noteId).collectLatest { items ->
                     val idsForLog = items.joinToString { it.id.toString() }
-                    Log.d(TAG_UI, "ListUI: emit ownerId=$ownerId count=${items.size} ids=[$idsForLog]")
+                    val threadName = Thread.currentThread().name
+                    Log.d(
+                        TAG_UI,
+                        "ListUI: emit ownerId=$ownerId count=${items.size} ids=[$idsForLog] source=ListItemDao.observeItemsByOwner thread=$threadName",
+                    )
                     val itemIds = items.map { it.id }
                     val primaryLinks = if (itemIds.isEmpty()) {
                         BlocksRepository.ListItemPrimaryLinkMap.EMPTY

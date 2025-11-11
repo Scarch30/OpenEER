@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.isVisible
@@ -27,6 +28,21 @@ class NoteListItemsAdapter(
     private val onCommitText: (Long, String) -> Unit,
     private val onLongPress: (ListItemEntity) -> Unit,
 ) : ListAdapter<ListItemEntity, NoteListItemsAdapter.ViewHolder>(DiffCallback) {
+
+    private fun logSubmitList(newList: List<ListItemEntity>?) {
+        val ids = newList?.joinToString(separator = ",") { it.id.toString() } ?: ""
+        Log.d(ADAPTER_TAG, "submitList newIds=[$ids]")
+    }
+
+    override fun submitList(list: List<ListItemEntity>?) {
+        logSubmitList(list)
+        super.submitList(list)
+    }
+
+    override fun submitList(list: List<ListItemEntity>?, commitCallback: Runnable?) {
+        logSubmitList(list)
+        super.submitList(list, commitCallback)
+    }
 
     private var currentLinks: Map<Long, Long> = emptyMap()
     private var linkLabelsByBlockId: Map<Long, String> = emptyMap()
@@ -200,6 +216,7 @@ class NoteListItemsAdapter(
     }
 
     companion object {
+        private const val ADAPTER_TAG = "NoteListAdapter"
         private val DiffCallback = object : DiffUtil.ItemCallback<ListItemEntity>() {
             override fun areItemsTheSame(oldItem: ListItemEntity, newItem: ListItemEntity): Boolean =
                 oldItem.id == newItem.id

@@ -1,6 +1,7 @@
 package com.example.openeer.data.list
 
 import android.util.Log
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -8,6 +9,14 @@ import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
 private const val LIST_DAO_TAG = "ListDAO"
+
+data class SimpleItemRow(
+    val id: Long,
+    val noteId: Long?,
+    @ColumnInfo(name = "ownerBlockId") val ownerBlockId: Long?,
+    @ColumnInfo(name = "order") val order: Int,
+    val text: String,
+)
 
 @Dao
 abstract class ListItemDao {
@@ -108,6 +117,12 @@ abstract class ListItemDao {
 
     @Query("SELECT * FROM list_items WHERE ownerBlockId = :ownerBlockId AND noteId IS NULL ORDER BY ordering ASC")
     abstract fun observeItemsByOwner(ownerBlockId: Long): Flow<List<ListItemEntity>>
+
+    @Query(
+        "SELECT id, noteId, ownerBlockId, ordering AS \"order\", text FROM list_items " +
+            "WHERE ownerBlockId=:ownerId ORDER BY id DESC",
+    )
+    abstract suspend fun debugDump(ownerId: Long): List<SimpleItemRow>
 
     @Query("DELETE FROM list_items WHERE ownerBlockId = :blockId AND noteId IS NULL")
     abstract suspend fun deleteForBlock(blockId: Long)
