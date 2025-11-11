@@ -2,6 +2,7 @@ package com.example.openeer.data.block
 
 import android.content.Context
 import android.util.Log
+import androidx.appcompat.app.AppCompatActivity
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
 import com.example.openeer.R
@@ -18,6 +19,7 @@ import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.data.merge.BlockSnapshot
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.voice.SmartListSplitter
+import com.example.openeer.ui.panel.media.MediaActions
 import com.google.gson.Gson
 import java.text.Normalizer
 import java.util.Locale
@@ -1660,6 +1662,74 @@ class BlocksRepository(
         }
     }
 
+    data class ListItemPrimaryLinkMap(
+        val linksByItemId: Map<Long, Long>,
+        val targetLabels: Map<Long, String>,
+        val cleanedOrphans: Int,
+    ) {
+        companion object {
+            val EMPTY = ListItemPrimaryLinkMap(emptyMap(), emptyMap(), 0)
+        }
+    }
+
+    suspend fun mapPrimaryLinkByItemIds(itemIds: List<Long>): ListItemPrimaryLinkMap {
+        if (itemIds.isEmpty()) return ListItemPrimaryLinkMap.EMPTY
+        return withContext(io) {
+            val links = listItemLinkDao.getLinksForItems(itemIds)
+            if (links.isEmpty()) {
+                return@withContext ListItemPrimaryLinkMap.EMPTY
+            }
+
+            val allTargetIds = links.map { it.targetBlockId }.toSet()
+            val existingBlocks = if (allTargetIds.isEmpty()) {
+                emptyMap()
+            } else {
+                blockDao.getByIds(allTargetIds.toList()).associateBy { it.id }
+            }
+
+            val linksByItem = mutableMapOf<Long, Long>()
+            val labelsByBlock = mutableMapOf<Long, String>()
+            val cleanupCandidates = mutableSetOf<Long>()
+            val comparator = compareByDescending<ListItemLinkEntity> { it.createdAt }
+                .thenByDescending { it.id }
+
+            for ((itemId, group) in links.groupBy { it.listItemId }) {
+                val sorted = group.sortedWith(comparator)
+                var selected: ListItemLinkEntity? = null
+                var sawOrphan = false
+                for (candidate in sorted) {
+                    val block = existingBlocks[candidate.targetBlockId]
+                    if (block != null) {
+                        selected = candidate
+                        linksByItem[itemId] = block.id
+                        labelsByBlock[block.id] = block.accessibleLabel()
+                        break
+                    } else {
+                        sawOrphan = true
+                    }
+                }
+                if (selected == null && sorted.isNotEmpty()) {
+                    cleanupCandidates.add(itemId)
+                } else if (sawOrphan) {
+                    cleanupCandidates.add(itemId)
+                }
+            }
+
+            val cleaned = if (cleanupCandidates.isNotEmpty()) {
+                listItemLinkDao.cleanupOrphansForItems(cleanupCandidates.toList())
+            } else {
+                0
+            }
+
+            ListItemPrimaryLinkMap(linksByItem, labelsByBlock, cleaned)
+        }
+    }
+
+    suspend fun openLinkedTarget(activity: AppCompatActivity, targetBlockId: Long): Boolean {
+        val block = withContext(io) { blockDao.getById(targetBlockId) } ?: return false
+        return MediaActions.openBlock(activity, block)
+    }
+
     // --------------------------------------------------------------------
     // 🧰 Utilitaires pour l’UI (prompts suivants)
     // --------------------------------------------------------------------
@@ -1674,15 +1744,7 @@ class BlocksRepository(
     suspend fun buildRichLabelForBlock(blockId: Long): String? {
         return withContext(io) {
             val block = blockDao.getById(blockId) ?: return@withContext null
-            val typeText = block.type.displayName()
-            val idText = "#${block.id}"
-            val nameText = block.childName?.trim()?.takeIf { it.isNotEmpty() }
-            val label = if (nameText != null) {
-                "$typeText $idText — $nameText"
-            } else {
-                "$typeText $idText"
-            }
-            label.trim()
+            block.accessibleLabel()
         }
     }
 
@@ -1751,6 +1813,18 @@ class BlocksRepository(
                 newId
             }
         }
+    }
+
+    private fun BlockEntity.accessibleLabel(): String {
+        val typeText = type.displayName()
+        val idText = "#${id}"
+        val nameText = childName?.trim()?.takeIf { it.isNotEmpty() }
+        val label = if (nameText != null) {
+            "$typeText $idText — $nameText"
+        } else {
+            "$typeText $idText"
+        }
+        return label.trim()
     }
 
     private fun BlockType.displayName(): String = when (this) {

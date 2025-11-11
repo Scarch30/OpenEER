@@ -496,6 +496,7 @@
         <item quantity="one">%d lien</item>
         <item quantity="other">%d liens</item>
     </plurals>
+    <string name="note_list_item_open_link_cd">Ouvrir «&#160;%1$s&#160;»</string>
     <string name="block_type_text">Texte</string>
     <string name="block_type_photo">Photo</string>
     <string name="block_type_sketch">Croquis</string>

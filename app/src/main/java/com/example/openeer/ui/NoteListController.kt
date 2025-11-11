@@ -43,6 +43,9 @@ class NoteListController(
     private val blocksRepo: BlocksRepository,
 ) {
     val adapter = NoteListItemsAdapter(
+        activity = activity,
+        scope = activity.lifecycleScope,
+        blocksRepo = blocksRepo,
         onToggle = { itemId -> toggleListItem(itemId) },
         onCommitText = { itemId, text -> updateListItemText(itemId, text) },
         onLongPress = { item -> confirmRemoveListItem(item) },
@@ -258,10 +261,23 @@ class NoteListController(
                 repo.observeMotherListItems(noteId).collectLatest { items ->
                     val idsForLog = items.joinToString { it.id.toString() }
                     Log.d(TAG_UI, "ListUI: emit ownerId=$ownerId count=${items.size} ids=[$idsForLog]")
+                    val itemIds = items.map { it.id }
+                    val primaryLinks = if (itemIds.isEmpty()) {
+                        BlocksRepository.ListItemPrimaryLinkMap.EMPTY
+                    } else {
+                        blocksRepo.mapPrimaryLinkByItemIds(itemIds)
+                    }
+                    if (primaryLinks.cleanedOrphans > 0) {
+                        Log.i(
+                            TAG_UI,
+                            "ListUI: cleaned ${primaryLinks.cleanedOrphans} orphan list_item_links.",
+                        )
+                    }
+                    adapter.updatePrimaryLinks(primaryLinks.linksByItemId, primaryLinks.targetLabels)
                     val enriched = if (items.isEmpty()) {
                         items
                     } else {
-                        val counts = blocksRepo.getListItemLinkCounts(items.map { it.id })
+                        val counts = blocksRepo.getListItemLinkCounts(itemIds)
                         items.map { item ->
                             item.copy().apply { linkCount = counts[item.id] ?: 0 }
                         }

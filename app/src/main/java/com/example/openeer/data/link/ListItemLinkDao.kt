@@ -39,6 +39,25 @@ interface ListItemLinkDao {
         """
     )
     suspend fun countForItems(itemIds: List<Long>): List<ListItemLinkCount>
+
+    @Query(
+        """
+        SELECT *
+        FROM list_item_links
+        WHERE listItemId IN (:ids)
+        ORDER BY listItemId ASC, createdAt DESC, id DESC
+        """
+    )
+    suspend fun getLinksForItems(ids: List<Long>): List<ListItemLinkEntity>
+
+    @Query(
+        """
+        DELETE FROM list_item_links
+        WHERE listItemId IN (:ids)
+          AND targetBlockId NOT IN (SELECT id FROM blocks)
+        """
+    )
+    suspend fun cleanupOrphansForItems(ids: List<Long>): Int
 }
 
 data class ListItemLinkCount(
