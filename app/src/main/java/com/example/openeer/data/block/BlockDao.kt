@@ -27,6 +27,9 @@ interface BlockDao {
     @Query("SELECT * FROM blocks WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): BlockEntity?
 
+    @Query("SELECT * FROM blocks WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<Long>): List<BlockEntity>
+
     @Query(
         """
         SELECT * FROM blocks
