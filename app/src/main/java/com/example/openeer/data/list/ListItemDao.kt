@@ -120,7 +120,7 @@ abstract class ListItemDao {
         SELECT li.*
         FROM list_items li
         WHERE li.ownerBlockId = :ownerBlockId
-        ORDER BY li."order" ASC, li.createdAt DESC, li.id DESC
+        ORDER BY li.ordering ASC, li.createdAt DESC, li.id DESC
         """
     )
     abstract fun observeItemsByOwner(ownerBlockId: Long): Flow<List<ListItemEntity>>
