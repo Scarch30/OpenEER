@@ -106,6 +106,9 @@ abstract class ListItemDao {
     @Query("SELECT * FROM list_items WHERE ownerBlockId = :blockId AND noteId IS NULL ORDER BY ordering ASC")
     abstract fun listForBlockFlow(blockId: Long): Flow<List<ListItemEntity>>
 
+    @Query("SELECT * FROM list_items WHERE ownerBlockId = :ownerBlockId AND noteId IS NULL ORDER BY ordering ASC")
+    abstract fun observeItemsByOwner(ownerBlockId: Long): Flow<List<ListItemEntity>>
+
     @Query("DELETE FROM list_items WHERE ownerBlockId = :blockId AND noteId IS NULL")
     abstract suspend fun deleteForBlock(blockId: Long)
 }

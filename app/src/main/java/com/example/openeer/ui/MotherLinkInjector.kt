@@ -77,6 +77,10 @@ object MotherLinkInjector {
                     if (listItemId <= 0) {
                         return@withContext Result.Failure(Reason.EMPTY_LABEL, hostTextId)
                     }
+                    android.util.Log.d(
+                        LM_TAG,
+                        "InjectMother: list insert ownerId=$hostTextId newItemId=$listItemId",
+                    )
                     repository.createListItemLink(listItemId, child.id)
                     Result.Success(hostTextId, listItemId = listItemId)
                 } else {

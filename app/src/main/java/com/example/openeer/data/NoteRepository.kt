@@ -21,6 +21,8 @@ import kotlin.collections.LinkedHashSet
 import kotlin.collections.buildList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 
 class NoteRepository(
@@ -273,6 +275,15 @@ class NoteRepository(
     suspend fun removeItems(itemIds: List<Long>) = withContext(Dispatchers.IO) {
         if (itemIds.isEmpty()) return@withContext
         listItemDao.deleteMany(itemIds)
+    }
+
+    suspend fun getMotherOwnerId(noteId: Long): Long {
+        return blocksRepository.ensureCanonicalMotherTextBlock(noteId)
+    }
+
+    fun observeMotherListItems(noteId: Long): Flow<List<ListItemEntity>> = flow {
+        val ownerId = blocksRepository.ensureCanonicalMotherTextBlock(noteId)
+        emitAll(listItemDao.observeItemsByOwner(ownerId))
     }
 
     fun listItems(noteId: Long): Flow<List<ListItemEntity>> = listItemDao.listForNoteFlow(noteId)
