@@ -282,7 +282,8 @@ class NoteListController(
                             item.copy().apply { linkCount = counts[item.id] ?: 0 }
                         }
                     }
-                    renderListItems(enriched)
+                    val linksFound = primaryLinks.linksByItemId.size
+                    renderListItems(enriched, linksFound)
                 }
             }
         }
@@ -296,7 +297,7 @@ class NoteListController(
         observedListOwnerId = null
     }
 
-    private fun renderListItems(items: List<ListItemEntity>) {
+    private fun renderListItems(items: List<ListItemEntity>, linksFound: Int) {
         if (!listMode) {
             Log.w(
                 TAG_UI,
@@ -337,7 +338,10 @@ class NoteListController(
         }
 
         adapter.submitList(items) {
-            Log.d(TAG_UI, "UI: submit done req=$reqToken adapterCount=${adapter.itemCount}")
+            Log.d(
+                TAG_UI,
+                "UI: submit done req=$reqToken adapterCount=${adapter.itemCount} linksFound=$linksFound",
+            )
 
             if (pendingScrollToBottom && items.isNotEmpty()) {
                 binding.listItemsRecycler.post {

@@ -719,6 +719,8 @@ class BlocksRepository(
             return AddItemsResult(emptyList(), AddEmptyReason.NOTE_ID_MISMATCH)
         }
 
+        val hostId = ensureCanonicalMotherTextBlock(noteId)
+
         return withContext(io) {
             try {
                 Log.d(LIST_REPO_LOG_TAG, "REPO_DB_TX_START req=$requestToken")
@@ -743,6 +745,7 @@ class BlocksRepository(
                     normalizedItems.forEachIndexed { index, textLine ->
                         val entity = ListItemEntity(
                             noteId = noteId,
+                            ownerBlockId = hostId,
                             text = textLine,
                             order = order++,
                             createdAt = now + index,

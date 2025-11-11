@@ -55,7 +55,7 @@ import com.example.openeer.data.tag.TagEntity
         InlineLinkEntity::class,
         ListItemLinkEntity::class
     ],
-    version = 29, // 🔼 bump : inline & list item links
+    version = 30, // 🔼 bump : list owner backfill
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -841,6 +841,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                        UPDATE list_items
+                        SET ownerBlockId = (
+                          SELECT id FROM blocks
+                          WHERE blocks.noteId = list_items.noteId
+                            AND blocks.type = 'TEXT'
+                            AND (blocks.groupId IS NULL OR TRIM(blocks.groupId) = '')
+                          ORDER BY blocks.position ASC
+                          LIMIT 1
+                        )
+                        WHERE ownerBlockId IS NULL
+                    """.trimIndent()
+                )
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -876,13 +895,15 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_25_26,
                         MIGRATION_26_27,
                         MIGRATION_27_28,
-                        MIGRATION_28_29
+                        MIGRATION_28_29,
+                        MIGRATION_29_30
                     )
                     .addCallback(
                         object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {
                                 super.onCreate(db)
                                 MIGRATION_28_29.migrate(db)
+                                MIGRATION_29_30.migrate(db)
                             }
                         }
                     )

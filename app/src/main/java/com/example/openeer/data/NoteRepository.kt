@@ -201,6 +201,7 @@ class NoteRepository(
     class NoteNotFoundException(noteId: Long) : IllegalStateException("Note $noteId not found")
 
     suspend fun addItem(noteId: Long, text: String): Long = withContext(Dispatchers.IO) {
+        val hostId = blocksRepository.ensureCanonicalMotherTextBlock(noteId)
         database.withTransaction {
             val t = text.trim()
             if (t.isEmpty()) {
@@ -213,6 +214,7 @@ class NoteRepository(
 
             val entity = ListItemEntity(
                 noteId = noteId,
+                ownerBlockId = hostId,
                 text = t,
                 order = nextOrder,
                 createdAt = System.currentTimeMillis()
@@ -223,7 +225,7 @@ class NoteRepository(
             // 🔎 Log de contrôle insertion
             Log.i(
                 "DB",
-                "addItem ok: id=$id note=$noteId text=\"$t\" order=$nextOrder createdAt=${entity.createdAt}"
+                "addItem ok: id=$id note=$noteId ownerBlockId=$hostId text=\"$t\" order=$nextOrder createdAt=${entity.createdAt}"
             )
 
             // (Optionnel mais utile) — relis la ligne pour voir ce que Room a vraiment écrit
@@ -232,7 +234,7 @@ class NoteRepository(
                 if (row != null) {
                     Log.i(
                         "DB",
-                        "row(id=$id): note=${row.noteId} text=\"${row.text}\" order=${row.order} createdAt=${row.createdAt}"
+                        "row(id=$id): note=${row.noteId} ownerBlockId=${row.ownerBlockId} text=\"${row.text}\" order=${row.order} createdAt=${row.createdAt}"
                     )
                 }
             }
@@ -242,16 +244,23 @@ class NoteRepository(
     }
 
     suspend fun addProvisionalItem(noteId: Long, text: String): Long = withContext(Dispatchers.IO) {
+        val hostId = blocksRepository.ensureCanonicalMotherTextBlock(noteId)
         database.withTransaction {
             val currentMax = listItemDao.maxOrderForNote(noteId) ?: -1
             val entity = ListItemEntity(
                 noteId = noteId,
+                ownerBlockId = hostId,
                 text = text,
                 order = currentMax + 1,
                 createdAt = System.currentTimeMillis(),
                 provisional = true
             )
-            listItemDao.insert(entity)
+            val id = listItemDao.insert(entity)
+            Log.i(
+                "DB",
+                "addProvisionalItem ok: id=$id note=$noteId ownerBlockId=$hostId order=${entity.order} provisional=true",
+            )
+            id
         }
     }
 
@@ -474,10 +483,12 @@ class NoteRepository(
 
             listItemDao.deleteForNote(noteId)
 
+            val hostId = blocksRepository.ensureCanonicalMotherTextBlock(noteId)
             val now = System.currentTimeMillis()
             val items = lines.mapIndexed { index, text ->
                 ListItemEntity(
                     noteId = noteId,
+                    ownerBlockId = hostId,
                     text = text,
                     order = index,
                     createdAt = now + index
