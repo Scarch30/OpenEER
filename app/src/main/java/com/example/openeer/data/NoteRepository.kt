@@ -221,23 +221,16 @@ class NoteRepository(
             )
 
             val id = listItemDao.insert(entity)
-
-            // 🔎 Log de contrôle insertion
             Log.i(
-                "DB",
-                "addItem ok: id=$id note=$noteId ownerBlockId=$hostId text=\"$t\" order=$nextOrder createdAt=${entity.createdAt}"
+                LIST_LOG_TAG,
+                "owner=NOTE noteId=$noteId ownerId=$hostId op=INSERT insertedId=$id",
             )
-
-            // (Optionnel mais utile) — relis la ligne pour voir ce que Room a vraiment écrit
-            // Si tu n'as pas déjà cette méthode, ajoute la dans le DAO (voir plus bas)
-            runCatching { listItemDao.findById(id) }.onSuccess { row ->
-                if (row != null) {
-                    Log.i(
-                        "DB",
-                        "row(id=$id): note=${row.noteId} ownerBlockId=${row.ownerBlockId} text=\"${row.text}\" order=${row.order} createdAt=${row.createdAt}"
-                    )
-                }
-            }
+            val dump = listItemDao.debugDump(hostId)
+            val dumpIds = dump.joinToString(separator = ",") { it.id.toString() }
+            Log.d(
+                LIST_LOG_TAG,
+                "owner=NOTE noteId=$noteId ownerId=$hostId op=DUMP ids=[$dumpIds]",
+            )
 
             id
         }
@@ -257,8 +250,14 @@ class NoteRepository(
             )
             val id = listItemDao.insert(entity)
             Log.i(
-                "DB",
-                "addProvisionalItem ok: id=$id note=$noteId ownerBlockId=$hostId order=${entity.order} provisional=true",
+                LIST_LOG_TAG,
+                "owner=NOTE noteId=$noteId ownerId=$hostId op=INSERT insertedId=$id provisional=true",
+            )
+            val dump = listItemDao.debugDump(hostId)
+            val dumpIds = dump.joinToString(separator = ",") { it.id.toString() }
+            Log.d(
+                LIST_LOG_TAG,
+                "owner=NOTE noteId=$noteId ownerId=$hostId op=DUMP ids=[$dumpIds]",
             )
             id
         }
@@ -321,7 +320,16 @@ class NoteRepository(
             )
 
             val id = listItemDao.insert(entity)
-            Log.i(LIST_LOG_TAG, "owner=BLOCK blockId=$blockId op=ADD count=1")
+            Log.i(
+                LIST_LOG_TAG,
+                "owner=BLOCK blockId=$blockId op=INSERT insertedId=$id",
+            )
+            val dump = listItemDao.debugDump(blockId)
+            val dumpIds = dump.joinToString(separator = ",") { it.id.toString() }
+            Log.d(
+                LIST_LOG_TAG,
+                "owner=BLOCK blockId=$blockId op=DUMP ids=[$dumpIds]",
+            )
             id
         }
     }
