@@ -115,7 +115,14 @@ abstract class ListItemDao {
     @Query("SELECT * FROM list_items WHERE ownerBlockId = :blockId AND noteId IS NULL ORDER BY ordering ASC")
     abstract fun listForBlockFlow(blockId: Long): Flow<List<ListItemEntity>>
 
-    @Query("SELECT * FROM list_items WHERE ownerBlockId = :ownerBlockId AND noteId IS NULL ORDER BY ordering ASC")
+    @Query(
+        """
+        SELECT li.*
+        FROM list_items li
+        WHERE li.ownerBlockId = :ownerBlockId
+        ORDER BY li."order" ASC, li.createdAt DESC, li.id DESC
+        """
+    )
     abstract fun observeItemsByOwner(ownerBlockId: Long): Flow<List<ListItemEntity>>
 
     @Query(
