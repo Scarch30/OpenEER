@@ -860,6 +860,13 @@ abstract class AppDatabase : RoomDatabase() {
                         WHERE ownerBlockId IS NULL
                     """.trimIndent()
                 )
+
+                db.execSQL(
+                    """
+                        CREATE INDEX IF NOT EXISTS index_list_items_owner_order
+                        ON list_items(ownerBlockId, ordering, createdAt, id)
+                    """.trimIndent()
+                )
             }
         }
 
