@@ -200,6 +200,14 @@ class NoteRepository(
 
     class NoteNotFoundException(noteId: Long) : IllegalStateException("Note $noteId not found")
 
+    suspend fun getCanonicalMotherTextBlockId(noteId: Long): Long? = withContext(Dispatchers.IO) {
+        blocksRepository.getCanonicalMotherTextBlockId(noteId)
+    }
+
+    suspend fun ensureCanonicalMotherTextBlock(noteId: Long): Long = withContext(Dispatchers.IO) {
+        blocksRepository.ensureCanonicalMotherTextBlock(noteId)
+    }
+
     suspend fun addItem(noteId: Long, text: String): Long = withContext(Dispatchers.IO) {
         val hostId = blocksRepository.ensureCanonicalMotherTextBlock(noteId)
         database.withTransaction {
@@ -209,8 +217,9 @@ class NoteRepository(
                 return@withTransaction -1L
             }
 
-            val currentMax = listItemDao.maxOrderForNote(noteId) ?: -1
-            val nextOrder = currentMax + 1
+            val ownerMax = listItemDao.maxOrderForOwner(hostId) ?: -1
+            val legacyMax = listItemDao.maxOrderForNote(noteId) ?: -1
+            val nextOrder = maxOf(ownerMax, legacyMax) + 1
 
             val entity = ListItemEntity(
                 noteId = noteId,
@@ -239,12 +248,13 @@ class NoteRepository(
     suspend fun addProvisionalItem(noteId: Long, text: String): Long = withContext(Dispatchers.IO) {
         val hostId = blocksRepository.ensureCanonicalMotherTextBlock(noteId)
         database.withTransaction {
-            val currentMax = listItemDao.maxOrderForNote(noteId) ?: -1
+            val ownerMax = listItemDao.maxOrderForOwner(hostId) ?: -1
+            val legacyMax = listItemDao.maxOrderForNote(noteId) ?: -1
             val entity = ListItemEntity(
                 noteId = noteId,
                 ownerBlockId = hostId,
                 text = text,
-                order = currentMax + 1,
+                order = maxOf(ownerMax, legacyMax) + 1,
                 createdAt = System.currentTimeMillis(),
                 provisional = true
             )
@@ -268,8 +278,11 @@ class NoteRepository(
     }
 
     suspend fun finalizeAllProvisional(noteId: Long) = withContext(Dispatchers.IO) {
-        val items = listItemDao.listForNote(noteId)
-        for (item in items) {
+        val hostId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
+        val ownerItems = hostId?.let { listItemDao.listForOwner(it) } ?: emptyList()
+        val legacyItems = listItemDao.listForNote(noteId)
+        val combined = if (legacyItems.isEmpty()) ownerItems else ownerItems + legacyItems
+        for (item in combined) {
             if (item.provisional) {
                 listItemDao.finalizeText(item.id, item.text)
             }
@@ -285,19 +298,23 @@ class NoteRepository(
         listItemDao.deleteMany(itemIds)
     }
 
-    suspend fun getMotherOwnerId(noteId: Long): Long {
-        return blocksRepository.ensureCanonicalMotherTextBlock(noteId)
-    }
+    fun observeMotherListItems(ownerBlockId: Long): Flow<List<ListItemEntity>> =
+        listItemDao.observeItemsByOwner(ownerBlockId)
 
-    fun observeMotherListItems(noteId: Long): Flow<List<ListItemEntity>> = flow {
-        val ownerId = blocksRepository.ensureCanonicalMotherTextBlock(noteId)
-        emitAll(listItemDao.observeItemsByOwner(ownerId))
+    fun listItems(noteId: Long): Flow<List<ListItemEntity>> = flow {
+        val ownerId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
+        if (ownerId != null) {
+            emitAll(listItemDao.observeItemsByOwner(ownerId))
+        } else {
+            emitAll(listItemDao.listForNoteFlow(noteId))
+        }
     }
-
-    fun listItems(noteId: Long): Flow<List<ListItemEntity>> = listItemDao.listForNoteFlow(noteId)
 
     suspend fun listItemsOnce(noteId: Long): List<ListItemEntity> = withContext(Dispatchers.IO) {
-        listItemDao.listForNote(noteId)
+        val ownerId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
+        val anchored = ownerId?.let { listItemDao.listForOwner(it) } ?: emptyList()
+        val legacy = listItemDao.listForNote(noteId)
+        if (legacy.isEmpty()) anchored else anchored + legacy
     }
 
     suspend fun addItemForBlock(blockId: Long, text: String): Long = withContext(Dispatchers.IO) {

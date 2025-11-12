@@ -619,6 +619,9 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE list_items_new RENAME TO list_items")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_list_items_noteId_ordering ON list_items(noteId, ordering)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_list_items_ownerBlockId ON list_items(ownerBlockId)")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_list_items_owner_order ON list_items(ownerBlockId, ordering, createdAt, id)"
+                )
             }
         }
 

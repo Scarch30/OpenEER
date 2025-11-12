@@ -256,9 +256,10 @@ class NoteListController(
         Log.d(TAG_UI, "ListUI: start observing items for note=$noteId.")
         listItemsJob = activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                val ownerId = repo.getMotherOwnerId(noteId)
+                val ownerId = repo.getCanonicalMotherTextBlockId(noteId)
+                    ?: repo.ensureCanonicalMotherTextBlock(noteId)
                 observedListOwnerId = ownerId
-                repo.observeMotherListItems(noteId).collectLatest { items ->
+                repo.observeMotherListItems(ownerId).collectLatest { items ->
                     val idsForLog = items.joinToString { it.id.toString() }
                     val threadName = Thread.currentThread().name
                     Log.d(
@@ -287,7 +288,7 @@ class NoteListController(
                         }
                     }
                     val linksFound = primaryLinks.linksByItemId.size
-                    renderListItems(enriched, linksFound)
+                    renderListItems(ownerId, enriched, linksFound)
                 }
             }
         }
@@ -301,7 +302,7 @@ class NoteListController(
         observedListOwnerId = null
     }
 
-    private fun renderListItems(items: List<ListItemEntity>, linksFound: Int) {
+    private fun renderListItems(ownerId: Long, items: List<ListItemEntity>, linksFound: Int) {
         if (!listMode) {
             Log.w(
                 TAG_UI,
@@ -323,10 +324,7 @@ class NoteListController(
         val reqId = ListUiLogTracker.last(currentNoteId)
         val reqToken = reqId.orPlaceholder()
         val ids = items.joinToString { it.id.toString() }
-        Log.d(
-            TAG_UI,
-            "UI: emit req=$reqToken note=$noteId size=${items.size} ids=[$ids]",
-        )
+        Log.d(TAG_UI, "ListUI: owner=$ownerId incomingCount=${items.size} ids=[$ids]")
 
         binding.listItemsContainer.isVisible = true
         binding.listItemsPlaceholder.isVisible = items.isEmpty()
@@ -344,7 +342,7 @@ class NoteListController(
         adapter.submitList(items) {
             Log.d(
                 TAG_UI,
-                "UI: submit done req=$reqToken adapterCount=${adapter.itemCount} linksFound=$linksFound",
+                "UI: submit done req=$reqToken adapterCount=${adapter.itemCount} linksFound=$linksFound owner=$ownerId",
             )
 
             if (pendingScrollToBottom && items.isNotEmpty()) {
