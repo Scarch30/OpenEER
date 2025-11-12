@@ -412,7 +412,7 @@ class BlocksRepository(
         val id: Long?,
         val text: String,
         val done: Boolean,
-        val order: Int,
+        val ordering: Int,
     )
 
     suspend fun convertTextBlockToList(
@@ -464,7 +464,7 @@ class BlocksRepository(
                     noteId = null,
                     ownerBlockId = blockId,
                     text = textLine,
-                    order = index,
+                    ordering = index,
                     createdAt = now + index,
                 )
             }
@@ -568,7 +568,7 @@ class BlocksRepository(
                             ownerBlockId = blockId,
                             text = trimmed,
                             done = draft.done,
-                            order = draft.order,
+                            ordering = draft.ordering,
                             provisional = false,
                         )
                         val newId = dao.insert(entity)
@@ -589,8 +589,8 @@ class BlocksRepository(
                             dao.updateDone(itemId, draft.done)
                         }
 
-                        if (current.order != draft.order) {
-                            dao.updateOrdering(itemId, draft.order)
+                        if (current.ordering != draft.ordering) {
+                            dao.updateOrdering(itemId, draft.ordering)
                         }
                     }
                 }
@@ -623,7 +623,7 @@ class BlocksRepository(
                     noteId = null,
                     ownerBlockId = blockId,
                     text = if (isBlank) "" else trimmed,
-                    order = nextOrder,
+                    ordering = nextOrder,
                     createdAt = System.currentTimeMillis(),
                     provisional = isBlank,
                 )
@@ -649,7 +649,7 @@ class BlocksRepository(
                     noteId = null,
                     ownerBlockId = blockId,
                     text = sanitized,
-                    order = nextOrder,
+                    ordering = nextOrder,
                     createdAt = System.currentTimeMillis(),
                 )
                 dao.insert(entity)
@@ -740,14 +740,14 @@ class BlocksRepository(
                     }
 
                     val now = System.currentTimeMillis()
-                    var order = (dao.maxOrderForNote(noteId) ?: -1) + 1
+                    var nextOrdering = (dao.maxOrderForNote(noteId) ?: -1) + 1
                     val ids = mutableListOf<Long>()
                     normalizedItems.forEachIndexed { index, textLine ->
                         val entity = ListItemEntity(
                             noteId = noteId,
                             ownerBlockId = hostId,
                             text = textLine,
-                            order = order++,
+                            ordering = nextOrdering++,
                             createdAt = now + index,
                         )
                         val id = dao.insert(entity, requestToken)

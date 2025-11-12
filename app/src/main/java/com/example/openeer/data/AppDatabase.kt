@@ -55,7 +55,7 @@ import com.example.openeer.data.tag.TagEntity
         InlineLinkEntity::class,
         ListItemLinkEntity::class
     ],
-    version = 31, // 🔼 bump : reminders schema normalization
+    version = 32, // 🔼 bump : list items ordering index rename
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -986,6 +986,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP INDEX IF EXISTS index_list_items_owner_order")
+                db.execSQL(
+                    """
+                        CREATE INDEX IF NOT EXISTS index_list_items_ownerBlockId_ordering_createdAt_id
+                        ON list_items(ownerBlockId, ordering, createdAt, id)
+                    """.trimIndent()
+                )
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -1023,7 +1035,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_27_28,
                         MIGRATION_28_29,
                         MIGRATION_29_30,
-                        MIGRATION_30_31
+                        MIGRATION_30_31,
+                        MIGRATION_31_32
                     )
                     .addCallback(
                         object : RoomDatabase.Callback() {
@@ -1032,6 +1045,7 @@ abstract class AppDatabase : RoomDatabase() {
                                 MIGRATION_28_29.migrate(db)
                                 MIGRATION_29_30.migrate(db)
                                 MIGRATION_30_31.migrate(db)
+                                MIGRATION_31_32.migrate(db)
                             }
                         }
                     )

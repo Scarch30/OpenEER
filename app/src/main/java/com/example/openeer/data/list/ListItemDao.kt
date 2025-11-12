@@ -14,7 +14,7 @@ data class SimpleItemRow(
     val id: Long,
     val noteId: Long?,
     @ColumnInfo(name = "ownerBlockId") val ownerBlockId: Long?,
-    @ColumnInfo(name = "order") val order: Int,
+    @ColumnInfo(name = "ordering") val ordering: Int,
     val text: String,
 )
 
@@ -27,7 +27,7 @@ abstract class ListItemDao {
         val label = item.text.replace('\n', ' ')
         Log.d(
             LIST_DAO_TAG,
-            "DAO_INSERT_ATTEMPT req=${reqId ?: "none"} text='${label}' order=${item.order}",
+            "DAO_INSERT_ATTEMPT req=${reqId ?: "none"} text='${label}' order=${item.ordering}",
         )
         return try {
             val id = insertInternal(item)
@@ -54,7 +54,7 @@ abstract class ListItemDao {
             val label = item.text.replace('\n', ' ')
             Log.d(
                 LIST_DAO_TAG,
-                "DAO_INSERT_ATTEMPT req=${reqId ?: "none"} text='${label}' order=${item.order}",
+                "DAO_INSERT_ATTEMPT req=${reqId ?: "none"} text='${label}' order=${item.ordering}",
             )
         }
         return try {
@@ -103,8 +103,8 @@ abstract class ListItemDao {
     @Query("SELECT * FROM list_items WHERE ownerBlockId = :ownerBlockId ORDER BY ordering ASC")
     abstract suspend fun listForOwner(ownerBlockId: Long): List<ListItemEntity>
 
-    @Query("UPDATE list_items SET ordering = :order WHERE id = :itemId")
-    abstract suspend fun updateOrdering(itemId: Long, order: Int)
+    @Query("UPDATE list_items SET ordering = :newOrdering WHERE id = :itemId")
+    abstract suspend fun updateOrdering(itemId: Long, newOrdering: Int)
 
     @Query("DELETE FROM list_items WHERE noteId = :noteId AND ownerBlockId IS NULL")
     abstract suspend fun deleteForNote(noteId: Long)
@@ -132,7 +132,7 @@ abstract class ListItemDao {
     abstract fun observeItemsByOwner(ownerBlockId: Long): Flow<List<ListItemEntity>>
 
     @Query(
-        "SELECT id, noteId, ownerBlockId, ordering AS \"order\", text FROM list_items " +
+        "SELECT id, noteId, ownerBlockId, ordering, text FROM list_items " +
             "WHERE ownerBlockId=:ownerId ORDER BY id DESC",
     )
     abstract suspend fun debugDump(ownerId: Long): List<SimpleItemRow>
