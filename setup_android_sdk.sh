@@ -1,5 +1,14 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
+
+finish() {
+    local exit_code=$1
+    if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+        exit "$exit_code"
+    else
+        return "$exit_code"
+    fi
+}
 
 # --- Configuration ---
 SDK_DIR="android_sdk"
@@ -21,7 +30,7 @@ if [ -d "$SDK_DIR" ]; then
     export ANDROID_HOME="$(pwd)/$SDK_DIR"
     export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
     echo "✅ Les variables d'environnement ont été configurées pour la session actuelle."
-    return 0
+    finish 0
 fi
 
 echo "--- Démarrage de l'installation du SDK Android ---"
@@ -40,7 +49,7 @@ fi
 
 if [ -z "$COMPILE_SDK" ]; then
     echo "❌ Erreur: Impossible de trouver 'compileSdk' dans app/build.gradle.kts."
-    exit 1
+    finish 1
 fi
 echo "   - Version compileSdk détectée : $COMPILE_SDK"
 echo "   - Version buildTools utilisée : $BUILD_TOOLS"
@@ -70,3 +79,4 @@ sdkmanager "platform-tools" "platforms;android-$COMPILE_SDK" "build-tools;$BUILD
 echo "✅ --- Installation terminée avec succès! ---"
 echo "Les variables d'environnement ANDROID_HOME et PATH ont été configurées pour cette session."
 echo "Pour les utiliser, vous pouvez sourcer ce script: source setup_android_sdk.sh"
+finish 0
