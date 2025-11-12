@@ -228,7 +228,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
                     id = item.id.takeIf { it > 0 },
                     text = trimmed,
                     done = item.done,
-                    order = index,
+                    ordering = index,
                 )
             }
         }
@@ -287,7 +287,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
             id = newId,
             ownerBlockId = existingBlockId,
             text = "",
-            order = localListItems.size,
+            ordering = localListItems.size,
             provisional = true,
         )
         if (listContext == ListContext.BLOCK) {
@@ -330,8 +330,8 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
         if (listContext != ListContext.BLOCK) {
             localListItems.indices.forEach { index ->
                 val current = localListItems[index]
-                if (current.order != index) {
-                    localListItems[index] = current.copy(order = index)
+                if (current.ordering != index) {
+                    localListItems[index] = current.copy(ordering = index)
                 }
             }
         }
@@ -432,7 +432,7 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
                     id = id,
                     ownerBlockId = existingBlockId,
                     text = line,
-                    order = localListItems.size,
+                    ordering = localListItems.size,
                     provisional = false,
                 )
             )
@@ -475,8 +475,8 @@ class ChildPostitSheet : BottomSheetDialogFragment() {
 
     private fun applyObservedBlockItems(items: List<ListItemEntity>) {
         if (listContext != ListContext.BLOCK) return
-        val placeholders = localListItems.filter { it.id <= 0 }.sortedBy { it.order }
-        val sorted = items.sortedBy { it.order }
+        val placeholders = localListItems.filter { it.id <= 0 }.sortedBy { it.ordering }
+        val sorted = items.sortedBy { it.ordering }
         localListItems.clear()
         sorted.forEach { entity -> localListItems.add(entity.copy()) }
         placeholders.forEach { placeholder ->

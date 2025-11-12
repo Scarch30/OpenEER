@@ -225,7 +225,7 @@ class NoteRepository(
                 noteId = noteId,
                 ownerBlockId = hostId,
                 text = t,
-                order = nextOrder,
+                ordering = nextOrder,
                 createdAt = System.currentTimeMillis()
             )
 
@@ -254,7 +254,7 @@ class NoteRepository(
                 noteId = noteId,
                 ownerBlockId = hostId,
                 text = text,
-                order = maxOf(ownerMax, legacyMax) + 1,
+                ordering = maxOf(ownerMax, legacyMax) + 1,
                 createdAt = System.currentTimeMillis(),
                 provisional = true
             )
@@ -332,7 +332,7 @@ class NoteRepository(
                 noteId = null,
                 ownerBlockId = blockId,
                 text = trimmed,
-                order = nextOrder,
+                ordering = nextOrder,
                 createdAt = System.currentTimeMillis()
             )
 
@@ -462,7 +462,7 @@ class NoteRepository(
 
             val reordered = undone + done
             reordered.forEachIndexed { index, item ->
-                if (item.order != index) {
+                if (item.ordering != index) {
                     listItemDao.updateOrdering(item.id, index)
                 }
             }
@@ -515,7 +515,7 @@ class NoteRepository(
                     noteId = noteId,
                     ownerBlockId = hostId,
                     text = text,
-                    order = index,
+                    ordering = index,
                     createdAt = now + index
                 )
             }

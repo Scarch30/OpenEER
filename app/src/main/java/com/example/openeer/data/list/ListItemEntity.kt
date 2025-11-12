@@ -30,7 +30,10 @@ import com.example.openeer.data.block.BlockEntity
     indices = [
         Index(value = ["noteId", "ordering"]),
         Index(value = ["ownerBlockId"]),
-        Index(value = ["ownerBlockId", "ordering", "createdAt", "id"]),
+        Index(
+            value = ["ownerBlockId", "ordering", "createdAt", "id"],
+            name = "index_list_items_ownerBlockId_ordering_createdAt_id"
+        ),
     ]
 )
 data class ListItemEntity(
@@ -39,7 +42,7 @@ data class ListItemEntity(
     @ColumnInfo(name = "ownerBlockId") val ownerBlockId: Long? = null,
     val text: String,
     val done: Boolean = false,
-    @ColumnInfo(name = "ordering") val order: Int,
+    @ColumnInfo(name = "ordering") val ordering: Int,
     val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(defaultValue = "0") val provisional: Boolean = false,
 ) {
