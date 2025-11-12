@@ -106,7 +106,7 @@ abstract class ListItemDao {
     @Query("UPDATE list_items SET ordering = :newOrdering WHERE id = :itemId")
     abstract suspend fun updateOrdering(itemId: Long, newOrdering: Int)
 
-    @Query("DELETE FROM list_items WHERE noteId = :noteId AND ownerBlockId IS NULL")
+    @Query("DELETE FROM list_items WHERE noteId = :noteId")
     abstract suspend fun deleteForNote(noteId: Long)
 
     @Query("DELETE FROM list_items WHERE id IN (:itemIds)")
@@ -137,6 +137,6 @@ abstract class ListItemDao {
     )
     abstract suspend fun debugDump(ownerId: Long): List<SimpleItemRow>
 
-    @Query("DELETE FROM list_items WHERE ownerBlockId = :blockId AND noteId IS NULL")
+    @Query("DELETE FROM list_items WHERE ownerBlockId = :blockId")
     abstract suspend fun deleteForBlock(blockId: Long)
 }

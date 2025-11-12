@@ -115,6 +115,7 @@ class NoteRepositoryTest {
 
         val items = database.listItemDao().listForBlock(hostBlockId)
         assertEquals(listOf("Buy apples", linkLabel), items.map { it.text })
+        assertTrue(items.all { it.noteId == null && it.ownerBlockId == hostBlockId })
 
         val firstLinks = database.listItemLinkDao().selectAllForItem(items[0].id)
         assertTrue(firstLinks.isEmpty())
@@ -125,5 +126,45 @@ class NoteRepositoryTest {
         assertEquals(targetBlockId, link.targetBlockId)
         assertEquals(0, link.start)
         assertEquals(linkLabel.length, link.end)
+    }
+
+    @Test
+    fun convertNoteToList_roundTripMaintainsItemCount() = runBlocking {
+        val now = System.currentTimeMillis()
+        val bodyLines = listOf("Buy apples", "Call Bob", "Write report")
+        val noteId = database.noteDao().insert(
+            Note(
+                title = "Checklist",
+                body = bodyLines.joinToString(separator = "\n"),
+                createdAt = now,
+                updatedAt = now,
+                type = NoteType.PLAIN,
+            )
+        )
+
+        val firstConversion = repository.convertNoteToList(noteId)
+        assertTrue(firstConversion is NoteRepository.NoteConversionResult.Converted)
+        firstConversion as NoteRepository.NoteConversionResult.Converted
+        assertEquals(bodyLines.size, firstConversion.itemCount)
+
+        val hostId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
+        checkNotNull(hostId)
+        val initialItems = database.listItemDao().listForBlock(hostId)
+        assertEquals(bodyLines, initialItems.map { it.text })
+        assertTrue(initialItems.all { it.noteId == null && it.ownerBlockId == hostId })
+
+        val plainBody = repository.convertNoteToPlain(noteId)
+        assertEquals(bodyLines.joinToString(separator = "\n"), plainBody)
+
+        val secondConversion = repository.convertNoteToList(noteId)
+        assertTrue(secondConversion is NoteRepository.NoteConversionResult.Converted)
+        secondConversion as NoteRepository.NoteConversionResult.Converted
+        assertEquals(bodyLines.size, secondConversion.itemCount)
+
+        val refreshedHostId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
+        checkNotNull(refreshedHostId)
+        val items = database.listItemDao().listForBlock(refreshedHostId)
+        assertEquals(bodyLines, items.map { it.text })
+        assertEquals(items.size, items.map { it.id }.toSet().size)
     }
 }
