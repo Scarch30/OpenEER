@@ -17,6 +17,7 @@ import com.example.openeer.domain.ReminderUseCases
 import com.example.openeer.voice.VoiceListCommandParser
 import com.google.gson.Gson
 import kotlin.collections.ArrayDeque
+import kotlin.collections.LinkedHashMap
 import kotlin.collections.LinkedHashSet
 import kotlin.collections.buildList
 import kotlinx.coroutines.Dispatchers
@@ -506,9 +507,11 @@ class NoteRepository(
                 lines.removeAt(0)
             }
 
-            listItemDao.deleteForNote(noteId)
-
             val hostId = blocksRepository.ensureCanonicalMotherTextBlock(noteId)
+
+            listItemDao.deleteForNote(noteId)
+            listItemDao.deleteForBlock(hostId)
+
             val now = System.currentTimeMillis()
             val items = lines.mapIndexed { index, text ->
                 ListItemEntity(
@@ -519,12 +522,14 @@ class NoteRepository(
                     createdAt = now + index
                 )
             }
+
             if (items.isNotEmpty()) {
                 listItemDao.insertAll(items)
                 Log.i(TAG, "convertNoteToList: noteId=$noteId created ${items.size} items")
             } else {
                 Log.i(TAG, "convertNoteToList: noteId=$noteId converted empty body to LIST")
             }
+
             noteDao.updateBodyAndType(noteId, "", NoteType.LIST, now)
             NoteConversionResult.Converted(items.size)
         }
@@ -540,22 +545,34 @@ class NoteRepository(
                 return@withTransaction body
             }
 
-            // 🔍 Nouvelle logique : lecture par ownerBlockId si présent
             val ownerId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
             val ownerItems = ownerId?.let { listItemDao.listForOwner(it) } ?: emptyList()
             val legacyItems = listItemDao.listForNote(noteId)
-            val allItems = if (legacyItems.isEmpty()) ownerItems else ownerItems + legacyItems
 
-            val filteredTexts = allItems
-                .map { it.text.trim() }
-                .filterNot { VoiceListCommandParser.looksLikeConvertToText(it) }
+            val combinedItems = buildList {
+                addAll(ownerItems)
+                addAll(legacyItems)
+            }
+
+            val deduped = LinkedHashMap<Long, ListItemEntity>()
+            for (item in combinedItems) {
+                deduped[item.id] = item
+            }
+
+            val orderedItems = deduped.values.sortedWith(compareBy<ListItemEntity> { it.ordering }.thenBy { it.id })
+
+            val filteredTexts = orderedItems.mapNotNull { item ->
+                val trimmed = item.text.trim()
+                if (trimmed.isEmpty()) return@mapNotNull null
+                if (VoiceListCommandParser.looksLikeConvertToText(trimmed)) return@mapNotNull null
+                item.text
+            }
 
             val plainBody = filteredTexts.joinToString(separator = "\n")
             val now = System.currentTimeMillis()
 
             noteDao.updateBodyAndType(noteId, plainBody, NoteType.PLAIN, now)
 
-            // 🧹 Supprime les items liés (peu importe le modèle)
             listItemDao.deleteForNote(noteId)
             ownerId?.let { listItemDao.deleteForBlock(it) }
 

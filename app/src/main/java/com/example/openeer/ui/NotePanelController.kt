@@ -11,8 +11,10 @@ import android.text.TextPaint
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
 import android.text.style.StyleSpan
+import android.text.util.Linkify
 import android.view.View
 import android.widget.EditText
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
@@ -524,7 +526,6 @@ class NotePanelController(
             return
         }
         val editor = binding.bodyEditor
-        editor.movementMethod = LinkMovementMethod.getInstance()
         editor.highlightColor = Color.TRANSPARENT
         val editorText = editor.text
         val current = editorText?.toString() ?: ""
@@ -564,6 +565,7 @@ class NotePanelController(
             text.length
         }
         editor.setText(spannable)
+        ensurePlainBodyLinkSupport(editor)
         editor.setSelection(targetSelection)
     }
 
@@ -627,6 +629,7 @@ class NotePanelController(
         // Applique visuellement le corps tout de suite
         val editor = binding.bodyEditor
         editor.setText(body)
+        ensurePlainBodyLinkSupport(editor)
         if (body.isNotEmpty()) {
             editor.setSelection(body.length)
         }
@@ -716,6 +719,7 @@ class NotePanelController(
                     )
                 }
                 editor.setText(bodyToDisplay)
+                ensurePlainBodyLinkSupport(editor)
                 if (bodyToDisplay.isNotEmpty()) {
                     editor.setSelection(bodyToDisplay.length)
                 }
@@ -740,6 +744,12 @@ class NotePanelController(
             binding.noteMetaFooter.isVisible || binding.noteReminderBadge.isVisible
     }
 
+
+    private fun ensurePlainBodyLinkSupport(editor: TextView) {
+        Linkify.addLinks(editor, Linkify.ALL)
+        editor.movementMethod = LinkMovementMethod.getInstance()
+        editor.linksClickable = true
+    }
 
     private fun promptEditTitle() {
         val note = currentNote ?: return
