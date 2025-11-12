@@ -55,7 +55,7 @@ import com.example.openeer.data.tag.TagEntity
         InlineLinkEntity::class,
         ListItemLinkEntity::class
     ],
-    version = 30, // 🔼 bump : list owner backfill
+    version = 31, // 🔼 bump : reminders schema normalization
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -870,6 +870,122 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val existingColumns = db.query("PRAGMA table_info(reminders)").use { cursor ->
+                    buildSet {
+                        while (cursor.moveToNext()) {
+                            add(cursor.getString(1))
+                        }
+                    }
+                }
+
+                fun hasColumn(name: String) = existingColumns.contains(name)
+
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS reminders_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            noteId INTEGER NOT NULL,
+                            blockId INTEGER,
+                            label TEXT,
+                            type TEXT NOT NULL,
+                            nextTriggerAt INTEGER NOT NULL,
+                            lastFiredAt INTEGER,
+                            lat REAL,
+                            lon REAL,
+                            radius INTEGER,
+                            status TEXT NOT NULL,
+                            cooldownMinutes INTEGER,
+                            repeatEveryMinutes INTEGER,
+                            triggerOnExit INTEGER NOT NULL DEFAULT 0,
+                            disarmedUntilExit INTEGER NOT NULL DEFAULT 0,
+                            delivery TEXT NOT NULL,
+                            armedAt INTEGER,
+                            FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE,
+                            FOREIGN KEY(blockId) REFERENCES blocks(id) ON DELETE SET NULL
+                        )
+                    """.trimIndent()
+                )
+
+                val selectBlockId = if (hasColumn("blockId")) "blockId" else "NULL"
+                val selectLabel = if (hasColumn("label")) "label" else "NULL"
+                val selectLastFiredAt = if (hasColumn("lastFiredAt")) "lastFiredAt" else "NULL"
+                val selectLat = if (hasColumn("lat")) "lat" else "NULL"
+                val selectLon = if (hasColumn("lon")) "lon" else "NULL"
+                val selectRadius = if (hasColumn("radius")) "radius" else "NULL"
+                val selectCooldown = if (hasColumn("cooldownMinutes")) "cooldownMinutes" else "NULL"
+                val selectRepeat = if (hasColumn("repeatEveryMinutes")) "repeatEveryMinutes" else "NULL"
+                val selectTrigger = if (hasColumn("triggerOnExit")) {
+                    "CASE WHEN triggerOnExit IS NULL OR triggerOnExit = 0 THEN 0 ELSE 1 END"
+                } else {
+                    "0"
+                }
+                val selectDisarmed = if (hasColumn("disarmedUntilExit")) {
+                    "CASE WHEN disarmedUntilExit IS NULL OR disarmedUntilExit = 0 THEN 0 ELSE 1 END"
+                } else {
+                    "0"
+                }
+                val selectDelivery = if (hasColumn("delivery")) {
+                    "CASE WHEN delivery IS NULL OR delivery = '' THEN 'NOTIFICATION' ELSE delivery END"
+                } else {
+                    "'NOTIFICATION'"
+                }
+                val selectArmedAt = if (hasColumn("armedAt")) "armedAt" else "NULL"
+
+                if (existingColumns.isNotEmpty()) {
+                    db.execSQL(
+                        """
+                            INSERT INTO reminders_new (
+                                id,
+                                noteId,
+                                blockId,
+                                label,
+                                type,
+                                nextTriggerAt,
+                                lastFiredAt,
+                                lat,
+                                lon,
+                                radius,
+                                status,
+                                cooldownMinutes,
+                                repeatEveryMinutes,
+                                triggerOnExit,
+                                disarmedUntilExit,
+                                delivery,
+                                armedAt
+                            )
+                            SELECT
+                                id,
+                                noteId,
+                                $selectBlockId,
+                                $selectLabel,
+                                type,
+                                nextTriggerAt,
+                                $selectLastFiredAt,
+                                $selectLat,
+                                $selectLon,
+                                $selectRadius,
+                                status,
+                                $selectCooldown,
+                                $selectRepeat,
+                                $selectTrigger,
+                                $selectDisarmed,
+                                $selectDelivery,
+                                $selectArmedAt
+                            FROM reminders
+                        """.trimIndent()
+                    )
+                }
+
+                db.execSQL("DROP TABLE IF EXISTS reminders")
+                db.execSQL("ALTER TABLE reminders_new RENAME TO reminders")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_noteId ON reminders(noteId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_blockId ON reminders(blockId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reminders_status_nextTriggerAt ON reminders(status, nextTriggerAt)")
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -906,7 +1022,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_26_27,
                         MIGRATION_27_28,
                         MIGRATION_28_29,
-                        MIGRATION_29_30
+                        MIGRATION_29_30,
+                        MIGRATION_30_31
                     )
                     .addCallback(
                         object : RoomDatabase.Callback() {
@@ -914,6 +1031,7 @@ abstract class AppDatabase : RoomDatabase() {
                                 super.onCreate(db)
                                 MIGRATION_28_29.migrate(db)
                                 MIGRATION_29_30.migrate(db)
+                                MIGRATION_30_31.migrate(db)
                             }
                         }
                     )
