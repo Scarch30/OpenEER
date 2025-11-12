@@ -71,6 +71,8 @@ class MergeHistoryFragment : Fragment() {
             db.blockReadDao(),
             blocksRepository,
             db.listItemDao(),
+            db.inlineLinkDao(),
+            db.listItemLinkDao(),
             database = db
         )
 

@@ -53,6 +53,8 @@ class RecorderService : Service() {
             db.blockReadDao(),
             blocks,
             db.listItemDao(),
+            db.inlineLinkDao(),
+            db.listItemLinkDao(),
             database = db
         )
         blocksRepo = blocks

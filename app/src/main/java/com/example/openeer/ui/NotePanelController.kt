@@ -63,6 +63,8 @@ class NotePanelController(
             db.blockReadDao(),
             blocksRepo,
             db.listItemDao(),
+            db.inlineLinkDao(),
+            db.listItemLinkDao(),
             database = db,
         )
     }

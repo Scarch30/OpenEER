@@ -1644,6 +1644,8 @@ class BlocksRepository(
                     ListItemLinkEntity(
                         listItemId = listItemId,
                         targetBlockId = targetBlockId,
+                        start = 0,
+                        end = item.text.length,
                     )
                 )
                 inserted != -1L

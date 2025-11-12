@@ -81,6 +81,8 @@ class LibraryViewModel(
                 db.blockReadDao(),
                 blocksRepo,
                 db.listItemDao(),
+                db.inlineLinkDao(),
+                db.listItemLinkDao(),
                 database = db
             )
             return LibraryViewModel(repo, noteRepo)
