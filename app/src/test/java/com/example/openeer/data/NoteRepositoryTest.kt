@@ -262,4 +262,147 @@ class NoteRepositoryTest {
         val remainingItems = database.listItemDao().listForBlock(hostBlockId)
         assertTrue(remainingItems.isEmpty())
     }
+
+    @Test
+    fun convertNoteToPlain_thenBackToList_preservesLinksAndDedupesInline() = runBlocking {
+        val now = System.currentTimeMillis()
+        val noteId = database.noteDao().insert(
+            Note(
+                title = "Checklist",
+                body = "",
+                createdAt = now,
+                updatedAt = now,
+                type = NoteType.LIST,
+            )
+        )
+
+        val blockDao = database.blockDao()
+        val hostBlockId = blockDao.insert(
+            BlockEntity(
+                noteId = noteId,
+                type = BlockType.TEXT,
+                position = 0,
+                text = "",
+                createdAt = now,
+                updatedAt = now,
+            )
+        )
+
+        val linkedNoteId = database.noteDao().insert(
+            Note(
+                title = "Linked",
+                body = "Target body",
+                createdAt = now,
+                updatedAt = now,
+                type = NoteType.PLAIN,
+            )
+        )
+        val targetBlockId = blockDao.insert(
+            BlockEntity(
+                noteId = linkedNoteId,
+                type = BlockType.TEXT,
+                position = 0,
+                text = "Target",
+                createdAt = now,
+                updatedAt = now,
+            )
+        )
+
+        val listItemDao = database.listItemDao()
+        val firstItemId = listItemDao.insert(
+            ListItemEntity(
+                ownerBlockId = hostBlockId,
+                text = "Buy apples",
+                ordering = 0,
+                createdAt = now,
+            )
+        )
+        val secondItemId = listItemDao.insert(
+            ListItemEntity(
+                ownerBlockId = hostBlockId,
+                text = "Call Bob",
+                ordering = 1,
+                createdAt = now,
+            )
+        )
+
+        database.listItemLinkDao().insertOrIgnore(
+            ListItemLinkEntity(
+                listItemId = secondItemId,
+                targetBlockId = targetBlockId,
+                start = 0,
+                end = "Call Bob".length,
+            )
+        )
+
+        val inlineLinkDao = database.inlineLinkDao()
+        inlineLinkDao.insertOrIgnore(
+            InlineLinkEntity(
+                hostBlockId = hostBlockId,
+                start = 0,
+                end = 4,
+                targetBlockId = targetBlockId,
+            )
+        )
+        inlineLinkDao.insertOrIgnore(
+            InlineLinkEntity(
+                hostBlockId = hostBlockId,
+                start = 50,
+                end = 55,
+                targetBlockId = targetBlockId,
+            )
+        )
+
+        val plainBody = repository.convertNoteToPlain(noteId)
+        assertEquals("Buy apples\nCall Bob", plainBody)
+
+        val inlineLinks = inlineLinkDao.selectAllForHost(hostBlockId)
+        assertEquals(1, inlineLinks.size)
+        val inlineLink = inlineLinks.first()
+        val firstLength = "Buy apples".length
+        val secondLength = "Call Bob".length
+        assertEquals(firstLength + 1, inlineLink.start)
+        assertEquals(firstLength + 1 + secondLength, inlineLink.end)
+        assertEquals(targetBlockId, inlineLink.targetBlockId)
+
+        val updatedNote = database.noteDao().getByIdOnce(noteId)
+        checkNotNull(updatedNote)
+        assertEquals(NoteType.PLAIN, updatedNote.type)
+        assertEquals(plainBody, updatedNote.body)
+
+        val listConversion = repository.convertNoteToList(noteId)
+        assertTrue(listConversion is NoteRepository.NoteConversionResult.Converted)
+        listConversion as NoteRepository.NoteConversionResult.Converted
+        assertEquals(2, listConversion.itemCount)
+
+        val refreshedHostId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
+        checkNotNull(refreshedHostId)
+        assertEquals(hostBlockId, refreshedHostId)
+
+        val restoredItems = listItemDao.listForBlock(refreshedHostId)
+        assertEquals(listOf("Buy apples", "Call Bob"), restoredItems.map { it.text })
+
+        val firstLinks = database.listItemLinkDao().selectAllForItem(restoredItems[0].id)
+        assertTrue(firstLinks.isEmpty())
+
+        val secondLinks = database.listItemLinkDao().selectAllForItem(restoredItems[1].id)
+        assertEquals(1, secondLinks.size)
+        val restoredLink = secondLinks.first()
+        assertEquals(targetBlockId, restoredLink.targetBlockId)
+        assertEquals(0, restoredLink.start)
+        assertEquals(secondLength, restoredLink.end)
+
+        val secondPlain = repository.convertNoteToPlain(noteId)
+        assertEquals("Buy apples\nCall Bob", secondPlain)
+
+        val inlineLinksAfterSecond = inlineLinkDao.selectAllForHost(hostBlockId)
+        assertEquals(1, inlineLinksAfterSecond.size)
+        val dedupedLink = inlineLinksAfterSecond.first()
+        assertEquals(inlineLink.start, dedupedLink.start)
+        assertEquals(inlineLink.end, dedupedLink.end)
+        assertEquals(targetBlockId, dedupedLink.targetBlockId)
+
+        val remainingItems = listItemDao.listForBlock(hostBlockId)
+        assertTrue(remainingItems.isEmpty())
+    }
 }
