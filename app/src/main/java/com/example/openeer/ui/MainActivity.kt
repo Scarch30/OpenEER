@@ -84,6 +84,8 @@ class MainActivity : AppCompatActivity() {
                         db.blockReadDao(),
                         blocksRepo,
                         db.listItemDao(),
+                        db.inlineLinkDao(),
+                        db.listItemLinkDao(),
                         database = db
                     )
                 ) as T
@@ -105,6 +107,8 @@ class MainActivity : AppCompatActivity() {
             db.blockReadDao(),
             blocksRepo,
             db.listItemDao(),
+            db.inlineLinkDao(),
+            db.listItemLinkDao(),
             database = db
         )
     }

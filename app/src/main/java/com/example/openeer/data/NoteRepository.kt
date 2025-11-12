@@ -10,6 +10,10 @@ import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.list.ListItemDao
 import com.example.openeer.data.list.ListItemEntity
+import com.example.openeer.data.link.InlineLinkDao
+import com.example.openeer.data.link.InlineLinkEntity
+import com.example.openeer.data.link.ListItemLinkDao
+import com.example.openeer.data.link.ListItemLinkEntity
 import com.example.openeer.data.merge.MergeSnapshot
 import com.example.openeer.data.merge.computeBlockHash
 import com.example.openeer.data.merge.toSnapshot
@@ -33,6 +37,8 @@ class NoteRepository(
     private val blockReadDao: BlockReadDao,
     private val blocksRepository: BlocksRepository,
     private val listItemDao: ListItemDao,
+    private val inlineLinkDao: InlineLinkDao,
+    private val listItemLinkDao: ListItemLinkDao,
     private val database: AppDatabase = AppDatabase.getInstance(appContext)
 ) {
     val allNotes = noteDao.getAllFlow()
@@ -497,34 +503,59 @@ class NoteRepository(
                 return@withTransaction NoteConversionResult.AlreadyTarget
             }
 
-            val lines = note.body.split('\n')
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .toMutableList()
-
-            val title = note.title?.trim()?.takeIf { it.isNotEmpty() }
-            if (!title.isNullOrEmpty() && lines.isNotEmpty() && lines.first() == title) {
-                lines.removeAt(0)
-            }
-
             val hostId = blocksRepository.ensureCanonicalMotherTextBlock(noteId)
+            val hostBlock = database.blockDao().getById(hostId)
+            val blockContent = hostBlock?.let { blocksRepository.extractTextContent(it) }
+            val bodySource = blockContent?.body?.ifEmpty { null } ?: note.body
+            val normalizedTitle = note.title?.trim()?.takeIf { it.isNotEmpty() }
+            val itemEntries = parseBodyIntoItemEntries(bodySource, normalizedTitle)
+            val inlineLinks = inlineLinkDao.selectAllForHost(hostId)
+            val bodyStartOffset = resolveBodyStartOffset(
+                combinedText = hostBlock?.text.orEmpty(),
+                bodyText = bodySource,
+                blockTitle = blockContent?.title,
+            )
+            val linkSpecsByIndex = mapInlineLinksToItems(
+                inlineLinks = inlineLinks,
+                itemEntries = itemEntries,
+                bodyStartOffset = bodyStartOffset,
+                bodyLength = bodySource.length,
+            )
 
             listItemDao.deleteForNote(noteId)
             listItemDao.deleteForBlock(hostId)
 
             val now = System.currentTimeMillis()
-            val items = lines.mapIndexed { index, text ->
+            val items = itemEntries.mapIndexed { index, entry ->
                 ListItemEntity(
                     noteId = noteId,
                     ownerBlockId = hostId,
-                    text = text,
+                    text = entry.trimmedText,
                     ordering = index,
                     createdAt = now + index
                 )
             }
 
             if (items.isNotEmpty()) {
-                listItemDao.insertAll(items)
+                val insertedIds = listItemDao.insertAll(items)
+                val linkEntities = buildList {
+                    insertedIds.forEachIndexed { index, itemId ->
+                        val specs = linkSpecsByIndex[index] ?: return@forEachIndexed
+                        specs.forEach { spec ->
+                            add(
+                                ListItemLinkEntity(
+                                    listItemId = itemId,
+                                    targetBlockId = spec.targetBlockId,
+                                    start = spec.relativeStart,
+                                    end = spec.relativeEnd,
+                                )
+                            )
+                        }
+                    }
+                }
+                if (linkEntities.isNotEmpty()) {
+                    listItemLinkDao.insertAll(linkEntities)
+                }
                 Log.i(TAG, "convertNoteToList: noteId=$noteId created ${items.size} items")
             } else {
                 Log.i(TAG, "convertNoteToList: noteId=$noteId converted empty body to LIST")
@@ -532,6 +563,113 @@ class NoteRepository(
 
             noteDao.updateBodyAndType(noteId, "", NoteType.LIST, now)
             NoteConversionResult.Converted(items.size)
+        }
+    }
+
+    private data class LineEntry(
+        val trimmedText: String,
+        val rawStart: Int,
+        val rawEnd: Int,
+        val trimmedStart: Int,
+        val trimmedEnd: Int,
+    )
+
+    private data class LinkSpec(
+        val relativeStart: Int,
+        val relativeEnd: Int,
+        val targetBlockId: Long,
+    )
+
+    private fun parseBodyIntoItemEntries(body: String, normalizedTitle: String?): List<LineEntry> {
+        if (body.isEmpty()) return emptyList()
+        val entries = mutableListOf<LineEntry>()
+        var cursor = 0
+        val bodyLength = body.length
+        while (cursor <= bodyLength) {
+            val newlineIndex = body.indexOf('\n', cursor)
+            val end = if (newlineIndex == -1) bodyLength else newlineIndex
+            val rawLine = body.substring(cursor, end)
+            val leadingTrim = rawLine.indexOfFirst { !it.isWhitespace() }.let { index ->
+                if (index == -1) rawLine.length else index
+            }
+            val trailingTrimExclusive = rawLine.indexOfLast { !it.isWhitespace() }.let { index ->
+                if (index == -1) leadingTrim else index + 1
+            }
+            val trimmedText = rawLine.substring(leadingTrim, trailingTrimExclusive)
+            val trimmedStart = cursor + leadingTrim
+            val trimmedEnd = cursor + trailingTrimExclusive
+            entries += LineEntry(
+                trimmedText = trimmedText,
+                rawStart = cursor,
+                rawEnd = end,
+                trimmedStart = trimmedStart,
+                trimmedEnd = trimmedEnd,
+            )
+            if (newlineIndex == -1) break
+            cursor = newlineIndex + 1
+        }
+        val filtered = entries.filter { it.trimmedText.isNotEmpty() }.toMutableList()
+        if (filtered.isNotEmpty()) {
+            val candidateTitle = normalizedTitle
+            if (!candidateTitle.isNullOrEmpty() && filtered.first().trimmedText == candidateTitle) {
+                filtered.removeAt(0)
+            }
+        }
+        return filtered
+    }
+
+    private fun mapInlineLinksToItems(
+        inlineLinks: List<InlineLinkEntity>,
+        itemEntries: List<LineEntry>,
+        bodyStartOffset: Int,
+        bodyLength: Int,
+    ): Map<Int, List<LinkSpec>> {
+        if (inlineLinks.isEmpty() || itemEntries.isEmpty() || bodyLength <= 0) return emptyMap()
+        val specs = mutableMapOf<Int, MutableList<LinkSpec>>()
+        inlineLinks.forEach { link ->
+            val bodyStart = link.start - bodyStartOffset
+            val bodyEnd = link.end - bodyStartOffset
+            if (bodyEnd <= bodyStart) return@forEach
+            if (bodyEnd <= 0) return@forEach
+            if (bodyStart >= bodyLength) return@forEach
+            val adjustedStart = bodyStart.coerceIn(0, bodyLength)
+            val adjustedEnd = bodyEnd.coerceIn(0, bodyLength)
+            if (adjustedEnd <= adjustedStart) return@forEach
+
+            val entryIndex = itemEntries.indexOfFirst { entry ->
+                adjustedStart >= entry.rawStart && adjustedStart < entry.rawEnd
+            }
+            if (entryIndex == -1) return@forEach
+            val entry = itemEntries[entryIndex]
+            if (bodyEnd > entry.rawEnd) return@forEach
+
+            val safeStart = adjustedStart.coerceAtLeast(entry.trimmedStart)
+            val safeEnd = adjustedEnd.coerceAtMost(entry.trimmedEnd)
+            if (safeEnd <= safeStart) return@forEach
+
+            val relativeStart = safeStart - entry.trimmedStart
+            val relativeEnd = safeEnd - entry.trimmedStart
+            if (relativeStart >= relativeEnd) return@forEach
+
+            specs.getOrPut(entryIndex) { mutableListOf() }
+                .add(LinkSpec(relativeStart, relativeEnd, link.targetBlockId))
+        }
+        return specs
+    }
+
+    private fun resolveBodyStartOffset(
+        combinedText: String,
+        bodyText: String,
+        blockTitle: String?,
+    ): Int {
+        if (combinedText.isEmpty() || bodyText.isEmpty()) return 0
+        val direct = combinedText.indexOf(bodyText)
+        if (direct >= 0) return direct
+        val normalizedTitle = blockTitle?.trim()?.takeIf { it.isNotEmpty() }
+        return if (!normalizedTitle.isNullOrEmpty()) {
+            normalizedTitle.length + 2
+        } else {
+            0
         }
     }
 

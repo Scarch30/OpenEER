@@ -55,7 +55,7 @@ import com.example.openeer.data.tag.TagEntity
         InlineLinkEntity::class,
         ListItemLinkEntity::class
     ],
-    version = 32, // 🔼 bump : list items ordering index rename
+    version = 33, // 🔼 bump : list item links span range support
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -827,9 +827,12 @@ abstract class AppDatabase : RoomDatabase() {
                             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                             listItemId INTEGER NOT NULL,
                             targetBlockId INTEGER NOT NULL,
+                            start INTEGER NOT NULL DEFAULT 0,
+                            end INTEGER NOT NULL DEFAULT 0,
                             createdAt INTEGER NOT NULL,
                             FOREIGN KEY(listItemId) REFERENCES list_items(id) ON DELETE CASCADE,
-                            FOREIGN KEY(targetBlockId) REFERENCES blocks(id) ON DELETE CASCADE
+                            FOREIGN KEY(targetBlockId) REFERENCES blocks(id) ON DELETE CASCADE,
+                            CHECK (start <= end)
                         )
                     """.trimIndent()
                 )
@@ -837,8 +840,8 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_list_item_links_targetBlockId ON list_item_links(targetBlockId)")
                 db.execSQL(
                     """
-                        CREATE UNIQUE INDEX IF NOT EXISTS index_list_item_links_unique
-                        ON list_item_links(listItemId, targetBlockId)
+                        CREATE UNIQUE INDEX IF NOT EXISTS index_list_item_links_unique_span
+                        ON list_item_links(listItemId, start, end, targetBlockId)
                     """.trimIndent()
                 )
             }
@@ -998,6 +1001,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_32_33 = object : Migration(32, 33) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE list_item_links ADD COLUMN start INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE list_item_links ADD COLUMN end INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("DROP INDEX IF EXISTS index_list_item_links_unique")
+                db.execSQL(
+                    """
+                        CREATE UNIQUE INDEX IF NOT EXISTS index_list_item_links_unique_span
+                        ON list_item_links(listItemId, start, end, targetBlockId)
+                    """.trimIndent()
+                )
+            }
+        }
+
         /** Nouveau nom “officiel” pour l’accès global au singleton */
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -1036,7 +1053,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_28_29,
                         MIGRATION_29_30,
                         MIGRATION_30_31,
-                        MIGRATION_31_32
+                        MIGRATION_31_32,
+                        MIGRATION_32_33
                     )
                     .addCallback(
                         object : RoomDatabase.Callback() {

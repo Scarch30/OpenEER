@@ -27,9 +27,9 @@ import com.example.openeer.data.list.ListItemEntity
         Index(value = ["listItemId"]),
         Index(value = ["targetBlockId"]),
         Index(
-            value = ["listItemId", "targetBlockId"],
+            value = ["listItemId", "start", "end", "targetBlockId"],
             unique = true,
-            name = "index_list_item_links_unique"
+            name = "index_list_item_links_unique_span"
         )
     ]
 )
@@ -37,5 +37,7 @@ data class ListItemLinkEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val listItemId: Long,
     val targetBlockId: Long,
+    val start: Int = 0,
+    val end: Int = 0,
     val createdAt: Long = System.currentTimeMillis()
 )

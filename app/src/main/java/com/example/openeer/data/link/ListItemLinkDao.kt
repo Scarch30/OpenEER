@@ -12,6 +12,9 @@ interface ListItemLinkDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertOrIgnore(entity: ListItemLinkEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(entities: List<ListItemLinkEntity>): List<Long>
+
     @Query(
         "DELETE FROM list_item_links WHERE listItemId = :listItemId AND targetBlockId = :targetBlockId"
     )

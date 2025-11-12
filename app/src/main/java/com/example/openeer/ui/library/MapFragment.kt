@@ -188,6 +188,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             database.blockReadDao(),
             blocksRepo,
             database.listItemDao(),
+            database.inlineLinkDao(),
+            database.listItemLinkDao(),
             database = database
         )
     }
