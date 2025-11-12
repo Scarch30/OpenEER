@@ -540,21 +540,34 @@ class NoteRepository(
                 return@withTransaction body
             }
 
-            val items = listItemDao.listForNote(noteId)
-            val filteredTexts = items
+            // 🔍 Nouvelle logique : lecture par ownerBlockId si présent
+            val ownerId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
+            val ownerItems = ownerId?.let { listItemDao.listForOwner(it) } ?: emptyList()
+            val legacyItems = listItemDao.listForNote(noteId)
+            val allItems = if (legacyItems.isEmpty()) ownerItems else ownerItems + legacyItems
+
+            val filteredTexts = allItems
                 .map { it.text.trim() }
                 .filterNot { VoiceListCommandParser.looksLikeConvertToText(it) }
+
             val plainBody = filteredTexts.joinToString(separator = "\n")
             val now = System.currentTimeMillis()
+
             noteDao.updateBodyAndType(noteId, plainBody, NoteType.PLAIN, now)
+
+            // 🧹 Supprime les items liés (peu importe le modèle)
             listItemDao.deleteForNote(noteId)
+            ownerId?.let { listItemDao.deleteForBlock(it) }
+
             Log.i(
                 TAG,
-                "convertNoteToPlain: noteId=$noteId bodyLength=${plainBody.length} items=${filteredTexts.size}",
+                "convertNoteToPlain: noteId=$noteId bodyLength=${plainBody.length} items=${filteredTexts.size}"
             )
+
             plainBody
         }
     }
+
 
     suspend fun mergeNotes(sourceIds: List<Long>, targetId: Long): MergeResult {
         val TAG = "MergeDiag"
