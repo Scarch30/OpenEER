@@ -7,6 +7,8 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockType
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.link.InlineLinkEntity
+import com.example.openeer.data.link.ListItemLinkEntity
+import com.example.openeer.data.list.ListItemEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -166,5 +168,98 @@ class NoteRepositoryTest {
         val items = database.listItemDao().listForBlock(refreshedHostId)
         assertEquals(bodyLines, items.map { it.text })
         assertEquals(items.size, items.map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun convertNoteToPlain_transfersListItemLinksToInlineLinks() = runBlocking {
+        val now = System.currentTimeMillis()
+        val noteId = database.noteDao().insert(
+            Note(
+                title = "Checklist",
+                body = "",
+                createdAt = now,
+                updatedAt = now,
+                type = NoteType.LIST,
+            )
+        )
+
+        val blockDao = database.blockDao()
+        val hostBlockId = blockDao.insert(
+            BlockEntity(
+                noteId = noteId,
+                type = BlockType.TEXT,
+                position = 0,
+                text = "",
+                createdAt = now,
+                updatedAt = now,
+            )
+        )
+        val targetBlockId = blockDao.insert(
+            BlockEntity(
+                noteId = noteId,
+                type = BlockType.TEXT,
+                position = 1,
+                text = "Target",
+                createdAt = now,
+                updatedAt = now,
+            )
+        )
+
+        val listItemDao = database.listItemDao()
+        val firstItemId = listItemDao.insert(
+            ListItemEntity(
+                ownerBlockId = hostBlockId,
+                text = "Buy apples",
+                ordering = 0,
+                createdAt = now,
+            )
+        )
+        val secondItemId = listItemDao.insert(
+            ListItemEntity(
+                ownerBlockId = hostBlockId,
+                text = "Call Bob",
+                ordering = 1,
+                createdAt = now,
+            )
+        )
+
+        database.listItemLinkDao().insertOrIgnore(
+            ListItemLinkEntity(
+                listItemId = secondItemId,
+                targetBlockId = targetBlockId,
+                start = 0,
+                end = "Call Bob".length,
+            )
+        )
+
+        // Stale inline link that should be removed during conversion
+        database.inlineLinkDao().insertOrIgnore(
+            InlineLinkEntity(
+                hostBlockId = hostBlockId,
+                start = 0,
+                end = 4,
+                targetBlockId = targetBlockId,
+            )
+        )
+
+        val plainBody = repository.convertNoteToPlain(noteId)
+        assertEquals("Buy apples\nCall Bob", plainBody)
+
+        val updatedNote = database.noteDao().getByIdOnce(noteId)
+        checkNotNull(updatedNote)
+        assertEquals(NoteType.PLAIN, updatedNote.type)
+        assertEquals(plainBody, updatedNote.body)
+
+        val inlineLinks = database.inlineLinkDao().selectAllForHost(hostBlockId)
+        assertEquals(1, inlineLinks.size)
+        val link = inlineLinks.first()
+        val firstLength = "Buy apples".length
+        val secondLength = "Call Bob".length
+        assertEquals(firstLength + 1, link.start)
+        assertEquals(firstLength + 1 + secondLength, link.end)
+        assertEquals(targetBlockId, link.targetBlockId)
+
+        val remainingItems = database.listItemDao().listForBlock(hostBlockId)
+        assertTrue(remainingItems.isEmpty())
     }
 }

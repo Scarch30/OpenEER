@@ -673,6 +673,13 @@ class NoteRepository(
         }
     }
 
+    private data class PlainItemEntry(
+        val item: ListItemEntity,
+        val text: String,
+        val start: Int,
+        val end: Int,
+    )
+
     @Transaction
     suspend fun convertNoteToPlain(noteId: Long): String = withContext(Dispatchers.IO) {
         database.withTransaction {
@@ -685,6 +692,11 @@ class NoteRepository(
 
             val ownerId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
             val ownerItems = ownerId?.let { listItemDao.listForOwner(it) } ?: emptyList()
+            val ownerItemLinks = if (ownerId != null && ownerItems.isNotEmpty()) {
+                listItemLinkDao.getLinksForItems(ownerItems.map { it.id })
+            } else {
+                emptyList()
+            }
             val legacyItems = listItemDao.listForNote(noteId)
 
             val combinedItems = buildList {
@@ -699,24 +711,87 @@ class NoteRepository(
 
             val orderedItems = deduped.values.sortedWith(compareBy<ListItemEntity> { it.ordering }.thenBy { it.id })
 
-            val filteredTexts = orderedItems.mapNotNull { item ->
+            val includedItems = orderedItems.mapNotNull { item ->
                 val trimmed = item.text.trim()
                 if (trimmed.isEmpty()) return@mapNotNull null
                 if (VoiceListCommandParser.looksLikeConvertToText(trimmed)) return@mapNotNull null
-                item.text
+                item
             }
 
-            val plainBody = filteredTexts.joinToString(separator = "\n")
+            val builder = StringBuilder()
+            val plainEntries = mutableListOf<PlainItemEntry>()
+            includedItems.forEachIndexed { index, item ->
+                val start = builder.length
+                val text = item.text
+                builder.append(text)
+                val end = builder.length
+                plainEntries += PlainItemEntry(item, text, start, end)
+                if (index != includedItems.lastIndex) {
+                    builder.append('\n')
+                }
+            }
+
+            val plainBody = builder.toString()
+
+            val linksByItemId = ownerItemLinks.groupBy { it.listItemId }
+            val inlineLinks = if (ownerId != null && plainEntries.isNotEmpty()) {
+                buildList {
+                    for (entry in plainEntries) {
+                        if (entry.item.ownerBlockId != ownerId) continue
+                        val itemLinks = linksByItemId[entry.item.id] ?: continue
+                        val textLength = entry.text.length
+                        if (textLength <= 0) continue
+                        for (link in itemLinks) {
+                            val localStart = link.start.coerceIn(0, textLength)
+                            val localEnd = link.end.coerceIn(0, textLength)
+                            if (localEnd <= localStart) continue
+                            add(
+                                InlineLinkEntity(
+                                    hostBlockId = ownerId,
+                                    start = entry.start + localStart,
+                                    end = entry.start + localEnd,
+                                    targetBlockId = link.targetBlockId,
+                                )
+                            )
+                        }
+                    }
+                }
+            } else {
+                emptyList()
+            }
+
+            val dedupedInlineLinks = inlineLinks
+                .distinctBy { Triple(it.start, it.end, it.targetBlockId) }
+                .sortedWith(
+                    compareBy<InlineLinkEntity> { it.start }
+                        .thenBy { it.end }
+                        .thenBy { it.targetBlockId }
+                )
+
             val now = System.currentTimeMillis()
 
             noteDao.updateBodyAndType(noteId, plainBody, NoteType.PLAIN, now)
+
+            if (ownerId != null) {
+                val desiredKeys = dedupedInlineLinks.map { Triple(it.start, it.end, it.targetBlockId) }.toSet()
+                val existingInlineLinks = inlineLinkDao.selectAllForHost(ownerId)
+                for (existing in existingInlineLinks) {
+                    val key = Triple(existing.start, existing.end, existing.targetBlockId)
+                    if (key !in desiredKeys) {
+                        inlineLinkDao.deleteById(existing.id)
+                    }
+                }
+                for (entity in dedupedInlineLinks) {
+                    inlineLinkDao.insertOrIgnore(entity)
+                }
+            }
 
             listItemDao.deleteForNote(noteId)
             ownerId?.let { listItemDao.deleteForBlock(it) }
 
             Log.i(
                 TAG,
-                "convertNoteToPlain: noteId=$noteId bodyLength=${plainBody.length} items=${filteredTexts.size}"
+                "convertNoteToPlain: noteId=$noteId bodyLength=${plainBody.length} items=${plainEntries.size}"
             )
 
             plainBody
