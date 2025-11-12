@@ -528,7 +528,7 @@ class NoteRepository(
             val now = System.currentTimeMillis()
             val items = itemEntries.mapIndexed { index, entry ->
                 ListItemEntity(
-                    noteId = noteId,
+                    noteId = null,
                     ownerBlockId = hostId,
                     text = entry.trimmedText,
                     ordering = index,
