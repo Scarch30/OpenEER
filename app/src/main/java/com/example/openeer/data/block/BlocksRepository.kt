@@ -1742,6 +1742,10 @@ class BlocksRepository(
         return withContext(io) { dao.getByIdOnce(noteId)?.type == NoteType.LIST }
     }
 
+    suspend fun getCanonicalMotherTextBlockId(noteId: Long): Long? {
+        return withContext(io) { blockDao.findMotherMainTextBlock(noteId)?.id }
+    }
+
     suspend fun ensureCanonicalMotherTextBlock(noteId: Long): Long = ensureMotherMainTextBlock(noteId)
 
     suspend fun buildRichLabelForBlock(blockId: Long): String? {

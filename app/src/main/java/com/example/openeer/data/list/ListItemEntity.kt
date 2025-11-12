@@ -29,7 +29,8 @@ import com.example.openeer.data.block.BlockEntity
     ],
     indices = [
         Index(value = ["noteId", "ordering"]),
-        Index(value = ["ownerBlockId"])
+        Index(value = ["ownerBlockId"]),
+        Index(value = ["ownerBlockId", "ordering", "createdAt", "id"]),
     ]
 )
 data class ListItemEntity(

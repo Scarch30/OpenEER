@@ -31,7 +31,8 @@ class NoteListItemsAdapter(
 
     private fun logSubmitList(newList: List<ListItemEntity>?) {
         val ids = newList?.joinToString(separator = ",") { it.id.toString() } ?: ""
-        Log.d(ADAPTER_TAG, "submitList newIds=[$ids]")
+        val size = newList?.size ?: 0
+        Log.d(ADAPTER_TAG, "submitted size=$size ids=[$ids]")
     }
 
     override fun submitList(list: List<ListItemEntity>?) {

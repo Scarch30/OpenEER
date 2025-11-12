@@ -91,11 +91,17 @@ abstract class ListItemDao {
     @Query("SELECT MAX(ordering) FROM list_items WHERE noteId = :noteId AND ownerBlockId IS NULL")
     abstract suspend fun maxOrderForNote(noteId: Long): Int?
 
+    @Query("SELECT MAX(ordering) FROM list_items WHERE ownerBlockId = :ownerBlockId")
+    abstract suspend fun maxOrderForOwner(ownerBlockId: Long): Int?
+
     @Query("SELECT * FROM list_items WHERE noteId = :noteId AND ownerBlockId IS NULL ORDER BY ordering ASC")
     abstract suspend fun listForNote(noteId: Long): List<ListItemEntity>
 
     @Query("SELECT * FROM list_items WHERE noteId = :noteId AND ownerBlockId IS NULL ORDER BY ordering ASC")
     abstract fun listForNoteFlow(noteId: Long): Flow<List<ListItemEntity>>
+
+    @Query("SELECT * FROM list_items WHERE ownerBlockId = :ownerBlockId ORDER BY ordering ASC")
+    abstract suspend fun listForOwner(ownerBlockId: Long): List<ListItemEntity>
 
     @Query("UPDATE list_items SET ordering = :order WHERE id = :itemId")
     abstract suspend fun updateOrdering(itemId: Long, order: Int)
