@@ -12,7 +12,11 @@ import kotlinx.coroutines.flow.asSharedFlow
 
 class NotePanelViewModel(private val repo: NoteRepository) {
     data class ConversionMessage(@StringRes val messageRes: Int, val success: Boolean)
-    data class NoteConvertedToPlainEvent(val noteId: Long, val body: String)
+    data class NoteConvertedToPlainEvent(
+        val noteId: Long,
+        val body: String,
+        val inlineLinks: List<NoteRepository.ResolvedInlineLink>,
+    )
 
     private val noteConvertedToPlainEventsMutable = MutableSharedFlow<NoteConvertedToPlainEvent>(
         replay = 0,
@@ -47,7 +51,7 @@ class NotePanelViewModel(private val repo: NoteRepository) {
             return ConversionMessage(R.string.note_convert_already_plain, false)
         }
 
-        val bodyText = runCatching { repo.convertNoteToPlain(noteId) }
+        val conversionResult = runCatching { repo.convertNoteToPlain(noteId) }
             .onFailure { error -> Log.e(TAG, "convertCurrentNoteToPlain failed for noteId=$noteId", error) }
             .getOrElse { error ->
                 return when (error) {
@@ -57,6 +61,8 @@ class NotePanelViewModel(private val repo: NoteRepository) {
                 }
             }
 
+        val bodyText = conversionResult.body
+
         val itemCount = bodyText.takeIf { it.isNotEmpty() }?.let { text ->
             text.count { it == '\n' } + 1
         } ?: 0
@@ -65,7 +71,9 @@ class NotePanelViewModel(private val repo: NoteRepository) {
             TAG,
             "NoteVM  convertToPlain: note=$noteId items=$itemCount -> emit immediate body (len=${bodyText.length})",
         )
-        noteConvertedToPlainEventsMutable.tryEmit(NoteConvertedToPlainEvent(noteId, bodyText))
+        noteConvertedToPlainEventsMutable.tryEmit(
+            NoteConvertedToPlainEvent(noteId, bodyText, conversionResult.inlineLinks),
+        )
         return ConversionMessage(R.string.note_convert_to_plain_success, true)
     }
 
