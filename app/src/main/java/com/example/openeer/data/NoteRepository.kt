@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 class NoteRepository(
     private val appContext: Context,
@@ -770,6 +771,24 @@ class NoteRepository(
 
             val now = System.currentTimeMillis()
 
+            if (ownerId != null) {
+                val blockDao = database.blockDao()
+                val hostBlock = blockDao.getById(ownerId)
+                if (hostBlock != null) {
+                    val content = blocksRepository.extractTextContent(hostBlock)
+                    val combinedText = combineTitleAndBody(content.title, plainBody)
+                    val extra = encodeTitleForExtra(content.title)
+                    blockDao.update(
+                        hostBlock.copy(
+                            mimeType = null,
+                            text = combinedText,
+                            extra = extra,
+                            updatedAt = now,
+                        )
+                    )
+                }
+            }
+
             noteDao.updateBodyAndType(noteId, plainBody, NoteType.PLAIN, now)
 
             if (ownerId != null) {
@@ -796,6 +815,21 @@ class NoteRepository(
 
             plainBody
         }
+    }
+
+
+    private fun combineTitleAndBody(title: String, body: String): String {
+        val trimmedTitle = title.trim()
+        val trimmedBody = body.trim()
+        if (trimmedTitle.isEmpty()) return trimmedBody
+        if (trimmedBody.isEmpty()) return trimmedTitle
+        return "$trimmedTitle\n\n$trimmedBody"
+    }
+
+    private fun encodeTitleForExtra(title: String): String? {
+        val sanitized = title.trim()
+        if (sanitized.isEmpty()) return null
+        return JSONObject().apply { put("title", sanitized) }.toString()
     }
 
 

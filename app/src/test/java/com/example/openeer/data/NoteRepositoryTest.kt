@@ -264,6 +264,97 @@ class NoteRepositoryTest {
     }
 
     @Test
+    fun convertNoteToPlain_updatesMotherBlockBodyAndInlineLinkRanges() = runBlocking {
+        val now = System.currentTimeMillis()
+        val noteId = database.noteDao().insert(
+            Note(
+                title = "Checklist",
+                body = "",
+                createdAt = now,
+                updatedAt = now,
+                type = NoteType.LIST,
+            )
+        )
+
+        val blockDao = database.blockDao()
+        val hostBlockId = blockDao.insert(
+            BlockEntity(
+                noteId = noteId,
+                type = BlockType.TEXT,
+                position = 0,
+                text = "",
+                createdAt = now,
+                updatedAt = now,
+            )
+        )
+
+        val targetBlockId = blockDao.insert(
+            BlockEntity(
+                noteId = noteId,
+                type = BlockType.TEXT,
+                position = 1,
+                text = "Target",
+                createdAt = now,
+                updatedAt = now,
+            )
+        )
+
+        val listItemDao = database.listItemDao()
+        val firstItemId = listItemDao.insert(
+            ListItemEntity(
+                ownerBlockId = hostBlockId,
+                text = "Buy apples",
+                ordering = 0,
+                createdAt = now,
+            )
+        )
+        val secondItemId = listItemDao.insert(
+            ListItemEntity(
+                ownerBlockId = hostBlockId,
+                text = "Call Bob",
+                ordering = 1,
+                createdAt = now,
+            )
+        )
+
+        database.listItemLinkDao().insertOrIgnore(
+            ListItemLinkEntity(
+                listItemId = secondItemId,
+                targetBlockId = targetBlockId,
+                start = 0,
+                end = "Call Bob".length,
+            )
+        )
+
+        val plainBody = repository.convertNoteToPlain(noteId)
+        assertEquals("Buy apples\nCall Bob", plainBody)
+
+        val refreshedHostBlock = blockDao.getById(hostBlockId)
+        checkNotNull(refreshedHostBlock)
+        assertEquals(null, refreshedHostBlock.mimeType)
+        val motherContent = blocksRepository.extractTextContent(refreshedHostBlock)
+        assertEquals(plainBody, motherContent.body)
+
+        val inlineLinks = database.inlineLinkDao().selectAllForHost(hostBlockId)
+        assertEquals(1, inlineLinks.size)
+        val inlineLink = inlineLinks.first()
+        val startValid = if (plainBody.isEmpty()) {
+            inlineLink.start == 0
+        } else {
+            inlineLink.start in 0 until plainBody.length
+        }
+        assertTrue("inline link start should be within body", startValid)
+        assertTrue("inline link end should not exceed body length", inlineLink.end <= plainBody.length)
+        assertEquals(targetBlockId, inlineLink.targetBlockId)
+
+        val motherBody = blocksRepository.readMotherBody(noteId)
+        assertEquals(plainBody, motherBody)
+
+        val remainingItems = database.listItemDao().listForBlock(hostBlockId)
+        assertTrue(remainingItems.isEmpty())
+    }
+
+    @Test
     fun convertNoteToPlain_thenBackToList_preservesLinksAndDedupesInline() = runBlocking {
         val now = System.currentTimeMillis()
         val noteId = database.noteDao().insert(
