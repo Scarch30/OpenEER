@@ -19,7 +19,15 @@ CMDLINE_TOOLS_ZIP="cmdline-tools.zip"
 extract_gradle_property() {
     local property_name=$1
     local gradle_file="app/build.gradle.kts"
-    grep "$property_name" "$gradle_file" | sed -n "s/.* = //p" | tr -d '"'
+    local matches=""
+
+    if [[ -f "$gradle_file" ]]; then
+        matches=$(grep -m 1 "$property_name" "$gradle_file" || true)
+    fi
+
+    if [[ -n "$matches" ]]; then
+        echo "$matches" | sed -n "s/.* = //p" | tr -d '"'
+    fi
 }
 
 # --- Vérification initiale ---
@@ -28,6 +36,7 @@ if [ -d "$SDK_DIR" ]; then
     echo "Pour forcer une réinstallation, supprimez le dossier '$SDK_DIR' et relancez le script."
     # Exporte les variables pour la session courante si le SDK est déjà là
     export ANDROID_HOME="$(pwd)/$SDK_DIR"
+    export ANDROID_SDK_ROOT="$ANDROID_HOME"
     export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
     echo "✅ Les variables d'environnement ont été configurées pour la session actuelle."
     finish 0
@@ -42,7 +51,7 @@ BUILD_TOOLS_VERSION=$(extract_gradle_property "buildToolsVersion")
 
 # Si buildToolsVersion n'est pas trouvé, utiliser une version par défaut stable
 if [ -z "$BUILD_TOOLS_VERSION" ]; then
-    BUILD_TOOLS="34.0.0" # Version stable comme discuté
+    BUILD_TOOLS="35.0.0" # Version recommandée pour l'outil de build
 else
     BUILD_TOOLS=$BUILD_TOOLS_VERSION
 fi
@@ -70,11 +79,24 @@ rm "$CMDLINE_TOOLS_ZIP"
 
 echo "⚙️  Configuration des variables d'environnement..."
 export ANDROID_HOME="$(pwd)/$SDK_DIR"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 echo "⚙️  Acceptation des licences et installation des paquets..."
-yes | sdkmanager --licenses > /dev/null
-sdkmanager "platform-tools" "platforms;android-$COMPILE_SDK" "build-tools;$BUILD_TOOLS"
+set +e
+yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses > /dev/null
+license_status=${PIPESTATUS[1]}
+set -e
+if [[ ${license_status:-1} -ne 0 ]]; then
+    echo "❌ Échec lors de l'acceptation des licences Android (code $license_status)."
+    finish "$license_status"
+fi
+
+packages=("platform-tools" "platforms;android-$COMPILE_SDK" "build-tools;$BUILD_TOOLS")
+if [[ "$BUILD_TOOLS" != "35.0.0" ]]; then
+    packages+=("build-tools;35.0.0")
+fi
+sdkmanager --sdk_root="$ANDROID_HOME" "${packages[@]}"
 
 echo "✅ --- Installation terminée avec succès! ---"
 echo "Les variables d'environnement ANDROID_HOME et PATH ont été configurées pour cette session."
