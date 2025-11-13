@@ -675,8 +675,29 @@ class NotePanelController(
             editor.invalidate()
         }
 
+        refreshMotherInlineLinksFromDatabase(noteId, body)
+
         listSync.onBodyApplied(noteId)
         onPlainBodyApplied?.invoke(noteId, body)
+    }
+
+    private fun refreshMotherInlineLinksFromDatabase(noteId: Long, body: String) {
+        val hostId = motherHostBlockId ?: return
+        activity.lifecycleScope.launch {
+            val refreshed = loadInlineLinks(hostId)
+            if (openNoteId != noteId) return@launch
+            if (refreshed.isEmpty()) return@launch
+
+            latestMotherInlineLinks = refreshed
+            val editor = binding.bodyEditor
+            val selection = editor.selectionEnd.coerceIn(0, body.length)
+            val spannable = buildPlainBodySpannable(body, refreshed)
+            editor.setText(spannable)
+            ensurePlainBodyLinkSupport(editor)
+            if (body.isNotEmpty()) {
+                editor.setSelection(selection)
+            }
+        }
     }
 
     private fun onListModeChanged(noteId: Long, type: NoteType, listMode: Boolean) {
