@@ -120,7 +120,7 @@ dependencies {
 
     implementation("com.google.code.gson:gson:2.11.0")
 
-    implementation("com.github.chrisbanes:PhotoView:2.3.0")
+    implementation("io.getstream:photoview:1.0.2")
 
     implementation("com.google.android.gms:play-services-location:21.3.0")
 

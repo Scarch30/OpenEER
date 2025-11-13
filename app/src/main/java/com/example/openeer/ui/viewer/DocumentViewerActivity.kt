@@ -37,7 +37,7 @@ import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripItem
 import com.example.openeer.ui.MotherLinkInjector
-import com.github.chrisbanes.photoview.PhotoView
+import io.getstream.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
 import java.io.File
 import java.util.Locale

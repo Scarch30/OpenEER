@@ -25,7 +25,7 @@ import com.example.openeer.R
 import com.example.openeer.ui.dialogs.ChildNameDialog
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.panel.media.MediaStripItem
-import com.github.chrisbanes.photoview.PhotoView
+import io.getstream.photoview.PhotoView
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
