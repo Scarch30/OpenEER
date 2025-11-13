@@ -1,3 +1,7 @@
+import org.gradle.api.artifacts.Configuration
+import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.testing.Test
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -76,6 +80,11 @@ android {
     }
 }
 
+val robolectricOffline: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
@@ -137,4 +146,20 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    robolectricOffline("org.robolectric:android-all-instrumented:14-robolectric-10818077-i6")
+}
+
+val prepareRobolectricOffline by tasks.registering(Copy::class) {
+    from(robolectricOffline)
+    into(layout.buildDirectory.dir("robolectric-offline"))
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(prepareRobolectricOffline)
+    systemProperty("robolectric.offline", "true")
+    systemProperty(
+        "robolectric.dependency.dir",
+        layout.buildDirectory.dir("robolectric-offline").get().asFile.absolutePath
+    )
 }
