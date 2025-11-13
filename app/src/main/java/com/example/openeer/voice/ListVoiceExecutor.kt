@@ -27,7 +27,8 @@ class ListVoiceExecutor(
 
             override suspend fun finalizeAllProvisional(noteId: Long) = repo.finalizeAllProvisional(noteId)
 
-            override suspend fun convertNoteToPlain(noteId: Long): String = repo.convertNoteToPlain(noteId)
+            override suspend fun convertNoteToPlain(noteId: Long): NoteRepository.ConvertNoteToPlainResult =
+                repo.convertNoteToPlain(noteId)
 
             override suspend fun noteOnce(noteId: Long): Note? = repo.noteOnce(noteId)
 
@@ -141,7 +142,7 @@ class ListVoiceExecutor(
         val targetId = noteId ?: repo.createTextNote("")
         repo.finalizeAllProvisional(targetId)
         val plainBody = try {
-            repo.convertNoteToPlain(targetId)
+            repo.convertNoteToPlain(targetId).body
         } catch (error: Throwable) {
             Log.e(TAG, "decision=CONVERT_TO_TEXT failed note=$targetId", error)
             return@withContext Result.Failure(targetId, error)
@@ -268,7 +269,7 @@ class ListVoiceExecutor(
         suspend fun createTextNote(body: String): Long
         suspend fun convertNoteToList(noteId: Long): NoteRepository.NoteConversionResult
         suspend fun finalizeAllProvisional(noteId: Long)
-        suspend fun convertNoteToPlain(noteId: Long): String
+        suspend fun convertNoteToPlain(noteId: Long): NoteRepository.ConvertNoteToPlainResult
         suspend fun noteOnce(noteId: Long): Note?
         suspend fun listItemsOnce(noteId: Long): List<ListItemEntity>
         suspend fun addItem(noteId: Long, text: String): Long

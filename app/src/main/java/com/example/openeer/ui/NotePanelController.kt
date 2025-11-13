@@ -38,6 +38,7 @@ import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.util.toast
+import kotlin.collections.buildList
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -132,7 +133,7 @@ class NotePanelController(
                     "NotePanelController",
                     "OptimisticPlainBody: applying len=${event.body.length} for note=${event.noteId}",
                 )
-                applyListConvertedToPlain(event.noteId, event.body)
+                applyListConvertedToPlain(event.noteId, event.body, event.inlineLinks)
             }
         }
 
@@ -543,24 +544,7 @@ class NotePanelController(
             return
         }
         Log.wtf("MotherBody", "bind host=$hostId len=${text.length}")
-        val spannable = SpannableString(text)
-        inlineLinks.forEach { info ->
-            val start = info.entity.start
-            val end = info.entity.end
-            if (start < 0 || end > spannable.length || start >= end) {
-                Log.w(
-                    TAG,
-                    "Skipping inline span host=$hostId start=$start end=$end length=${spannable.length}",
-                )
-                return@forEach
-            }
-            spannable.setSpan(
-                MotherInlineClickableSpan(info.target),
-                start,
-                end,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-            )
-        }
+        val spannable = buildPlainBodySpannable(text, inlineLinks)
         val targetSelection = if (current == text) {
             editor.selectionEnd.coerceIn(0, text.length)
         } else {
@@ -581,6 +565,43 @@ class NotePanelController(
         val target: BlockEntity,
     )
 
+    private fun List<NoteRepository.ResolvedInlineLink>.toRenderInfo(): List<InlineLinkRenderInfo> {
+        if (isEmpty()) return emptyList()
+        val hostId = motherHostBlockId
+        return buildList {
+            for (resolved in this@toRenderInfo) {
+                val entity = resolved.entity
+                if (hostId != null && entity.hostBlockId != hostId) continue
+                add(InlineLinkRenderInfo(entity, resolved.target))
+            }
+        }
+    }
+
+    private fun buildPlainBodySpannable(
+        text: String,
+        inlineLinks: List<InlineLinkRenderInfo>,
+    ): SpannableString {
+        val spannable = SpannableString(text)
+        inlineLinks.forEach { info ->
+            val start = info.entity.start
+            val end = info.entity.end
+            if (start < 0 || end > spannable.length || start >= end) {
+                Log.w(
+                    TAG,
+                    "Skipping inline span host=${info.entity.hostBlockId} start=$start end=$end length=${spannable.length}",
+                )
+                return@forEach
+            }
+            spannable.setSpan(
+                MotherInlineClickableSpan(info.target),
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+        return spannable
+    }
+
     private inner class MotherInlineClickableSpan(
         private val target: BlockEntity,
     ) : ClickableSpan() {
@@ -597,10 +618,14 @@ class NotePanelController(
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
 
     private fun applyOptimisticPlainBody(event: NotePanelViewModel.NoteConvertedToPlainEvent) {
-        applyListConvertedToPlain(event.noteId, event.body)
+        applyListConvertedToPlain(event.noteId, event.body, event.inlineLinks)
     }
 
-    fun applyListConvertedToPlain(noteId: Long, body: String) {
+    fun applyListConvertedToPlain(
+        noteId: Long,
+        body: String,
+        inlineLinks: List<NoteRepository.ResolvedInlineLink>,
+    ) {
         val openId = openNoteId ?: return
         if (noteId != openId) return
 
@@ -609,12 +634,17 @@ class NotePanelController(
             "NotePanelController  OptimisticPlainBody: applied len=${body.length} for note=$noteId.",
         )
 
-        applyConvertedBody(noteId, body, listController.conversionSync)
+        applyConvertedBody(noteId, body, inlineLinks, listController.conversionSync)
         listController.onListConversionToPlainApplied(noteId)
         Log.d("ListUI", "CONVERT_ATOMIC applied bodyLen=${body.length}")
     }
 
-    fun applyConvertedBody(noteId: Long, body: String, listSync: ListConversionSync) {
+    fun applyConvertedBody(
+        noteId: Long,
+        body: String,
+        inlineLinks: List<NoteRepository.ResolvedInlineLink>,
+        listSync: ListConversionSync,
+    ) {
         val openId = openNoteId ?: return
         if (noteId != openId) return
 
@@ -624,13 +654,15 @@ class NotePanelController(
         currentNote = currentNote?.copy(body = body, type = NoteType.PLAIN)
             ?: Note(id = noteId, body = body, type = NoteType.PLAIN)
         latestMotherBody = body
+        latestMotherInlineLinks = inlineLinks.toRenderInfo()
 
         // Bloque la toute prochaine passe de render() (évite d'écraser ce corps optimiste)
         suppressNextBodyResync = true
 
         // Applique visuellement le corps tout de suite
         val editor = binding.bodyEditor
-        editor.setText(body)
+        val spannable = buildPlainBodySpannable(body, latestMotherInlineLinks)
+        editor.setText(spannable)
         ensurePlainBodyLinkSupport(editor)
         if (body.isNotEmpty()) {
             editor.setSelection(body.length)

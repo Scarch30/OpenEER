@@ -155,7 +155,8 @@ class NoteRepositoryTest {
         assertEquals(bodyLines, initialItems.map { it.text })
         assertTrue(initialItems.all { it.noteId == null && it.ownerBlockId == hostId })
 
-        val plainBody = repository.convertNoteToPlain(noteId)
+        val plainResult = repository.convertNoteToPlain(noteId)
+        val plainBody = plainResult.body
         assertEquals(bodyLines.joinToString(separator = "\n"), plainBody)
 
         val secondConversion = repository.convertNoteToList(noteId)
@@ -242,8 +243,13 @@ class NoteRepositoryTest {
             )
         )
 
-        val plainBody = repository.convertNoteToPlain(noteId)
+        val plainResult = repository.convertNoteToPlain(noteId)
+        val plainBody = plainResult.body
         assertEquals("Buy apples\nCall Bob", plainBody)
+        assertEquals(1, plainResult.inlineLinks.size)
+        val resolvedLink = plainResult.inlineLinks.first()
+        assertEquals(hostBlockId, resolvedLink.entity.hostBlockId)
+        assertEquals(targetBlockId, resolvedLink.target.id)
 
         val updatedNote = database.noteDao().getByIdOnce(noteId)
         checkNotNull(updatedNote)
@@ -326,7 +332,8 @@ class NoteRepositoryTest {
             )
         )
 
-        val plainBody = repository.convertNoteToPlain(noteId)
+        val plainResult = repository.convertNoteToPlain(noteId)
+        val plainBody = plainResult.body
         assertEquals("Buy apples\nCall Bob", plainBody)
 
         val refreshedHostBlock = blockDao.getById(hostBlockId)
@@ -444,8 +451,10 @@ class NoteRepositoryTest {
             )
         )
 
-        val plainBody = repository.convertNoteToPlain(noteId)
+        val firstPlainResult = repository.convertNoteToPlain(noteId)
+        val plainBody = firstPlainResult.body
         assertEquals("Buy apples\nCall Bob", plainBody)
+        assertEquals(1, firstPlainResult.inlineLinks.size)
 
         val inlineLinks = inlineLinkDao.selectAllForHost(hostBlockId)
         assertEquals(1, inlineLinks.size)
@@ -483,8 +492,10 @@ class NoteRepositoryTest {
         assertEquals(0, restoredLink.start)
         assertEquals(secondLength, restoredLink.end)
 
-        val secondPlain = repository.convertNoteToPlain(noteId)
+        val secondPlainResult = repository.convertNoteToPlain(noteId)
+        val secondPlain = secondPlainResult.body
         assertEquals("Buy apples\nCall Bob", secondPlain)
+        assertEquals(1, secondPlainResult.inlineLinks.size)
 
         val inlineLinksAfterSecond = inlineLinkDao.selectAllForHost(hostBlockId)
         assertEquals(1, inlineLinksAfterSecond.size)

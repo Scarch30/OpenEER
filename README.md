@@ -18,3 +18,11 @@ source /workspace/OpenEER/auto_setup_android_sdk.sh
 
 Lors de la première exécution, le SDK est téléchargé dans `android_sdk/`. Les sessions suivantes réutilisent le
 cache existant et reconfigurent simplement l'environnement.
+
+Vous pouvez également déclencher l'installation automatiquement via Gradle : la tâche `setupAndroidSdk` appelle le
+script précédent et est exécutée avant tous les tests (`./gradlew test`, `app:testDebugUnitTest`, etc.). Pour installer
+le SDK manuellement, lancez simplement :
+
+```bash
+./gradlew setupAndroidSdk
+```

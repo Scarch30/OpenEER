@@ -6,6 +6,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.Transaction
 import androidx.room.withTransaction
+import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlockReadDao
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.list.ListItemDao
@@ -681,15 +682,26 @@ class NoteRepository(
         val end: Int,
     )
 
+    data class ResolvedInlineLink(
+        val entity: InlineLinkEntity,
+        val target: BlockEntity,
+    )
+
+    data class ConvertNoteToPlainResult(
+        val body: String,
+        val inlineLinks: List<ResolvedInlineLink>,
+    )
+
     @Transaction
-    suspend fun convertNoteToPlain(noteId: Long): String = withContext(Dispatchers.IO) {
-        database.withTransaction {
-            val note = noteDao.getByIdOnce(noteId) ?: throw NoteNotFoundException(noteId)
-            if (note.type == NoteType.PLAIN) {
-                val body = note.body
-                Log.i(TAG, "convertNoteToPlain: noteId=$noteId bodyLength=${body.length} items=0")
-                return@withTransaction body
-            }
+    suspend fun convertNoteToPlain(noteId: Long): ConvertNoteToPlainResult =
+        withContext(Dispatchers.IO) {
+            database.withTransaction {
+                val note = noteDao.getByIdOnce(noteId) ?: throw NoteNotFoundException(noteId)
+                if (note.type == NoteType.PLAIN) {
+                    val body = note.body
+                    Log.i(TAG, "convertNoteToPlain: noteId=$noteId bodyLength=${body.length} items=0")
+                    return@withTransaction ConvertNoteToPlainResult(body, emptyList())
+                }
 
             val ownerId = blocksRepository.getCanonicalMotherTextBlockId(noteId)
             val ownerItems = ownerId?.let { listItemDao.listForOwner(it) } ?: emptyList()
@@ -771,8 +783,9 @@ class NoteRepository(
 
             val now = System.currentTimeMillis()
 
+            val blockDao = database.blockDao()
+
             if (ownerId != null) {
-                val blockDao = database.blockDao()
                 val hostBlock = blockDao.getById(ownerId)
                 if (hostBlock != null) {
                     val content = blocksRepository.extractTextContent(hostBlock)
@@ -813,7 +826,18 @@ class NoteRepository(
                 "convertNoteToPlain: noteId=$noteId bodyLength=${plainBody.length} items=${plainEntries.size}"
             )
 
-            plainBody
+            val resolvedInlineLinks = if (dedupedInlineLinks.isEmpty()) {
+                emptyList()
+            } else {
+                buildList {
+                    for (entity in dedupedInlineLinks) {
+                        val target = blockDao.getById(entity.targetBlockId) ?: continue
+                        add(ResolvedInlineLink(entity, target))
+                    }
+                }
+            }
+
+            ConvertNoteToPlainResult(plainBody, resolvedInlineLinks)
         }
     }
 
