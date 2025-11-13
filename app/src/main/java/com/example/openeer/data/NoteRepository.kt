@@ -435,18 +435,24 @@ class NoteRepository(
         database.withTransaction {
             val current = listItemDao.findById(itemId) ?: return@withTransaction
             val noteOwnerId = current.noteId
-            if (noteOwnerId == null) {
-                Log.w(TAG, "toggleItem: item=$itemId is not owned by a note; ignoring")
-                return@withTransaction
+            val blockOwnerId = current.ownerBlockId
+
+            val ownerItems = when {
+                noteOwnerId != null -> listItemDao.listForNote(noteOwnerId)
+                blockOwnerId != null -> listItemDao.listForBlock(blockOwnerId)
+                else -> {
+                    Log.w(TAG, "toggleItem: item=$itemId has no owner; ignoring")
+                    return@withTransaction
+                }
             }
-            val noteItems = listItemDao.listForNote(noteOwnerId)
+
             val newDone = !current.done
             listItemDao.updateDone(itemId, newDone)
 
             val undone = mutableListOf<ListItemEntity>()
             val done = mutableListOf<ListItemEntity>()
 
-            for (item in noteItems) {
+            for (item in ownerItems) {
                 val updated = if (item.id == itemId) item.copy(done = newDone) else item
                 if (updated.done) {
                     done += updated
