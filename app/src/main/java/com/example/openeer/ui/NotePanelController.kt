@@ -39,6 +39,7 @@ import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.library.LibraryFragment
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
+import com.example.openeer.ui.sheets.ChildNoteLinkPickerSheet
 import com.example.openeer.ui.sheets.InlineLinkTargetPickerSheet
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.util.toast
@@ -111,9 +112,11 @@ class NotePanelController(
     private var noteJob: Job? = null
     private var plainConversionJob: Job? = null
     private var motherBodyJob: Job? = null
+    private var childNoteTargetsJob: Job? = null
     private var motherHostBlockId: Long? = null
     private var latestMotherBody: String = ""
     private var latestMotherInlineLinks: List<InlineLinkRenderInfo> = emptyList()
+    private var childNoteTargets: List<ChildNoteLinkTarget> = emptyList()
 
     // Empêche la toute prochaine passe de render() d’écraser le corps appliqué en optimiste
     private var suppressNextBodyResync = false
@@ -208,6 +211,10 @@ class NotePanelController(
 
         motherHostBlockId = null
         latestMotherBody = ""
+        childNoteTargetsJob?.cancel()
+        childNoteTargetsJob = null
+        childNoteTargets = emptyList()
+        refreshChildNoteTargets(noteId)
 
         noteJob?.cancel()
         noteJob = activity.lifecycleScope.launch {
@@ -292,6 +299,9 @@ class NotePanelController(
         latestMotherBody = ""
         latestMotherInlineLinks = emptyList()
         latestMotherInlineLinks = emptyList()
+        childNoteTargetsJob?.cancel()
+        childNoteTargetsJob = null
+        childNoteTargets = emptyList()
 
         blocksRenderer.reset()
         mediaController.reset()
@@ -525,6 +535,63 @@ class NotePanelController(
         return resolved
     }
 
+    private fun refreshChildNoteTargets(noteId: Long) {
+        childNoteTargetsJob?.cancel()
+        childNoteTargetsJob = activity.lifecycleScope.launch {
+            val targets = runCatching { fetchChildNoteLinkTargets(noteId) }
+                .onFailure { error ->
+                    Log.e(TAG, "Failed to load child notes for linking note=$noteId", error)
+                }
+                .getOrDefault(emptyList())
+            if (openNoteId != noteId) return@launch
+            childNoteTargets = targets
+        }
+    }
+
+    private suspend fun fetchChildNoteLinkTargets(noteId: Long): List<ChildNoteLinkTarget> {
+        val children = repo.getChildNotes(noteId)
+        if (children.isEmpty()) return emptyList()
+        val result = mutableListOf<ChildNoteLinkTarget>()
+        for (child in children) {
+            val canonicalId = runCatching {
+                blocksRepo.getCanonicalMotherTextBlockId(child.id)
+                    ?: blocksRepo.ensureCanonicalMotherTextBlock(child.id)
+            }.getOrNull() ?: continue
+            val title = resolveChildLinkTitle(child)
+            val subtitle = resolveChildLinkSubtitle(child, title)
+            result += ChildNoteLinkTarget(child.id, canonicalId, title, subtitle)
+        }
+        return result
+    }
+
+    private fun resolveChildLinkTitle(note: Note): String {
+        val explicit = note.title?.trim()
+        if (!explicit.isNullOrEmpty()) {
+            return explicit
+        }
+        val firstLine = note.body.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() }
+        return firstLine?.let { ellipsize(it) }
+            ?: activity.getString(R.string.inline_link_child_option_untitled)
+    }
+
+    private fun resolveChildLinkSubtitle(note: Note, primary: String): String? {
+        val secondary = note.body.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .firstOrNull { it != primary }
+            ?: return null
+        val trimmed = ellipsize(secondary)
+        return trimmed.takeIf { it.isNotEmpty() }
+    }
+
+    private fun ellipsize(text: String, maxLength: Int = 80): String {
+        val trimmed = text.trim()
+        if (trimmed.length <= maxLength) return trimmed
+        return trimmed.take(maxLength - 1).trimEnd() + "…"
+    }
+
     private fun bindMotherBody(
         hostId: Long,
         text: String,
@@ -575,6 +642,13 @@ class NotePanelController(
         val target: BlockEntity,
     )
 
+    private data class ChildNoteLinkTarget(
+        val noteId: Long,
+        val blockId: Long,
+        val title: String,
+        val subtitle: String?,
+    )
+
     private fun List<NoteRepository.ResolvedInlineLink>.toRenderInfo(): List<InlineLinkRenderInfo> {
         if (isEmpty()) return emptyList()
         val hostId = motherHostBlockId
@@ -616,6 +690,13 @@ class NotePanelController(
         private val target: BlockEntity,
     ) : ClickableSpan() {
         override fun onClick(widget: View) {
+            val childTarget = childNoteTargets.firstOrNull { it.blockId == target.id }
+            if (childTarget != null) {
+                if (openNoteId != target.noteId) {
+                    this@NotePanelController.open(target.noteId)
+                }
+                return
+            }
             MediaActions.openBlock(activity, target)
         }
 
@@ -625,28 +706,33 @@ class NotePanelController(
         }
     }
 
-    private fun shouldShowInlineLinkAction(): Boolean {
-        val note = currentNote ?: return false
-        if (note.type == NoteType.LIST) return false
+    private fun resolveSelectionBounds(): Pair<Int, Int>? {
+        val note = currentNote ?: return null
+        if (note.type == NoteType.LIST) return null
         val editor = binding.bodyEditor
-        val start = editor.selectionStart
-        val end = editor.selectionEnd
-        if (start == -1 || end == -1) return false
-        val normalizedStart = min(start, end)
-        val normalizedEnd = max(start, end)
-        if (normalizedEnd <= normalizedStart) return false
-        return openNoteId != null
+        val selectionStart = editor.selectionStart
+        val selectionEnd = editor.selectionEnd
+        if (selectionStart == -1 || selectionEnd == -1) return null
+        val start = min(selectionStart, selectionEnd)
+        val end = max(selectionStart, selectionEnd)
+        if (start >= end) return null
+        return start to end
+    }
+
+    private fun shouldShowInlineLinkAction(): Boolean {
+        return openNoteId != null && resolveSelectionBounds() != null
+    }
+
+    private fun shouldShowChildInlineLinkAction(): Boolean {
+        if (childNoteTargets.isEmpty()) return false
+        if (openNoteId == null) return false
+        return resolveSelectionBounds() != null
     }
 
     private fun requestInlineLinkCreation() {
         val noteId = openNoteId ?: return
-        val editor = binding.bodyEditor
-        val selectionStart = editor.selectionStart
-        val selectionEnd = editor.selectionEnd
-        if (selectionStart == -1 || selectionEnd == -1) return
-        val start = min(selectionStart, selectionEnd)
-        val end = max(selectionStart, selectionEnd)
-        if (start >= end) return
+        val bounds = resolveSelectionBounds() ?: return
+        val (start, end) = bounds
 
         activity.lifecycleScope.launch {
             val hostId = motherHostBlockId ?: withContext(Dispatchers.IO) {
@@ -667,6 +753,43 @@ class NotePanelController(
             val fragmentManager = activity.supportFragmentManager
             if (fragmentManager.findFragmentByTag(INLINE_LINK_PICKER_TAG) == null) {
                 sheet.show(fragmentManager, INLINE_LINK_PICKER_TAG)
+            }
+        }
+    }
+
+    private fun requestChildLinkCreation() {
+        val noteId = openNoteId ?: return
+        val bounds = resolveSelectionBounds() ?: return
+        val (start, end) = bounds
+        val targetsSnapshot = childNoteTargets
+        if (targetsSnapshot.isEmpty()) return
+
+        activity.lifecycleScope.launch {
+            val hostId = motherHostBlockId ?: withContext(Dispatchers.IO) {
+                blocksRepo.ensureCanonicalMotherTextBlock(noteId)
+            }.also { resolved ->
+                motherHostBlockId = resolved
+            }
+
+            if (openNoteId != noteId) return@launch
+
+            val options = targetsSnapshot.map { target ->
+                ChildNoteLinkPickerSheet.Option(
+                    noteId = target.noteId,
+                    blockId = target.blockId,
+                    title = target.title,
+                    subtitle = target.subtitle,
+                )
+            }
+            if (options.isEmpty()) return@launch
+
+            val sheet = ChildNoteLinkPickerSheet.newInstance(options)
+            sheet.onTargetSelected = { option ->
+                createInlineLinkForSelection(hostId, start, end, option.blockId)
+            }
+            val fragmentManager = activity.supportFragmentManager
+            if (fragmentManager.findFragmentByTag(CHILD_LINK_PICKER_TAG) == null) {
+                sheet.show(fragmentManager, CHILD_LINK_PICKER_TAG)
             }
         }
     }
@@ -699,20 +822,38 @@ class NotePanelController(
                 menu.add(0, MENU_INLINE_LINK_TO_NOTE, 100, activity.getString(R.string.inline_link_selection_action))
                     .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
             }
+            if (menu.findItem(MENU_INLINE_LINK_TO_CHILD_NOTE) == null) {
+                menu.add(
+                    0,
+                    MENU_INLINE_LINK_TO_CHILD_NOTE,
+                    101,
+                    activity.getString(R.string.inline_link_selection_action_child),
+                ).setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+            }
             return true
         }
 
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
-            val item = menu.findItem(MENU_INLINE_LINK_TO_NOTE)
-            val visible = shouldShowInlineLinkAction()
-            item?.isVisible = visible
-            item?.isEnabled = visible
+            val linkItem = menu.findItem(MENU_INLINE_LINK_TO_NOTE)
+            val linkVisible = shouldShowInlineLinkAction()
+            linkItem?.isVisible = linkVisible
+            linkItem?.isEnabled = linkVisible
+
+            val childItem = menu.findItem(MENU_INLINE_LINK_TO_CHILD_NOTE)
+            val childVisible = shouldShowChildInlineLinkAction()
+            childItem?.isVisible = childVisible
+            childItem?.isEnabled = childVisible
             return false
         }
 
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
             if (item.itemId == MENU_INLINE_LINK_TO_NOTE) {
                 requestInlineLinkCreation()
+                mode.finish()
+                return true
+            }
+            if (item.itemId == MENU_INLINE_LINK_TO_CHILD_NOTE) {
+                requestChildLinkCreation()
                 mode.finish()
                 return true
             }
@@ -941,7 +1082,9 @@ class NotePanelController(
         private const val MENU_CONVERT_TO_LIST = 3
         private const val MENU_CONVERT_TO_TEXT = 4
         private const val MENU_INLINE_LINK_TO_NOTE = 5
+        private const val MENU_INLINE_LINK_TO_CHILD_NOTE = 6
         private const val INLINE_LINK_PICKER_TAG = "inline_link_target_picker"
+        private const val CHILD_LINK_PICKER_TAG = "child_note_link_picker"
         private const val TRANSCRIPTION_PLACEHOLDER = "(transcription en cours…)"
     }
 
