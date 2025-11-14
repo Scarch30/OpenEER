@@ -480,6 +480,10 @@
     <string name="link_to_child_title">Lier à…</string>
     <string name="inline_link_selection_action">Lier à une note…</string>
     <string name="inline_link_picker_title">Lier la sélection à…</string>
+    <string name="inline_link_selection_action_child">Lier à un élément…</string>
+    <string name="inline_link_child_picker_title">Lier la sélection à une note fille</string>
+    <string name="inline_link_child_picker_empty">Aucune note fille disponible</string>
+    <string name="inline_link_child_option_untitled">Note sans titre</string>
     <string name="link_none_available">Aucun bloc cible disponible</string>
     <string name="media_linked_items_title">Éléments liés</string>
     <string name="media_linked_items_empty">Aucun lien pour l’instant</string>

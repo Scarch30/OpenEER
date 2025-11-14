@@ -48,6 +48,19 @@ class NoteRepository(
     fun note(id: Long) = noteDao.getByIdFlow(id)
     suspend fun noteOnce(id: Long) = noteDao.getByIdOnce(id)
 
+    suspend fun getChildNotes(parentId: Long): List<Note> = withContext(Dispatchers.IO) {
+        val childIds = noteDao.getMergedChildren(parentId)
+        if (childIds.isEmpty()) {
+            return@withContext emptyList()
+        }
+        val children = noteDao.getByIds(childIds)
+        if (children.isEmpty()) {
+            emptyList()
+        } else {
+            children.sortedWith(compareByDescending<Note> { it.updatedAt }.thenBy { it.id })
+        }
+    }
+
     fun attachments(noteId: Long) = attachmentDao.byNoteId(noteId)
     suspend fun addPhoto(noteId: Long, path: String) {
         attachmentDao.insert(Attachment(noteId = noteId, type = "photo", path = path))
