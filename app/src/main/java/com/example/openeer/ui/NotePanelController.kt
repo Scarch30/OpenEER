@@ -191,8 +191,14 @@ class NotePanelController(
             }
         }
 
-        diag("attach customSelectionActionModeCallback: editor=${binding.bodyEditor} currentNoteId=$openNoteId")
+        diag(
+            "attach customSelectionActionModeCallback: editor=${binding.bodyEditor} " +
+                "class=${binding.bodyEditor::class.java.name} currentNoteId=$openNoteId"
+        )
         binding.bodyEditor.customSelectionActionModeCallback = inlineLinkSelectionCallback
+        binding.bodyEditor.setOnFocusChangeListener { view, hasFocus ->
+            diag("bodyEditor focus change: hasFocus=$hasFocus view=$view")
+        }
     }
 
     fun attachTopBubble(controller: TopBubbleController) {

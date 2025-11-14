@@ -30,7 +30,13 @@ class TapToFocusManager(
             false
         }
         binding.noteBodySurface.setOnClickListener { handleTapToFocus() }
-        binding.bodyEditor.setOnClickListener { handleTapToFocus() }
+        binding.bodyEditor.setOnClickListener { view ->
+            Log.d(
+                "INLINE_DEBUG",
+                "bodyEditor onClick via TapToFocusManager view=$view hasFocus=${view.hasFocus()}"
+            )
+            handleTapToFocus()
+        }
     }
 
     fun onMediaStripScrollStateChanged(newState: Int) {

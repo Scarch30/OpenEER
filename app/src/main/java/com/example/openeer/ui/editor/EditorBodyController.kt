@@ -2,6 +2,7 @@ package com.example.openeer.ui.editor
 
 import android.content.Context
 import android.graphics.Rect
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -33,6 +34,10 @@ class EditorBodyController(
 
     init {
         wireKeyboardListener()
+    }
+
+    private fun diag(msg: String) {
+        Log.d("INLINE_DEBUG", msg)
     }
 
     fun enterInlineEdit(noteId: Long?, caretPosition: Int? = null) {
@@ -127,6 +132,18 @@ class EditorBodyController(
             setBackgroundColor(0x00000000)
             isSingleLine = false
             imeOptions = EditorInfo.IME_ACTION_DONE
+            customSelectionActionModeCallback =
+                binding.bodyEditor.customSelectionActionModeCallback
+            setOnFocusChangeListener { view, hasFocus ->
+                diag(
+                    "overlay focus change: hasFocus=$hasFocus view=$view callback=${customSelectionActionModeCallback}"
+                )
+            }
+            setOnClickListener { view ->
+                diag(
+                    "overlay onClick view=$view hasFocus=${view.hasFocus()} callback=${customSelectionActionModeCallback}"
+                )
+            }
             setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
                     commitInlineEdit(editingNoteId)
@@ -136,6 +153,10 @@ class EditorBodyController(
                 }
             }
         }
+        diag(
+            "createOverlay: overlay=$overlay class=${overlay::class.java.name} " +
+                "callback=${overlay.customSelectionActionModeCallback} bodyCallback=${binding.bodyEditor.customSelectionActionModeCallback}"
+        )
         val container = binding.noteBodyContainer as? ViewGroup
         if (container != null) {
             val textIndex = container.indexOfChild(binding.bodyEditor)
@@ -149,6 +170,10 @@ class EditorBodyController(
     private fun showInlineEditor(noteId: Long, caretPosition: Int?) {
         editingNoteId = noteId
         val overlay = editOverlay ?: createOverlay()
+        diag(
+            "showInlineEditor: overlay=$overlay callback=${overlay.customSelectionActionModeCallback} " +
+                "bodyCallback=${binding.bodyEditor.customSelectionActionModeCallback}"
+        )
         val currentDisplayed = binding.bodyEditor.text?.toString().orEmpty()
         val initialText = if (currentDisplayed.trim() == PLACEHOLDER) "" else currentDisplayed
         if (overlay.text?.toString() != initialText) {
