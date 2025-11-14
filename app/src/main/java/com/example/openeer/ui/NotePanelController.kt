@@ -5,6 +5,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.text.Editable
+import android.text.Selection
+import android.text.Spannable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextPaint
@@ -117,6 +119,9 @@ class NotePanelController(
     private var latestMotherBody: String = ""
     private var latestMotherInlineLinks: List<InlineLinkRenderInfo> = emptyList()
     private var childNoteTargets: List<ChildNoteLinkTarget> = emptyList()
+    private var currentActionMode: ActionMode? = null
+    private var lastSelectionBounds: Pair<Int, Int>? = null
+    private var selectionWatcher: Selection.SelectionWatcher? = null
 
     // Empêche la toute prochaine passe de render() d’écraser le corps appliqué en optimiste
     private var suppressNextBodyResync = false
@@ -309,6 +314,10 @@ class NotePanelController(
         reminderController.onNoteClosed()
 
         SimplePlayer.stop { }
+
+        currentActionMode?.finish()
+        currentActionMode = null
+        lastSelectionBounds = null
     }
 
     private fun showNoteMenu(anchor: View) {
@@ -545,6 +554,13 @@ class NotePanelController(
                 .getOrDefault(emptyList())
             if (openNoteId != noteId) return@launch
             childNoteTargets = targets
+            if (targets.isNotEmpty()) {
+                binding.bodyEditor.post {
+                    if (openNoteId == noteId) {
+                        currentActionMode?.invalidate()
+                    }
+                }
+            }
         }
     }
 
@@ -729,6 +745,20 @@ class NotePanelController(
         return resolveSelectionBounds() != null
     }
 
+    private fun onSelectionBoundsChanged(selStart: Int, selEnd: Int) {
+        val normalized = if (selStart >= 0 && selEnd >= 0) {
+            val start = min(selStart, selEnd)
+            val end = max(selStart, selEnd)
+            if (start < end) start to end else null
+        } else {
+            null
+        }
+        if (lastSelectionBounds != normalized) {
+            lastSelectionBounds = normalized
+            currentActionMode?.invalidate()
+        }
+    }
+
     private fun requestInlineLinkCreation() {
         val noteId = openNoteId ?: return
         val bounds = resolveSelectionBounds() ?: return
@@ -818,6 +848,8 @@ class NotePanelController(
 
     private inner class InlineLinkSelectionActionModeCallback : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            currentActionMode = mode
+            lastSelectionBounds = null
             if (menu.findItem(MENU_INLINE_LINK_TO_NOTE) == null) {
                 menu.add(0, MENU_INLINE_LINK_TO_NOTE, 100, activity.getString(R.string.inline_link_selection_action))
                     .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
@@ -861,7 +893,10 @@ class NotePanelController(
         }
 
         override fun onDestroyActionMode(mode: ActionMode) {
-            // no-op
+            if (currentActionMode === mode) {
+                currentActionMode = null
+            }
+            lastSelectionBounds = null
         }
     }
 
@@ -1054,6 +1089,19 @@ class NotePanelController(
         Linkify.addLinks(editor, Linkify.ALL)
         editor.movementMethod = LinkMovementMethod.getInstance()
         editor.linksClickable = true
+        ensureSelectionWatcher(editor)
+    }
+
+    private fun ensureSelectionWatcher(editor: TextView) {
+        val text = editor.text ?: return
+        if (text !is Spannable) return
+        val watcher = selectionWatcher ?: object : Selection.SelectionWatcher {
+            override fun onSelectionChanged(selStart: Int, selEnd: Int) {
+                onSelectionBoundsChanged(selStart, selEnd)
+            }
+        }.also { selectionWatcher = it }
+        text.removeSpan(watcher)
+        text.setSpan(watcher, 0, text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
     }
 
     private fun promptEditTitle() {
