@@ -60,6 +60,10 @@ import kotlin.collections.buildList
 import kotlin.math.max
 import kotlin.math.min
 
+private fun diag(msg: String) {
+    Log.d("INLINE_DEBUG", msg)
+}
+
 class NotePanelController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
@@ -187,6 +191,7 @@ class NotePanelController(
             }
         }
 
+        diag("attach customSelectionActionModeCallback: editor=${binding.bodyEditor} currentNoteId=$openNoteId")
         binding.bodyEditor.customSelectionActionModeCallback = inlineLinkSelectionCallback
     }
 
@@ -725,26 +730,63 @@ class NotePanelController(
     }
 
     private fun resolveSelectionBounds(): Pair<Int, Int>? {
-        val note = currentNote ?: return null
-        if (note.type == NoteType.LIST) return null
+        val note = currentNote ?: run {
+            diag("resolveSelectionBounds: currentNote=null openNoteId=$openNoteId")
+            return null
+        }
+        if (note.type == NoteType.LIST) {
+            diag("resolveSelectionBounds: note=${note.id} type=${note.type} (LIST) -> abort")
+            return null
+        }
         val editor = binding.bodyEditor
         val selectionStart = editor.selectionStart
         val selectionEnd = editor.selectionEnd
-        if (selectionStart == -1 || selectionEnd == -1) return null
+        if (selectionStart == -1 || selectionEnd == -1) {
+            diag(
+                "resolveSelectionBounds: invalid raw selection start=$selectionStart end=$selectionEnd note=${note.id}",
+            )
+            return null
+        }
         val start = min(selectionStart, selectionEnd)
         val end = max(selectionStart, selectionEnd)
-        if (start >= end) return null
-        return start to end
+        if (start >= end) {
+            diag(
+                "resolveSelectionBounds: collapsed selection start=$start end=$end rawStart=$selectionStart rawEnd=$selectionEnd",
+            )
+            return null
+        }
+        val bounds = start to end
+        diag(
+            "resolveSelectionBounds: resolved bounds=$bounds rawStart=$selectionStart rawEnd=$selectionEnd note=${note.id} hostBlockId=$motherHostBlockId childTargets=${childNoteTargets.size}",
+        )
+        return bounds
     }
 
     private fun shouldShowInlineLinkAction(): Boolean {
-        return openNoteId != null && resolveSelectionBounds() != null
+        val hasNote = openNoteId != null
+        val bounds = resolveSelectionBounds()
+        val result = hasNote && bounds != null
+        diag(
+            "shouldShowInlineLinkAction: hasNote=$hasNote bounds=$bounds result=$result noteType=${currentNote?.type} hostBlockId=$motherHostBlockId childTargets=${childNoteTargets.size}",
+        )
+        return result
     }
 
     private fun shouldShowChildInlineLinkAction(): Boolean {
-        if (childNoteTargets.isEmpty()) return false
-        if (openNoteId == null) return false
-        return resolveSelectionBounds() != null
+        if (childNoteTargets.isEmpty()) {
+            diag("shouldShowChildInlineLinkAction: childTargets empty -> false")
+            return false
+        }
+        if (openNoteId == null) {
+            diag("shouldShowChildInlineLinkAction: openNoteId null -> false")
+            return false
+        }
+        val bounds = resolveSelectionBounds()
+        val result = bounds != null
+        diag(
+            "shouldShowChildInlineLinkAction: bounds=$bounds result=$result childTargets=${childNoteTargets.size} hostBlockId=$motherHostBlockId noteType=${currentNote?.type}",
+        )
+        return result
     }
 
     private fun onSelectionBoundsChanged(selStart: Int, selEnd: Int) {
@@ -850,6 +892,9 @@ class NotePanelController(
 
     private inner class InlineLinkSelectionActionModeCallback : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            diag(
+                "onCreateActionMode: start mode=$mode menuSize=${menu.size()} items=${(0 until menu.size()).joinToString { index -> menu.getItem(index).let { item -> "#${index}(id=${item.itemId},title=${item.title},visible=${item.isVisible},enabled=${item.isEnabled})" } }} openNoteId=$openNoteId noteId=${currentNote?.id} noteType=${currentNote?.type} listMode=${currentNote?.type == NoteType.LIST} selectionRaw=${binding.bodyEditor.selectionStart}..${binding.bodyEditor.selectionEnd} hostBlockId=$motherHostBlockId childTargets=${childNoteTargets.size}",
+            )
             currentActionMode = mode
             lastSelectionBounds = null
             if (menu.findItem(MENU_INLINE_LINK_TO_NOTE) == null) {
@@ -864,10 +909,16 @@ class NotePanelController(
                     activity.getString(R.string.inline_link_selection_action_child),
                 ).setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
             }
+            diag(
+                "onCreateActionMode: end menuSize=${menu.size()} items=${(0 until menu.size()).joinToString { index -> menu.getItem(index).let { item -> "#${index}(id=${item.itemId},title=${item.title},visible=${item.isVisible},enabled=${item.isEnabled})" } }}",
+            )
             return true
         }
 
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            diag(
+                "onPrepareActionMode: begin menuSize=${menu.size()} items=${(0 until menu.size()).joinToString { index -> menu.getItem(index).let { item -> "#${index}(id=${item.itemId},title=${item.title},visible=${item.isVisible},enabled=${item.isEnabled})" } }} currentActionMode=$currentActionMode selectionBounds=$lastSelectionBounds hostBlockId=$motherHostBlockId childTargets=${childNoteTargets.size}",
+            )
             val linkItem = menu.findItem(MENU_INLINE_LINK_TO_NOTE)
             val linkVisible = shouldShowInlineLinkAction()
             linkItem?.isVisible = linkVisible
@@ -877,28 +928,41 @@ class NotePanelController(
             val childVisible = shouldShowChildInlineLinkAction()
             childItem?.isVisible = childVisible
             childItem?.isEnabled = childVisible
+            diag(
+                "onPrepareActionMode: end linkVisible=$linkVisible childVisible=$childVisible menuSize=${menu.size()} items=${(0 until menu.size()).joinToString { index -> menu.getItem(index).let { item -> "#${index}(id=${item.itemId},title=${item.title},visible=${item.isVisible},enabled=${item.isEnabled})" } }}",
+            )
             return false
         }
 
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+            diag(
+                "onActionItemClicked: itemId=${item.itemId} title=${item.title} hasSelection=${resolveSelectionBounds() != null} hostBlockId=$motherHostBlockId childTargets=${childNoteTargets.size} openNoteId=$openNoteId",
+            )
             if (item.itemId == MENU_INLINE_LINK_TO_NOTE) {
                 requestInlineLinkCreation()
                 mode.finish()
+                diag("onActionItemClicked: handled MENU_INLINE_LINK_TO_NOTE")
                 return true
             }
             if (item.itemId == MENU_INLINE_LINK_TO_CHILD_NOTE) {
                 requestChildLinkCreation()
                 mode.finish()
+                diag("onActionItemClicked: handled MENU_INLINE_LINK_TO_CHILD_NOTE")
                 return true
             }
+            diag("onActionItemClicked: ignored itemId=${item.itemId}")
             return false
         }
 
         override fun onDestroyActionMode(mode: ActionMode) {
+            diag(
+                "onDestroyActionMode: mode=$mode currentActionMode=$currentActionMode hostBlockId=$motherHostBlockId childTargets=${childNoteTargets.size} selectionBounds=$lastSelectionBounds",
+            )
             if (currentActionMode === mode) {
                 currentActionMode = null
             }
             lastSelectionBounds = null
+            diag("onDestroyActionMode: cleanup complete currentActionMode=$currentActionMode lastSelectionBounds=$lastSelectionBounds")
         }
     }
 
