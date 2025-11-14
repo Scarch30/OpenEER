@@ -12,6 +12,9 @@ import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
 import android.text.style.StyleSpan
 import android.text.util.Linkify
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
 import android.widget.TextView
@@ -34,11 +37,11 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.link.InlineLinkEntity
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.library.LibraryFragment
-import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.ReminderListSheet
+import com.example.openeer.ui.sheets.BottomSheetReminderPicker
+import com.example.openeer.ui.sheets.InlineLinkTargetPickerSheet
 import com.example.openeer.ui.panel.media.MediaActions
 import com.example.openeer.ui.util.toast
-import kotlin.collections.buildList
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -48,6 +51,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.util.Log
+import kotlin.collections.buildList
+import kotlin.math.max
+import kotlin.math.min
 
 class NotePanelController(
     private val activity: AppCompatActivity,
@@ -80,6 +86,8 @@ class NotePanelController(
     fun currentNoteSnapshot(): Note? = currentNote
 
     private var topBubble: TopBubbleController? = null
+
+    private val inlineLinkSelectionCallback = InlineLinkSelectionActionModeCallback()
 
     private val mediaController by lazy {
         NotePanelMediaController(activity, binding, blocksRepo).apply {
@@ -168,6 +176,8 @@ class NotePanelController(
                 scrollPositions[id] = binding.scrollBody.scrollY
             }
         }
+
+        binding.bodyEditor.customSelectionActionModeCallback = inlineLinkSelectionCallback
     }
 
     fun attachTopBubble(controller: TopBubbleController) {
@@ -615,6 +625,105 @@ class NotePanelController(
         }
     }
 
+    private fun shouldShowInlineLinkAction(): Boolean {
+        val note = currentNote ?: return false
+        if (note.type == NoteType.LIST) return false
+        val editor = binding.bodyEditor
+        val start = editor.selectionStart
+        val end = editor.selectionEnd
+        if (start == -1 || end == -1) return false
+        val normalizedStart = min(start, end)
+        val normalizedEnd = max(start, end)
+        if (normalizedEnd <= normalizedStart) return false
+        return openNoteId != null
+    }
+
+    private fun requestInlineLinkCreation() {
+        val noteId = openNoteId ?: return
+        val editor = binding.bodyEditor
+        val selectionStart = editor.selectionStart
+        val selectionEnd = editor.selectionEnd
+        if (selectionStart == -1 || selectionEnd == -1) return
+        val start = min(selectionStart, selectionEnd)
+        val end = max(selectionStart, selectionEnd)
+        if (start >= end) return
+
+        activity.lifecycleScope.launch {
+            val hostId = motherHostBlockId ?: withContext(Dispatchers.IO) {
+                blocksRepo.ensureCanonicalMotherTextBlock(noteId)
+            }.also { resolved ->
+                motherHostBlockId = resolved
+            }
+
+            if (openNoteId != noteId) return@launch
+
+            val sheet = InlineLinkTargetPickerSheet.newInstance(
+                noteId = noteId,
+                excludedBlockIds = longArrayOf(hostId),
+            )
+            sheet.onTargetSelected = { targetId ->
+                createInlineLinkForSelection(hostId, start, end, targetId)
+            }
+            val fragmentManager = activity.supportFragmentManager
+            if (fragmentManager.findFragmentByTag(INLINE_LINK_PICKER_TAG) == null) {
+                sheet.show(fragmentManager, INLINE_LINK_PICKER_TAG)
+            }
+        }
+    }
+
+    private fun createInlineLinkForSelection(
+        hostId: Long,
+        start: Int,
+        end: Int,
+        targetBlockId: Long,
+    ) {
+        val noteId = openNoteId ?: return
+        activity.lifecycleScope.launch {
+            val created = withContext(Dispatchers.IO) {
+                blocksRepo.createInlineLink(hostId, start, end, targetBlockId)
+            }
+            if (openNoteId != noteId) return@launch
+            if (!created) return@launch
+
+            val refreshed = loadInlineLinks(hostId)
+            latestMotherInlineLinks = refreshed
+            val displayText = latestMotherBody.ifEmpty { binding.bodyEditor.text?.toString().orEmpty() }
+            latestMotherBody = displayText
+            bindMotherBody(hostId, displayText, refreshed)
+        }
+    }
+
+    private inner class InlineLinkSelectionActionModeCallback : ActionMode.Callback {
+        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            if (menu.findItem(MENU_INLINE_LINK_TO_NOTE) == null) {
+                menu.add(0, MENU_INLINE_LINK_TO_NOTE, 100, activity.getString(R.string.inline_link_selection_action))
+                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+            }
+            return true
+        }
+
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            val item = menu.findItem(MENU_INLINE_LINK_TO_NOTE)
+            val visible = shouldShowInlineLinkAction()
+            item?.isVisible = visible
+            item?.isEnabled = visible
+            return false
+        }
+
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+            if (item.itemId == MENU_INLINE_LINK_TO_NOTE) {
+                requestInlineLinkCreation()
+                mode.finish()
+                return true
+            }
+            return false
+        }
+
+        override fun onDestroyActionMode(mode: ActionMode) {
+            // no-op
+        }
+    }
+
     private fun noteFlow(id: Long): Flow<Note?> = repo.note(id)
 
     private fun applyOptimisticPlainBody(event: NotePanelViewModel.NoteConvertedToPlainEvent) {
@@ -831,6 +940,8 @@ class NotePanelController(
         private const val MENU_MERGE_WITH = 2
         private const val MENU_CONVERT_TO_LIST = 3
         private const val MENU_CONVERT_TO_TEXT = 4
+        private const val MENU_INLINE_LINK_TO_NOTE = 5
+        private const val INLINE_LINK_PICKER_TAG = "inline_link_target_picker"
         private const val TRANSCRIPTION_PLACEHOLDER = "(transcription en cours…)"
     }
 
