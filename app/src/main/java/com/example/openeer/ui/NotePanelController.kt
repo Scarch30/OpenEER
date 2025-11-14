@@ -5,10 +5,12 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.text.Editable
+import android.text.NoCopySpan
 import android.text.Selection
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.SpanWatcher
 import android.text.TextPaint
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
@@ -121,7 +123,7 @@ class NotePanelController(
     private var childNoteTargets: List<ChildNoteLinkTarget> = emptyList()
     private var currentActionMode: ActionMode? = null
     private var lastSelectionBounds: Pair<Int, Int>? = null
-    private var selectionWatcher: Selection.SelectionWatcher? = null
+    private var selectionWatcher: SelectionBoundsSpanWatcher? = null
 
     // Empêche la toute prochaine passe de render() d’écraser le corps appliqué en optimiste
     private var suppressNextBodyResync = false
@@ -1095,13 +1097,51 @@ class NotePanelController(
     private fun ensureSelectionWatcher(editor: TextView) {
         val text = editor.text ?: return
         if (text !is Spannable) return
-        val watcher = selectionWatcher ?: object : Selection.SelectionWatcher {
-            override fun onSelectionChanged(selStart: Int, selEnd: Int) {
-                onSelectionBoundsChanged(selStart, selEnd)
-            }
+        val watcher = selectionWatcher ?: SelectionBoundsSpanWatcher { selStart, selEnd ->
+            onSelectionBoundsChanged(selStart, selEnd)
         }.also { selectionWatcher = it }
         text.removeSpan(watcher)
         text.setSpan(watcher, 0, text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+    }
+
+    private class SelectionBoundsSpanWatcher(
+        private val onChanged: (Int, Int) -> Unit,
+    ) : SpanWatcher, NoCopySpan {
+
+        override fun onSpanAdded(text: Spannable?, what: Any?, start: Int, end: Int) {
+            if (text != null && isSelectionSpan(what)) {
+                notifyChanged(text)
+            }
+        }
+
+        override fun onSpanChanged(
+            text: Spannable?,
+            what: Any?,
+            ostart: Int,
+            oend: Int,
+            nstart: Int,
+            nend: Int,
+        ) {
+            if (text != null && isSelectionSpan(what)) {
+                notifyChanged(text)
+            }
+        }
+
+        override fun onSpanRemoved(text: Spannable?, what: Any?, start: Int, end: Int) {
+            if (text != null && isSelectionSpan(what)) {
+                notifyChanged(text)
+            }
+        }
+
+        private fun isSelectionSpan(what: Any?): Boolean {
+            return what === Selection.SELECTION_START || what === Selection.SELECTION_END
+        }
+
+        private fun notifyChanged(text: Spannable) {
+            val start = Selection.getSelectionStart(text)
+            val end = Selection.getSelectionEnd(text)
+            onChanged(start, end)
+        }
     }
 
     private fun promptEditTitle() {
