@@ -11,7 +11,6 @@ import androidx.core.view.isVisible
 import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.R
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import kotlin.math.minOf
 
 class ChildNoteLinkPickerSheet : BottomSheetDialogFragment() {
 
@@ -83,7 +82,7 @@ class ChildNoteLinkPickerSheet : BottomSheetDialogFragment() {
         val titles = args.getStringArray(ARG_TITLES) ?: emptyArray()
         val subtitles = args.getStringArray(ARG_SUBTITLES) ?: emptyArray()
         if (noteIds.isEmpty() || blockIds.isEmpty()) return emptyList()
-        val count = minOf(noteIds.size, blockIds.size, titles.size, subtitles.size)
+        val count = listOf(noteIds.size, blockIds.size, titles.size, subtitles.size).minOrNull() ?: 0
         if (count <= 0) return emptyList()
         val items = ArrayList<Option>(count)
         for (index in 0 until count) {
