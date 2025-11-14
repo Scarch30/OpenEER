@@ -1627,10 +1627,10 @@ class BlocksRepository(
     // ✅ Liens d’items de liste
     // --------------------------------------------------------------------
 
-    suspend fun createListItemLink(listItemId: Long, targetBlockId: Long): Boolean {
+    suspend fun attachListItemLink(itemId: Long, targetBlockId: Long): Boolean {
         return withContext(io) {
             runInRoomTransaction {
-                val item = listItemDao.findById(listItemId) ?: return@runInRoomTransaction false
+                val item = listItemDao.findById(itemId) ?: return@runInRoomTransaction false
                 val hostBlockId = item.ownerBlockId ?: return@runInRoomTransaction false
                 val hostBlock = blockDao.getById(hostBlockId) ?: return@runInRoomTransaction false
                 if (hostBlock.type != BlockType.TEXT) {
@@ -1642,7 +1642,7 @@ class BlocksRepository(
                 ensureBlockLinkExists(hostBlockId, targetBlockId)
                 val inserted = listItemLinkDao.insertOrIgnore(
                     ListItemLinkEntity(
-                        listItemId = listItemId,
+                        listItemId = itemId,
                         targetBlockId = targetBlockId,
                         start = 0,
                         end = item.text.length,
@@ -1652,6 +1652,9 @@ class BlocksRepository(
             }
         }
     }
+
+    suspend fun createListItemLink(listItemId: Long, targetBlockId: Long): Boolean =
+        attachListItemLink(listItemId, targetBlockId)
 
     suspend fun removeListItemLink(listItemId: Long, targetBlockId: Long): Boolean =
         withContext(io) { listItemLinkDao.deleteByPair(listItemId, targetBlockId) > 0 }

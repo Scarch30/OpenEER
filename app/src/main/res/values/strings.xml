@@ -102,6 +102,7 @@
     <string name="note_list_selection_delete">Supprimer</string>
     <string name="note_list_selection_copy">Copier</string>
     <string name="note_list_selection_reminder">Rappel</string>
+    <string name="note_list_selection_link">Lier…</string>
     <plurals name="note_list_copy_toast">
         <item quantity="one">%d élément copié dans le presse-papiers</item>
         <item quantity="other">%d éléments copiés dans le presse-papiers</item>

@@ -24,6 +24,7 @@ import com.example.openeer.data.list.ListItemEntity
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.ui.editor.NoteListItemsAdapter
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
+import com.example.openeer.ui.sheets.InlineLinkTargetPickerSheet
 import com.example.openeer.ui.util.toast
 import com.example.openeer.voice.VoiceListCommandParser
 import kotlinx.coroutines.Job
@@ -116,6 +117,10 @@ class NoteListController(
             isEnabled = false
             setOnClickListener { createReminderFromSelectedItems() }
         }
+        binding.btnListSelectionLink.apply {
+            isEnabled = false
+            setOnClickListener { linkSelectedListItems() }
+        }
     }
 
     fun onNoteOpened(noteId: Long) {
@@ -147,6 +152,7 @@ class NoteListController(
         binding.btnListSelectionDelete.isEnabled = false
         binding.btnListSelectionCopy.isEnabled = false
         binding.btnListSelectionReminder.isEnabled = false
+        binding.btnListSelectionLink.isEnabled = false
         binding.noteBodySurface.isClickable = true
     }
 
@@ -211,6 +217,7 @@ class NoteListController(
             binding.btnListSelectionDelete.isEnabled = false
             binding.btnListSelectionCopy.isEnabled = false
             binding.btnListSelectionReminder.isEnabled = false
+            binding.btnListSelectionLink.isEnabled = false
         }
     }
 
@@ -430,6 +437,7 @@ class NoteListController(
             binding.btnListSelectionDelete.isEnabled = false
             binding.btnListSelectionCopy.isEnabled = false
             binding.btnListSelectionReminder.isEnabled = false
+            binding.btnListSelectionLink.isEnabled = false
             return
         }
 
@@ -450,6 +458,7 @@ class NoteListController(
         val hasText = selected.any { it.text.isNotBlank() }
         binding.btnListSelectionCopy.isEnabled = count > 0 && hasText
         binding.btnListSelectionReminder.isEnabled = count > 0 && hasText
+        binding.btnListSelectionLink.isEnabled = count > 0
     }
 
     private fun deleteSelectedListItems() {
@@ -501,6 +510,42 @@ class NoteListController(
             .show(activity.supportFragmentManager, "reminder_picker_from_selection")
     }
 
+    private fun linkSelectedListItems() {
+        val noteId = openNoteId ?: return
+        val selected = currentCheckedListItems()
+        if (selected.isEmpty()) return
+
+        val itemIds = selected.map { it.id }
+        if (itemIds.isEmpty()) return
+
+        val excludedBlockIds = selected.mapNotNull { it.ownerBlockId }
+            .distinct()
+            .toLongArray()
+
+        val sheet = InlineLinkTargetPickerSheet.newInstance(
+            noteId = noteId,
+            excludedBlockIds = excludedBlockIds,
+        )
+        sheet.onTargetSelected = { targetId ->
+            attachListItemLinks(noteId, itemIds, targetId)
+        }
+
+        val fragmentManager = activity.supportFragmentManager
+        if (fragmentManager.findFragmentByTag(LIST_ITEM_LINK_PICKER_TAG) == null) {
+            sheet.show(fragmentManager, LIST_ITEM_LINK_PICKER_TAG)
+        }
+    }
+
+    private fun attachListItemLinks(noteId: Long, itemIds: List<Long>, targetBlockId: Long) {
+        if (itemIds.isEmpty()) return
+        activity.lifecycleScope.launch {
+            itemIds.forEach { itemId ->
+                blocksRepo.attachListItemLink(itemId, targetBlockId)
+            }
+            if (openNoteId != noteId) return@launch
+        }
+    }
+
     private fun confirmRemoveListItem(item: ListItemEntity) {
         if (!listMode) return
         AlertDialog.Builder(activity)
@@ -525,6 +570,7 @@ class NoteListController(
 
     companion object {
         private const val TAG_UI = "ListUI"
+        private const val LIST_ITEM_LINK_PICKER_TAG = "list_item_link_picker"
     }
 
     private fun submitEmptyIfNeeded(noteId: Long) {
