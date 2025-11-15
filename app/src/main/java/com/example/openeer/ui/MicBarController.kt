@@ -872,9 +872,22 @@ class MicBarController(
             }
 
             is VoiceEarlyDecision.ReminderIncomplete -> {
-                withContext(Dispatchers.Main) {
-                    showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
-                }
+                val commitContext = buildCommitContext(
+                    mode = BodyTranscriptionManager.DictationCommitMode.VOSK,
+                    intentKey = null,
+                    reconciled = false,
+                    baselineOverride = activeSessionBaseline,
+                )
+                voiceCommandHandler.handleEarlyReminderDecision(
+                    noteId = targetNoteId,
+                    audioBlockId = audioBlockId,
+                    rawText = transcription,
+                    audioPath = audioPath,
+                    decision = decision,
+                    sessionBaseline = commitContext.baselineBody,
+                    commitContext = commitContext,
+                    reqId = reqId,
+                )
                 EarlyHandlingResult(skipWhisper = false)
             }
         }

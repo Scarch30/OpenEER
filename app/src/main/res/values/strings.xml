@@ -457,6 +457,7 @@
     <string name="voice_unknown_place_message">Aucun favori ne correspond à ce lieu. Créer un favori pour l’utiliser dans vos rappels ?</string>
     <string name="voice_unknown_place_create">Créer un favori</string>
     <string name="voice_unknown_place_cancel">Annuler / Rester ici</string>
+    <string name="voice_unknown_place_modify">Modifier le rappel</string>
 
     <string name="action_rename">Renommer</string>
     <string name="open_in_google_maps">Ouvrir dans Google Maps</string>
