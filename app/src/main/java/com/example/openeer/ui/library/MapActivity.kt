@@ -36,13 +36,15 @@ class MapActivity : AppCompatActivity() {
             val isPickMode = intent.getBooleanExtra(EXTRA_PICK_MODE, false)
             // 🔹 nouveau : lit l’extra pour afficher (ou non) les pastilles Library
             val showPins = intent.getBooleanExtra(EXTRA_SHOW_LIBRARY_PINS, false)
+            val initialSearch = intent.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY)
 
             val fragment = MapFragment.newInstance(
                 noteId = noteId,
                 blockId = blockId,
                 mode = mode,
                 showLibraryPins = showPins,
-                pickMode = isPickMode
+                pickMode = isPickMode,
+                initialSearchQuery = initialSearch,
             )
             supportFragmentManager
                 .beginTransaction()
@@ -132,6 +134,7 @@ class MapActivity : AppCompatActivity() {
         const val EXTRA_IS_PICK_MODE = EXTRA_PICK_MODE
         // 🔹 nouveau : extra pour activer l’overlay des pastilles (vue Library)
         const val EXTRA_SHOW_LIBRARY_PINS = "com.example.openeer.map.EXTRA_SHOW_LIBRARY_PINS"
+        const val EXTRA_INITIAL_SEARCH_QUERY = "com.example.openeer.map.EXTRA_INITIAL_SEARCH_QUERY"
 
         const val MODE_BROWSE = "BROWSE"
         const val MODE_CENTER_ON_HERE = "CENTER_ON_HERE"
@@ -144,13 +147,15 @@ class MapActivity : AppCompatActivity() {
         fun newBrowseIntent(
             context: Context,
             noteId: Long? = null,
-            blockId: Long? = null
+            blockId: Long? = null,
+            initialSearchQuery: String? = null,
         ): Intent = Intent(context, MapActivity::class.java).apply {
             putExtra(EXTRA_MODE, MODE_BROWSE)
             noteId?.takeIf { it > 0 }?.let { putExtra(EXTRA_NOTE_ID, it) }
             blockId?.takeIf { it > 0 }?.let { putExtra(EXTRA_BLOCK_ID, it) }
             // En mode Carte standard (prise de notes), on ne veut PAS d’overlay
             putExtra(EXTRA_SHOW_LIBRARY_PINS, false)
+            initialSearchQuery?.let { putExtra(EXTRA_INITIAL_SEARCH_QUERY, it) }
         }
 
         // 🔹 helper explicite pour la vue “Library > Carte” (affiche les pastilles)

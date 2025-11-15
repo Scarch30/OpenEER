@@ -46,12 +46,14 @@ internal class VoiceCommandHandler(
     internal data class ReminderCommandError(
         val type: ReminderCommandErrorType,
         val cause: Throwable? = null,
+        val disputedLabel: String? = null,
     )
 
     internal enum class ReminderCommandErrorType {
         INCOMPLETE,
         LOCATION_PERMISSION,
         BACKGROUND_PERMISSION,
+        FAVORITE_NOT_FOUND,
         FAILURE,
     }
 
@@ -197,12 +199,22 @@ internal class VoiceCommandHandler(
         return result.fold(
             onSuccess = { pending -> ReminderHandlingResult.Success(pending) },
             onFailure = { error ->
-                val type = if (error is ReminderExecutor.IncompleteException) {
-                    ReminderCommandErrorType.INCOMPLETE
-                } else {
-                    ReminderCommandErrorType.FAILURE
+                val (type, disputedLabel) = when (error) {
+                    is ReminderExecutor.FavoriteNotFoundException ->
+                        ReminderCommandErrorType.FAVORITE_NOT_FOUND to error.query
+
+                    is ReminderExecutor.IncompleteException ->
+                        ReminderCommandErrorType.INCOMPLETE to null
+
+                    else -> ReminderCommandErrorType.FAILURE to null
                 }
-                ReminderHandlingResult.Error(ReminderCommandError(type, error))
+                ReminderHandlingResult.Error(
+                    ReminderCommandError(
+                        type = type,
+                        cause = error,
+                        disputedLabel = disputedLabel,
+                    ),
+                )
             },
         )
     }
@@ -256,12 +268,22 @@ internal class VoiceCommandHandler(
         return result.fold(
             onSuccess = { ReminderHandlingResult.Success() },
             onFailure = { error ->
-                val type = if (error is ReminderExecutor.IncompleteException) {
-                    ReminderCommandErrorType.INCOMPLETE
-                } else {
-                    ReminderCommandErrorType.FAILURE
+                val (type, disputedLabel) = when (error) {
+                    is ReminderExecutor.FavoriteNotFoundException ->
+                        ReminderCommandErrorType.FAVORITE_NOT_FOUND to error.query
+
+                    is ReminderExecutor.IncompleteException ->
+                        ReminderCommandErrorType.INCOMPLETE to null
+
+                    else -> ReminderCommandErrorType.FAILURE to null
                 }
-                ReminderHandlingResult.Error(ReminderCommandError(type, error))
+                ReminderHandlingResult.Error(
+                    ReminderCommandError(
+                        type = type,
+                        cause = error,
+                        disputedLabel = disputedLabel,
+                    ),
+                )
             },
         )
     }
