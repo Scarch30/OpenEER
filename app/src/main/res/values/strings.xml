@@ -449,6 +449,10 @@
     <string name="voice_adaptive_feedback_refine">Analyse en cours…</string>
     <string name="voice_reminder_location_permission_hint">Autorisez la localisation pour créer ce rappel lié à un lieu.</string>
     <string name="voice_reminder_background_permission_hint">Activez la localisation en arrière-plan pour déclencher ce rappel automatiquement.</string>
+    <string name="voice_reminder_error_title">Rappel non créé</string>
+    <string name="voice_reminder_error_generic">Impossible de créer ce rappel. Réessayer ou garder le texte dans la note ?</string>
+    <string name="voice_reminder_error_retry">Réessayer</string>
+    <string name="voice_reminder_error_keep">Garder dans la note</string>
 
     <string name="action_rename">Renommer</string>
     <string name="open_in_google_maps">Ouvrir dans Google Maps</string>

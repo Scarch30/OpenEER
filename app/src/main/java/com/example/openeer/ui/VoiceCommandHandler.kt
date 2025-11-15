@@ -37,6 +37,24 @@ internal class VoiceCommandHandler(
         var cleanupRequested: Boolean = false,
     )
 
+    internal sealed interface ReminderHandlingResult {
+        object Skip : ReminderHandlingResult
+        data class Success(val pending: ReminderExecutor.PendingVoiceReminder? = null) : ReminderHandlingResult
+        data class Error(val error: ReminderCommandError) : ReminderHandlingResult
+    }
+
+    internal data class ReminderCommandError(
+        val type: ReminderCommandErrorType,
+        val cause: Throwable? = null,
+    )
+
+    internal enum class ReminderCommandErrorType {
+        INCOMPLETE,
+        LOCATION_PERMISSION,
+        BACKGROUND_PERMISSION,
+        FAILURE,
+    }
+
     private val pendingVoiceCaptures = mutableMapOf<Long, VoiceCaptureCleanupState>()
 
     fun registerVoiceCapture(audioBlockId: Long, audioPath: String) {
@@ -144,16 +162,24 @@ internal class VoiceCommandHandler(
         sessionBaseline: String?,
         commitContext: DictationCommitContext,
         reqId: String,
-    ): ReminderExecutor.PendingVoiceReminder? {
+    ): ReminderHandlingResult {
         ListUiLogTracker.mark(noteId, reqId)
         val intent = when (decision) {
             is VoiceEarlyDecision.ReminderTime -> decision.intent
             is VoiceEarlyDecision.ReminderPlace -> decision.intent
-            else -> return null
+            else -> return ReminderHandlingResult.Skip
         }
         if (decision is VoiceEarlyDecision.ReminderPlace && !hasVoiceGeofencePermissions()) {
             Log.d("MicCtl", "Rappel lieu anticipé ignoré: permissions manquantes")
-            return null
+            val ctx = activity.applicationContext
+            val errorType = when {
+                !LocationPerms.hasFine(ctx) -> ReminderCommandErrorType.LOCATION_PERMISSION
+                LocationPerms.requiresBackground(ctx) && !LocationPerms.hasBackground(ctx) ->
+                    ReminderCommandErrorType.BACKGROUND_PERMISSION
+
+                else -> ReminderCommandErrorType.FAILURE
+            }
+            return ReminderHandlingResult.Error(ReminderCommandError(errorType))
         }
         val result = runCatching {
             reminderExecutor.createEarlyReminderFromVosk(noteId, rawText, intent)
@@ -163,16 +189,21 @@ internal class VoiceCommandHandler(
         }.onFailure { error ->
             if (error is ReminderExecutor.IncompleteException) {
                 Log.d("MicCtl", "Rappel anticipé incomplet pour note=$noteId", error)
-                handleNoteDecision(noteId, audioBlockId, rawText, sessionBaseline, commitContext, reqId)
-                withContext(Dispatchers.Main) {
-                    showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
-                }
             } else {
                 Log.e("MicCtl", "Échec création anticipée rappel note=$noteId", error)
-                handleNoteDecision(noteId, audioBlockId, rawText, sessionBaseline, commitContext, reqId)
             }
         }
-        return result.getOrNull()
+        return result.fold(
+            onSuccess = { pending -> ReminderHandlingResult.Success(pending) },
+            onFailure = { error ->
+                val type = if (error is ReminderExecutor.IncompleteException) {
+                    ReminderCommandErrorType.INCOMPLETE
+                } else {
+                    ReminderCommandErrorType.FAILURE
+                }
+                ReminderHandlingResult.Error(ReminderCommandError(type, error))
+            },
+        )
     }
 
     suspend fun handleReminderDecision(
@@ -184,41 +215,23 @@ internal class VoiceCommandHandler(
         sessionBaseline: String?,
         commitContext: DictationCommitContext,
         reqId: String,
-    ) {
+    ): ReminderHandlingResult {
         ListUiLogTracker.mark(noteId, reqId)
         if (decision is VoiceRouteDecision.ReminderPlace) {
             when (ensureVoiceGeofencePermissions()) {
                 GeoPermissionStatus.GRANTED -> Unit
                 GeoPermissionStatus.FOREGROUND_DENIED -> {
                     Log.w("MicCtl", "Création de rappel lieu annulée: permission localisation refusée")
-                    handleNoteDecision(
-                        noteId = noteId,
-                        audioBlockId = audioBlockId,
-                        refinedText = refinedText,
-                        sessionBaseline = sessionBaseline,
-                        commitContext = commitContext,
-                        reqId = reqId,
+                    return ReminderHandlingResult.Error(
+                        ReminderCommandError(ReminderCommandErrorType.LOCATION_PERMISSION),
                     )
-                    withContext(Dispatchers.Main) {
-                        showTopBubble(activity.getString(R.string.voice_reminder_location_permission_hint))
-                    }
-                    return
                 }
 
                 GeoPermissionStatus.BACKGROUND_DENIED -> {
                     Log.w("MicCtl", "Création de rappel lieu annulée: permission arrière-plan manquante")
-                    handleNoteDecision(
-                        noteId = noteId,
-                        audioBlockId = audioBlockId,
-                        refinedText = refinedText,
-                        sessionBaseline = sessionBaseline,
-                        commitContext = commitContext,
-                        reqId = reqId,
+                    return ReminderHandlingResult.Error(
+                        ReminderCommandError(ReminderCommandErrorType.BACKGROUND_PERMISSION),
                     )
-                    withContext(Dispatchers.Main) {
-                        showTopBubble(activity.getString(R.string.voice_reminder_background_permission_hint))
-                    }
-                    return
                 }
             }
         }
@@ -234,16 +247,22 @@ internal class VoiceCommandHandler(
             onReminderCreated(noteId, audioBlockId, audioPath, reminderId, reqId)
         }.onFailure { error ->
             if (error is ReminderExecutor.IncompleteException) {
-                Log.d("MicCtl", "Rappel lieu incomplet pour note=$noteId, fallback note", error)
-                handleNoteDecision(noteId, audioBlockId, refinedText, sessionBaseline, commitContext, reqId)
-                withContext(Dispatchers.Main) {
-                    showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
-                }
+                Log.d("MicCtl", "Rappel lieu incomplet pour note=$noteId", error)
             } else {
                 Log.e("MicCtl", "Échec de création du rappel pour note=$noteId", error)
-                handleNoteDecision(noteId, audioBlockId, refinedText, sessionBaseline, commitContext, reqId)
             }
         }
+        return result.fold(
+            onSuccess = { ReminderHandlingResult.Success() },
+            onFailure = { error ->
+                val type = if (error is ReminderExecutor.IncompleteException) {
+                    ReminderCommandErrorType.INCOMPLETE
+                } else {
+                    ReminderCommandErrorType.FAILURE
+                }
+                ReminderHandlingResult.Error(ReminderCommandError(type, error))
+            },
+        )
     }
 
     suspend fun handleListDecision(
