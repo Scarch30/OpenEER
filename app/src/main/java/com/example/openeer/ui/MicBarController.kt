@@ -19,6 +19,7 @@ import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
 import com.example.openeer.stt.FinalResult
+import com.example.openeer.ui.dialogs.ReminderErrorDialog
 import com.example.openeer.voice.AdaptiveRouter
 import com.example.openeer.voice.EarlyIntentHint
 import com.example.openeer.voice.ListVoiceExecutor
@@ -777,7 +778,7 @@ class MicBarController(
                     reconciled = false,
                     baselineOverride = activeSessionBaseline,
                 )
-                val pending = voiceCommandHandler.handleEarlyReminderDecision(
+                val reminderResult = voiceCommandHandler.handleEarlyReminderDecision(
                     noteId = targetNoteId,
                     audioBlockId = audioBlockId,
                     rawText = transcription,
@@ -787,16 +788,31 @@ class MicBarController(
                     commitContext = commitContext,
                     reqId = reqId,
                 )
-                if (pending != null) {
-                    trackPendingReminder(
-                        audioBlockId,
-                        PendingReminderReconciliation(
-                            noteId = targetNoteId,
-                            rawText = decision.rawText,
-                            pending = pending,
-                        ),
-                    )
-                    showReminderFeedback()
+                when (reminderResult) {
+                    is VoiceCommandHandler.ReminderHandlingResult.Success -> {
+                        val pending = reminderResult.pending
+                        if (pending != null) {
+                            trackPendingReminder(
+                                audioBlockId,
+                                PendingReminderReconciliation(
+                                    noteId = targetNoteId,
+                                    rawText = decision.rawText,
+                                    pending = pending,
+                                ),
+                            )
+                            showReminderFeedback()
+                        }
+                    }
+
+                    is VoiceCommandHandler.ReminderHandlingResult.Error -> {
+                        Log.d(
+                            TAG_EARLY,
+                            "EARLY_RESULT req=$reqId reminder_error=${reminderResult.error.type}",
+                            reminderResult.error.cause,
+                        )
+                    }
+
+                    VoiceCommandHandler.ReminderHandlingResult.Skip -> Unit
                 }
                 EarlyHandlingResult(skipWhisper = false)
             }
@@ -814,7 +830,7 @@ class MicBarController(
                     reconciled = false,
                     baselineOverride = activeSessionBaseline,
                 )
-                val pending = voiceCommandHandler.handleEarlyReminderDecision(
+                val reminderResult = voiceCommandHandler.handleEarlyReminderDecision(
                     noteId = targetNoteId,
                     audioBlockId = audioBlockId,
                     rawText = transcription,
@@ -824,16 +840,31 @@ class MicBarController(
                     commitContext = commitContext,
                     reqId = reqId,
                 )
-                if (pending != null) {
-                    trackPendingReminder(
-                        audioBlockId,
-                        PendingReminderReconciliation(
-                            noteId = targetNoteId,
-                            rawText = decision.rawText,
-                            pending = pending,
-                        ),
-                    )
-                    showReminderFeedback()
+                when (reminderResult) {
+                    is VoiceCommandHandler.ReminderHandlingResult.Success -> {
+                        val pending = reminderResult.pending
+                        if (pending != null) {
+                            trackPendingReminder(
+                                audioBlockId,
+                                PendingReminderReconciliation(
+                                    noteId = targetNoteId,
+                                    rawText = decision.rawText,
+                                    pending = pending,
+                                ),
+                            )
+                            showReminderFeedback()
+                        }
+                    }
+
+                    is VoiceCommandHandler.ReminderHandlingResult.Error -> {
+                        Log.d(
+                            TAG_EARLY,
+                            "EARLY_RESULT req=$reqId reminder_error=${reminderResult.error.type}",
+                            reminderResult.error.cause,
+                        )
+                    }
+
+                    VoiceCommandHandler.ReminderHandlingResult.Skip -> Unit
                 }
                 EarlyHandlingResult(skipWhisper = false)
             }
@@ -952,6 +983,7 @@ class MicBarController(
                 return
             }
         }
+        var deferCleanup = false
         try {
             when (decision) {
             VoiceRouteDecision.NOTE -> {
@@ -967,7 +999,7 @@ class MicBarController(
 
             is VoiceRouteDecision.ReminderTime,
             is VoiceRouteDecision.ReminderPlace -> {
-                voiceCommandHandler.handleReminderDecision(
+                val reminderResult = voiceCommandHandler.handleReminderDecision(
                     noteId = targetNoteId,
                     audioBlockId = audioBlockId,
                     refinedText = transcription,
@@ -977,6 +1009,28 @@ class MicBarController(
                     commitContext = commitContext,
                     reqId = reqId,
                 )
+                when (reminderResult) {
+                    is VoiceCommandHandler.ReminderHandlingResult.Success -> Unit
+
+                    is VoiceCommandHandler.ReminderHandlingResult.Error -> {
+                        deferCleanup = true
+                        registerReminderError(
+                            audioBlockId = audioBlockId,
+                            noteId = targetNoteId,
+                            refinedText = transcription,
+                            audioPath = audioPath,
+                            decision = decision,
+                            sessionBaseline = commitContext.baselineBody,
+                            commitContext = commitContext,
+                            reqId = reqId,
+                            intentKey = intentKey,
+                            error = reminderResult.error,
+                        )
+                        return
+                    }
+
+                    VoiceCommandHandler.ReminderHandlingResult.Skip -> Unit
+                }
             }
 
             VoiceRouteDecision.INCOMPLETE -> {
@@ -1029,11 +1083,15 @@ class MicBarController(
             throw error
         } finally {
             try {
-                voiceCommandHandler.finalizeVoiceCaptureCleanup(audioBlockId)
+                if (!deferCleanup) {
+                    voiceCommandHandler.finalizeVoiceCaptureCleanup(audioBlockId)
+                }
             } finally {
-                clearVoiceCaptureState(audioBlockId)
-                intentKey?.let { key -> sessionIntentRegistry.markResolved(key, reqId = reqId) }
-                releaseAudioSessionForBlock(audioBlockId)
+                if (!deferCleanup) {
+                    clearVoiceCaptureState(audioBlockId)
+                    intentKey?.let { key -> sessionIntentRegistry.markResolved(key, reqId = reqId) }
+                    releaseAudioSessionForBlock(audioBlockId)
+                }
             }
         }
     }
@@ -1143,6 +1201,101 @@ class MicBarController(
     private fun hasAtLeastTwoArticles(text: String): Boolean {
         val matches = ARTICLE_REPETITION_REGEX.findAll(text)
         return matches.take(2).count() >= 2
+    }
+
+    private fun registerReminderError(
+        audioBlockId: Long,
+        noteId: Long,
+        refinedText: String,
+        audioPath: String,
+        decision: VoiceRouteDecision,
+        sessionBaseline: String?,
+        commitContext: BodyTranscriptionManager.DictationCommitContext,
+        reqId: String,
+        intentKey: String?,
+        error: VoiceCommandHandler.ReminderCommandError,
+    ) {
+        val state = voiceCaptureStates.getOrPut(audioBlockId) { VoiceCaptureState() }
+        state.pendingReminderError = PendingReminderError(
+            noteId = noteId,
+            audioBlockId = audioBlockId,
+            refinedText = refinedText,
+            audioPath = audioPath,
+            decision = decision,
+            sessionBaseline = sessionBaseline,
+            commitContext = commitContext,
+            reqId = reqId,
+            intentKey = intentKey,
+            error = error,
+        )
+        showReminderErrorDialog(audioBlockId, error)
+    }
+
+    private fun showReminderErrorDialog(
+        audioBlockId: Long,
+        error: VoiceCommandHandler.ReminderCommandError,
+    ) {
+        activity.lifecycleScope.launch {
+            ReminderErrorDialog.show(
+                activity = activity,
+                error = error,
+                onRetry = { retryReminderAfterError(audioBlockId) },
+                onKeep = { commitReminderErrorToNote(audioBlockId) },
+            )
+        }
+    }
+
+    private fun retryReminderAfterError(audioBlockId: Long) {
+        val state = voiceCaptureStates[audioBlockId] ?: return
+        val pendingError = state.pendingReminderError ?: return
+        activity.lifecycleScope.launch {
+            val result = voiceCommandHandler.handleReminderDecision(
+                noteId = pendingError.noteId,
+                audioBlockId = pendingError.audioBlockId,
+                refinedText = pendingError.refinedText,
+                audioPath = pendingError.audioPath,
+                decision = pendingError.decision,
+                sessionBaseline = pendingError.sessionBaseline,
+                commitContext = pendingError.commitContext,
+                reqId = pendingError.reqId,
+            )
+            when (result) {
+                is VoiceCommandHandler.ReminderHandlingResult.Success,
+                VoiceCommandHandler.ReminderHandlingResult.Skip -> {
+                    state.pendingReminderError = null
+                    finalizeReminderAfterChoice(pendingError)
+                }
+
+                is VoiceCommandHandler.ReminderHandlingResult.Error -> {
+                    pendingError.error = result.error
+                    showReminderErrorDialog(audioBlockId, result.error)
+                }
+            }
+        }
+    }
+
+    private fun commitReminderErrorToNote(audioBlockId: Long) {
+        val state = voiceCaptureStates[audioBlockId] ?: return
+        val pendingError = state.pendingReminderError ?: return
+        state.pendingReminderError = null
+        activity.lifecycleScope.launch {
+            voiceCommandHandler.handleNoteDecision(
+                noteId = pendingError.noteId,
+                audioBlockId = pendingError.audioBlockId,
+                refinedText = pendingError.refinedText,
+                sessionBaseline = pendingError.sessionBaseline,
+                commitContext = pendingError.commitContext,
+                reqId = pendingError.reqId,
+            )
+            finalizeReminderAfterChoice(pendingError)
+        }
+    }
+
+    private suspend fun finalizeReminderAfterChoice(pending: PendingReminderError) {
+        voiceCommandHandler.finalizeVoiceCaptureCleanup(pending.audioBlockId)
+        clearVoiceCaptureState(pending.audioBlockId)
+        pending.intentKey?.let { sessionIntentRegistry.markResolved(it, reqId = pending.reqId) }
+        releaseAudioSessionForBlock(pending.audioBlockId)
     }
 
     private fun trackPendingReminder(
@@ -1439,12 +1592,26 @@ class MicBarController(
 
     private data class VoiceCaptureState(
         var pendingReminder: PendingReminderReconciliation? = null,
+        var pendingReminderError: PendingReminderError? = null,
     )
 
     private data class PendingReminderReconciliation(
         val noteId: Long,
         val rawText: String,
         val pending: ReminderExecutor.PendingVoiceReminder,
+    )
+
+    private data class PendingReminderError(
+        val noteId: Long,
+        val audioBlockId: Long,
+        val refinedText: String,
+        val audioPath: String,
+        val decision: VoiceRouteDecision,
+        val sessionBaseline: String?,
+        val commitContext: BodyTranscriptionManager.DictationCommitContext,
+        val reqId: String,
+        val intentKey: String?,
+        var error: VoiceCommandHandler.ReminderCommandError,
     )
 
     private data class SessionBaseline(
