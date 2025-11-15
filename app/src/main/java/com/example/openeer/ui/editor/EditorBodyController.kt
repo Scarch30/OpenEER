@@ -34,6 +34,7 @@ class EditorBodyController(
 
     companion object {
         var selectionHost: EditText? = null
+        private const val PLACEHOLDER = "(transcription en cours…)"
     }
 
     init {
@@ -246,7 +247,4 @@ class EditorBodyController(
         }
     }
 
-    companion object {
-        private const val PLACEHOLDER = "(transcription en cours…)"
-    }
 }
