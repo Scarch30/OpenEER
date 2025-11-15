@@ -32,6 +32,41 @@ internal class VoiceCommandHandler(
     private val showTopBubble: (String) -> Unit,
 ) {
 
+    private data class VoiceCaptureCleanupState(
+        var audioPath: String,
+        var cleanupRequested: Boolean = false,
+    )
+
+    private val pendingVoiceCaptures = mutableMapOf<Long, VoiceCaptureCleanupState>()
+
+    fun registerVoiceCapture(audioBlockId: Long, audioPath: String) {
+        val sanitized = audioPath.takeIf { it.isNotBlank() } ?: ""
+        val state = pendingVoiceCaptures.getOrPut(audioBlockId) {
+            VoiceCaptureCleanupState(sanitized)
+        }
+        if (sanitized.isNotEmpty()) {
+            state.audioPath = sanitized
+        }
+    }
+
+    fun scheduleVoiceCaptureCleanup(audioBlockId: Long, audioPath: String) {
+        val sanitized = audioPath.takeIf { it.isNotBlank() } ?: ""
+        val state = pendingVoiceCaptures.getOrPut(audioBlockId) {
+            VoiceCaptureCleanupState(sanitized)
+        }
+        if (sanitized.isNotEmpty()) {
+            state.audioPath = sanitized
+        }
+        state.cleanupRequested = true
+    }
+
+    suspend fun finalizeVoiceCaptureCleanup(audioBlockId: Long) {
+        val state = pendingVoiceCaptures.remove(audioBlockId) ?: return
+        if (state.cleanupRequested) {
+            cleanupVoiceCaptureArtifacts(audioBlockId, state.audioPath)
+        }
+    }
+
     suspend fun handleNoteDecision(
         noteId: Long,
         audioBlockId: Long,
@@ -95,7 +130,8 @@ internal class VoiceCommandHandler(
                 }
             }
         }
-        cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+        cleanupVoiceCaptureReferences(audioBlockId)
+        scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
         Log.d("MicCtl", "Reminder créé via voix: id=$reminderId pour note=$noteId")
     }
 
@@ -275,7 +311,8 @@ internal class VoiceCommandHandler(
                             }
                         }
                     }
-                    cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+                    cleanupVoiceCaptureReferences(audioBlockId)
+                    scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
                 }
             }
 
@@ -292,7 +329,8 @@ internal class VoiceCommandHandler(
                         showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
                     }
                 }
-                cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+                cleanupVoiceCaptureReferences(audioBlockId)
+                scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
             }
 
             is ListVoiceExecutor.Result.Failure -> {
@@ -307,7 +345,8 @@ internal class VoiceCommandHandler(
                     } else {
                         withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
                     }
-                    cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+                    cleanupVoiceCaptureReferences(audioBlockId)
+                    scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
                 }
             }
         }
@@ -332,7 +371,8 @@ internal class VoiceCommandHandler(
                 showTopBubble(activity.getString(R.string.voice_list_incomplete_hint))
             }
         }
-        cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+        cleanupVoiceCaptureReferences(audioBlockId)
+        scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
     }
 
     private fun hasVoiceGeofencePermissions(): Boolean {
@@ -495,7 +535,7 @@ internal class VoiceCommandHandler(
         BACKGROUND_DENIED
     }
 
-    suspend fun cleanupVoiceCaptureArtifacts(audioBlockId: Long, audioPath: String) {
+    private suspend fun cleanupVoiceCaptureArtifacts(audioBlockId: Long, audioPath: String) {
         val textBlockId = bodyManager.removeTextBlock(audioBlockId)
         bodyManager.removeGroupId(audioBlockId)
         bodyManager.removeRange(audioBlockId)
