@@ -5,7 +5,7 @@ import com.example.openeer.R
 import com.example.openeer.ui.VoiceCommandHandler
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
-object ReminderErrorDialog {
+internal object ReminderErrorDialog {
 
     fun show(
         activity: AppCompatActivity,
