@@ -60,7 +60,7 @@ class ReminderExecutor(
         val parseResult = try {
             placeParser.parse(text)
         } catch (error: LocalPlaceIntentParser.FavoriteNotFound) {
-            throw IncompleteException("favorite_not_found")
+            throw FavoriteNotFoundException(error.candidate.raw)
         } ?: throw IncompleteException("No place intent parsed")
 
         val resolvedPlace = resolvePlace(parseResult.place)
@@ -575,6 +575,10 @@ class ReminderExecutor(
     }
 
     class IncompleteException(message: String? = null) : Exception(message)
+
+    class FavoriteNotFoundException(val query: String) : Exception(
+        "Favorite not found for \"$query\"",
+    )
 
     private data class ResolvedPlace(
         val latitude: Double,

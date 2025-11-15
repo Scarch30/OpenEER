@@ -78,6 +78,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var lastHereLocation: RecentHere? = null
     internal var hintDismissRunnable: Runnable? = null
     internal var hasRequestedLocationPermission = false
+    internal var initialSearchQuery: String? = null
 
     internal var symbolManager: SymbolManager? = null
     internal var polylineManager: LineManager? = null
@@ -145,6 +146,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         const val ARG_SHOW_LIBRARY_PINS = "arg_show_library_pins"
         const val ARG_PICK_MODE = "arg_pick_mode"
         const val STATE_PICK_MODE = "state_pick_mode"
+        const val ARG_INITIAL_SEARCH_QUERY = "arg_initial_search_query"
+        const val STATE_INITIAL_SEARCH_QUERY = "state_initial_search_query"
         const val RESULT_MANUAL_ROUTE = "result_manual_route"
         const val RESULT_MANUAL_ROUTE_LAT = "result_manual_route_lat"
         const val RESULT_MANUAL_ROUTE_LON = "result_manual_route_lon"
@@ -163,6 +166,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             mode: String? = null,
             showLibraryPins: Boolean = false,
             pickMode: Boolean = false,
+            initialSearchQuery: String? = null,
         ): MapFragment =
             MapFragment().apply {
                 arguments = Bundle().apply {
@@ -171,6 +175,9 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                     if (!mode.isNullOrBlank()) putString(ARG_MODE, mode)
                     putBoolean(ARG_SHOW_LIBRARY_PINS, showLibraryPins)
                     putBoolean(ARG_PICK_MODE, pickMode)
+                    if (!initialSearchQuery.isNullOrBlank()) {
+                        putString(ARG_INITIAL_SEARCH_QUERY, initialSearchQuery)
+                    }
                 }
             }
     }
@@ -203,6 +210,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         pickModeOverride = savedInstanceState?.getBoolean(STATE_PICK_MODE)
             ?: arguments?.getBoolean(ARG_PICK_MODE)
             ?: false
+        initialSearchQuery = savedInstanceState?.getString(STATE_INITIAL_SEARCH_QUERY)
+            ?: arguments?.getString(ARG_INITIAL_SEARCH_QUERY)
         startMode = when {
             pickModeOverride -> MapActivity.MODE_PICK_LOCATION
             else -> when (val mode = savedInstanceState?.getString(STATE_MODE) ?: arguments?.getString(ARG_MODE)) {
@@ -256,6 +265,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         mapView?.getMapAsync(this)
         initializeSearchUi(view)
         initializeControlCenter()
+        applyInitialSearchQueryIfNeeded()
     }
 
     override fun onStart() {
@@ -274,6 +284,7 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         outState.putLong(STATE_BLOCK_ID, targetBlockId ?: -1L)
         outState.putString(STATE_MODE, startMode)
         outState.putBoolean(STATE_PICK_MODE, pickModeOverride)
+        outState.putString(STATE_INITIAL_SEARCH_QUERY, initialSearchQuery)
     }
 
     override fun onResume() {

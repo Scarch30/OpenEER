@@ -17,6 +17,7 @@ internal object ReminderErrorDialog {
             VoiceCommandHandler.ReminderCommandErrorType.INCOMPLETE -> R.string.voice_reminder_incomplete_hint
             VoiceCommandHandler.ReminderCommandErrorType.LOCATION_PERMISSION -> R.string.voice_reminder_location_permission_hint
             VoiceCommandHandler.ReminderCommandErrorType.BACKGROUND_PERMISSION -> R.string.voice_reminder_background_permission_hint
+            VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND -> R.string.voice_reminder_error_generic
             VoiceCommandHandler.ReminderCommandErrorType.FAILURE -> R.string.voice_reminder_error_generic
         }
 

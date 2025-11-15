@@ -20,6 +20,8 @@ import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
 import com.example.openeer.stt.FinalResult
 import com.example.openeer.ui.dialogs.ReminderErrorDialog
+import com.example.openeer.ui.dialogs.UnknownPlaceDialog
+import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.voice.AdaptiveRouter
 import com.example.openeer.voice.EarlyIntentHint
 import com.example.openeer.voice.ListVoiceExecutor
@@ -1228,7 +1230,14 @@ class MicBarController(
             intentKey = intentKey,
             error = error,
         )
-        showReminderErrorDialog(audioBlockId, error)
+        val disputedLabel = error.disputedLabel
+        if (error.type == VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND &&
+            !disputedLabel.isNullOrBlank()
+        ) {
+            showUnknownPlaceDialog(audioBlockId, disputedLabel)
+        } else {
+            showReminderErrorDialog(audioBlockId, error)
+        }
     }
 
     private fun showReminderErrorDialog(
@@ -1243,6 +1252,35 @@ class MicBarController(
                 onKeep = { commitReminderErrorToNote(audioBlockId) },
             )
         }
+    }
+
+    private fun showUnknownPlaceDialog(
+        audioBlockId: Long,
+        label: String,
+    ) {
+        activity.lifecycleScope.launch {
+            UnknownPlaceDialog.show(
+                activity = activity,
+                label = label,
+                onCreateFavorite = { launchFavoriteCreationFlow(audioBlockId, label) },
+                onStay = { commitReminderErrorToNote(audioBlockId) },
+            )
+        }
+    }
+
+    private fun launchFavoriteCreationFlow(
+        audioBlockId: Long,
+        label: String,
+    ) {
+        val state = voiceCaptureStates[audioBlockId] ?: return
+        val pendingError = state.pendingReminderError ?: return
+        val intent = MapActivity.newBrowseIntent(
+            activity,
+            noteId = pendingError.noteId,
+            initialSearchQuery = label,
+        )
+        activity.startActivity(intent)
+        commitReminderErrorToNote(audioBlockId)
     }
 
     private fun retryReminderAfterError(audioBlockId: Long) {

@@ -99,6 +99,14 @@ private suspend fun MapFragment.fetchSuggestions(query: String) {
     }
 }
 
+internal fun MapFragment.applyInitialSearchQueryIfNeeded() {
+    val query = initialSearchQuery?.takeIf { it.isNotBlank() } ?: return
+    initialSearchQuery = null
+    searchInput.setText(query, false)
+    searchInput.setSelection(query.length)
+    launchDirectSearch(query)
+}
+
 private fun MapFragment.launchDirectSearch(query: String) {
     searchExecutionJob?.cancel()
     searchExecutionJob = viewLifecycleOwner.lifecycleScope.launch {
