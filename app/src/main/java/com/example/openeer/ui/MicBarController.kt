@@ -875,7 +875,7 @@ class MicBarController(
                 withContext(Dispatchers.Main) {
                     showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
                 }
-                EarlyHandlingResult(skipWhisper = true)
+                EarlyHandlingResult(skipWhisper = false)
             }
         }
 
