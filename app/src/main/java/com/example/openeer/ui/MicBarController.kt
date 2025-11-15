@@ -97,7 +97,7 @@ class MicBarController(
     private val adaptiveRouter = AdaptiveRouter()
 
     private var activeSessionNoteId: Long? = null
-    private val pendingEarlyReminders = mutableMapOf<Long, PendingReminderReconciliation>()
+    private val voiceCaptureStates = mutableMapOf<Long, VoiceCaptureState>()
     private var nextAudioSessionId = 1L
     private var currentAudioSessionId: Long? = null
     private val audioSessionIdsByBlock = mutableMapOf<Long, Long>()
@@ -355,6 +355,9 @@ class MicBarController(
                     }
 
                     val audioBlockId = newBlockId
+                    if (audioBlockId != null) {
+                        voiceCommandHandler.registerVoiceCapture(audioBlockId, wavPath.orEmpty())
+                    }
                     val attemptEarlyRouting =
                         FeatureFlags.voiceCommandsEnabled && FeatureFlags.voiceEarlyCommandsEnabled
                     val assumeListForInitial =
@@ -424,7 +427,7 @@ class MicBarController(
                                 )
                                 Log.d("VoiceRoute", "Bloc #$blockId → décision $decision pour \"$refinedText\"")
 
-                                val pendingReminder = pendingEarlyReminders.remove(blockId)
+                                val pendingReminder = consumePendingReminder(blockId)
                                 if (pendingReminder != null) {
                                     Log.d("EarlyVC", "ReconcileEarly reminder final=${decision.logToken}")
                                     val result = reminderExecutor.reconcileReminderWithWhisper(
@@ -437,6 +440,9 @@ class MicBarController(
                                             showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
                                         }
                                     }
+                                    voiceCommandHandler.finalizeVoiceCaptureCleanup(blockId)
+                                    clearVoiceCaptureState(blockId)
+                                    releaseAudioSessionForBlock(blockId)
                                     return@launch
                                 }
 
@@ -552,10 +558,13 @@ class MicBarController(
                                     TAG_EARLY,
                                     "EARLY_EXIT req=$reqId reason=${if (skipDueToResolution) "intentResolved" else "intentDuplicate"} key=$intentKey",
                                 )
-                                if (skipDueToResolution && !wavPath.isNullOrBlank()) {
-                                    voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, wavPath)
-                                }
                                 if (skipDueToResolution) {
+                                    voiceCommandHandler.scheduleVoiceCaptureCleanup(
+                                        audioBlockId,
+                                        wavPath.orEmpty(),
+                                    )
+                                    voiceCommandHandler.finalizeVoiceCaptureCleanup(audioBlockId)
+                                    clearVoiceCaptureState(audioBlockId)
                                     releaseAudioSessionForBlock(audioBlockId)
                                     skipWhisper = true
                                 }
@@ -779,10 +788,13 @@ class MicBarController(
                     reqId = reqId,
                 )
                 if (pending != null) {
-                    pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
-                        noteId = targetNoteId,
-                        rawText = decision.rawText,
-                        pending = pending,
+                    trackPendingReminder(
+                        audioBlockId,
+                        PendingReminderReconciliation(
+                            noteId = targetNoteId,
+                            rawText = decision.rawText,
+                            pending = pending,
+                        ),
                     )
                     showReminderFeedback()
                 }
@@ -813,10 +825,13 @@ class MicBarController(
                     reqId = reqId,
                 )
                 if (pending != null) {
-                    pendingEarlyReminders[audioBlockId] = PendingReminderReconciliation(
-                        noteId = targetNoteId,
-                        rawText = decision.rawText,
-                        pending = pending,
+                    trackPendingReminder(
+                        audioBlockId,
+                        PendingReminderReconciliation(
+                            noteId = targetNoteId,
+                            rawText = decision.rawText,
+                            pending = pending,
+                        ),
                     )
                     showReminderFeedback()
                 }
@@ -901,7 +916,9 @@ class MicBarController(
                 Log.d(TAG_INTENT, "INTENT_SKIP_REASON req=$reqId key=$key reason=duplicate_final")
                 Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=intentResolved key=$key")
                 Log.d("MicCtl", "FinalSkip/Resolved key=$key block=$audioBlockId")
-                voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+                voiceCommandHandler.scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
+                voiceCommandHandler.finalizeVoiceCaptureCleanup(audioBlockId)
+                clearVoiceCaptureState(audioBlockId)
                 releaseAudioSessionForBlock(audioBlockId)
                 return
             }
@@ -1011,8 +1028,13 @@ class MicBarController(
             intentKey?.let { key -> sessionIntentRegistry.remove(key) }
             throw error
         } finally {
-            intentKey?.let { key -> sessionIntentRegistry.markResolved(key, reqId = reqId) }
-            releaseAudioSessionForBlock(audioBlockId)
+            try {
+                voiceCommandHandler.finalizeVoiceCaptureCleanup(audioBlockId)
+            } finally {
+                clearVoiceCaptureState(audioBlockId)
+                intentKey?.let { key -> sessionIntentRegistry.markResolved(key, reqId = reqId) }
+                releaseAudioSessionForBlock(audioBlockId)
+            }
         }
     }
 
@@ -1123,6 +1145,28 @@ class MicBarController(
         return matches.take(2).count() >= 2
     }
 
+    private fun trackPendingReminder(
+        audioBlockId: Long,
+        pending: PendingReminderReconciliation,
+    ) {
+        val state = voiceCaptureStates.getOrPut(audioBlockId) { VoiceCaptureState() }
+        state.pendingReminder = pending
+    }
+
+    private fun consumePendingReminder(audioBlockId: Long): PendingReminderReconciliation? {
+        val state = voiceCaptureStates[audioBlockId] ?: return null
+        val pending = state.pendingReminder
+        state.pendingReminder = null
+        if (state.pendingReminder == null) {
+            voiceCaptureStates.remove(audioBlockId)
+        }
+        return pending
+    }
+
+    private fun clearVoiceCaptureState(audioBlockId: Long) {
+        voiceCaptureStates.remove(audioBlockId)
+    }
+
     private fun List<Long>.formatIdsForLog(): String {
         if (isEmpty()) return "[]"
         return joinToString(prefix = "[", postfix = "]")
@@ -1150,7 +1194,7 @@ class MicBarController(
             Log.d("ListUI", "PROVISIONAL already removed for block=$audioBlockId (early applied)")
             withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
         }
-        voiceCommandHandler.cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+        voiceCommandHandler.scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
     }
 
     private suspend fun handleEarlyListCommand(
@@ -1392,6 +1436,10 @@ class MicBarController(
     }
 
     private data class EarlyHandlingResult(val skipWhisper: Boolean)
+
+    private data class VoiceCaptureState(
+        var pendingReminder: PendingReminderReconciliation? = null,
+    )
 
     private data class PendingReminderReconciliation(
         val noteId: Long,
