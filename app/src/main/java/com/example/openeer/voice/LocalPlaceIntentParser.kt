@@ -23,6 +23,10 @@ class LocalPlaceIntentParser @JvmOverloads constructor(
         val key: String,
     )
 
+    class FavoriteNotFound(val candidate: FavoriteCandidate) : Exception(
+        "No favorite found for \"${candidate.raw}\""
+    )
+
     data class FavoriteMatch(
         val id: Long,
         val key: String,
@@ -47,7 +51,6 @@ class LocalPlaceIntentParser @JvmOverloads constructor(
 
     sealed class PlaceQuery {
         data object CurrentLocation : PlaceQuery()
-        data class FreeText(val normalized: String, val spokenForm: String) : PlaceQuery()
         data class Favorite(
             val id: Long,
             val key: String,
@@ -99,7 +102,11 @@ class LocalPlaceIntentParser @JvmOverloads constructor(
         )
     }
 
-    fun routeEarly(text: String): PlaceParseResult? = parse(text)
+    fun routeEarly(text: String): PlaceParseResult? = try {
+        parse(text)
+    } catch (error: FavoriteNotFound) {
+        null
+    }
 
     private fun resolvePlace(candidate: FavoriteCandidate, modifiers: ModifierExtraction): PlaceResolution {
         val isCurrent = isCurrentLocation(candidate.raw)
@@ -118,47 +125,39 @@ class LocalPlaceIntentParser @JvmOverloads constructor(
         val resolution = favoriteResolver.resolve(candidate)
         logFavoriteResolution(candidate, resolution)
 
-        if (resolution != null) {
-            val radius = if (modifiers.radiusSpecified) {
-                modifiers.radiusMeters
-            } else {
-                resolution.match.defaultRadiusMeters
-            }
-            val cooldown = if (modifiers.cooldownSpecified) {
-                finalCooldown
-            } else {
-                resolution.match.defaultCooldownMinutes
-            }
-            val every = if (modifiers.everyTime) {
-                true
-            } else {
-                resolution.match.defaultEveryTime
-            }
-            return PlaceResolution(
-                place = PlaceQuery.Favorite(
-                    id = resolution.match.id,
-                    key = resolution.match.key,
-                    lat = resolution.match.lat,
-                    lon = resolution.match.lon,
-                    spokenForm = candidate.raw,
-                    defaultRadiusMeters = resolution.match.defaultRadiusMeters,
-                    defaultCooldownMinutes = resolution.match.defaultCooldownMinutes,
-                    defaultEveryTime = resolution.match.defaultEveryTime,
-                ),
-                radiusMeters = radius,
-                cooldownMinutes = cooldown,
-                everyTime = every,
-            )
+        if (resolution == null) {
+            throw FavoriteNotFound(candidate)
         }
 
+        val radius = if (modifiers.radiusSpecified) {
+            modifiers.radiusMeters
+        } else {
+            resolution.match.defaultRadiusMeters
+        }
+        val cooldown = if (modifiers.cooldownSpecified) {
+            finalCooldown
+        } else {
+            resolution.match.defaultCooldownMinutes
+        }
+        val every = if (modifiers.everyTime) {
+            true
+        } else {
+            resolution.match.defaultEveryTime
+        }
         return PlaceResolution(
-            place = PlaceQuery.FreeText(
-                normalized = candidate.normalized,
+            place = PlaceQuery.Favorite(
+                id = resolution.match.id,
+                key = resolution.match.key,
+                lat = resolution.match.lat,
+                lon = resolution.match.lon,
                 spokenForm = candidate.raw,
+                defaultRadiusMeters = resolution.match.defaultRadiusMeters,
+                defaultCooldownMinutes = resolution.match.defaultCooldownMinutes,
+                defaultEveryTime = resolution.match.defaultEveryTime,
             ),
-            radiusMeters = modifiers.radiusMeters,
-            cooldownMinutes = finalCooldown,
-            everyTime = modifiers.everyTime,
+            radiusMeters = radius,
+            cooldownMinutes = cooldown,
+            everyTime = every,
         )
     }
 
@@ -376,7 +375,10 @@ class LocalPlaceIntentParser @JvmOverloads constructor(
         private val COOLDOWN_PATTERN = Regex("d[ée]lai\\s*(\\d+)\\s*minute(?:s)?", RegexOption.IGNORE_CASE)
         private val COOLDOWN_ALT_PATTERN = Regex("pas\\s+plus\\s+d['’]?une\\s+fois\\s+toutes\\s+les\\s*(\\d+)\\s*minute(?:s)?", RegexOption.IGNORE_CASE)
         private val EVERY_TIME_PATTERN = Regex("((?:à|a)\\s*chaque\\s*fois|toujours)", RegexOption.IGNORE_CASE)
-        private val CURRENT_LOCATION_PATTERN = Regex("\\bd['’]?ici\\b|\\bici\\b", RegexOption.IGNORE_CASE)
+        private val CURRENT_LOCATION_PATTERN = Regex(
+            "\\b(?:d['’]?ici|ici(?:\\s*même)?|ma\\s+position(?:\\s+actuelle)?|ma\\s+localisation(?:\\s+actuelle)?|position\\s+actuelle|localisation\\s+actuelle|(?:l[àa]\\s+)?o[uù]\\s+je\\s+suis|je\\s+suis\\s+ici|sur\\s+place)\\b",
+            RegexOption.IGNORE_CASE
+        )
 
         private val LOCATION_PREFIXES = listOf(
             "a la",
