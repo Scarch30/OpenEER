@@ -2,25 +2,27 @@ package com.example.openeer.ui
 
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.example.openeer.R
+import com.example.openeer.core.LocationPerms
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.ui.BodyTranscriptionManager.DictationCommitContext
-import com.example.openeer.core.LocationPerms
+import com.example.openeer.ui.dialogs.UnknownPlaceDialog
+import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceEarlyDecision
 import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import java.io.File
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import java.io.File
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
-import kotlin.coroutines.resume
 
 internal class VoiceCommandHandler(
     private val activity: AppCompatActivity,
@@ -85,6 +87,39 @@ internal class VoiceCommandHandler(
         if (state.cleanupRequested) {
             cleanupVoiceCaptureArtifacts(audioBlockId, state.audioPath)
         }
+    }
+
+    private suspend fun handleEarlyReminderIncomplete(
+        noteId: Long,
+        decision: VoiceEarlyDecision.ReminderIncomplete,
+    ): ReminderHandlingResult {
+        val label = decision.unknownPlaceLabel
+        if (label.isNullOrBlank()) {
+            return ReminderHandlingResult.Skip
+        }
+        withContext(Dispatchers.Main) {
+            UnknownPlaceDialog.showForReminderCapture(
+                activity = activity,
+                spokenLabel = label,
+                noteId = noteId.takeIf { it > 0 },
+                reminderText = decision.rawText,
+                onCreateFavorite = { targetNoteId, spokenLabel ->
+                    val browseIntent = MapActivity.newBrowseIntent(
+                        activity,
+                        noteId = targetNoteId,
+                        initialSearchQuery = spokenLabel,
+                    )
+                    activity.startActivity(browseIntent)
+                },
+                onModifyReminder = { _, _ ->
+                    showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                },
+                onCancel = {
+                    // no-op
+                },
+            )
+        }
+        return ReminderHandlingResult.Skip
     }
 
     suspend fun handleNoteDecision(
@@ -168,6 +203,9 @@ internal class VoiceCommandHandler(
     ): ReminderHandlingResult {
         ListUiLogTracker.mark(noteId, reqId)
         val intent = when (decision) {
+            is VoiceEarlyDecision.ReminderIncomplete ->
+                return handleEarlyReminderIncomplete(noteId, decision)
+
             is VoiceEarlyDecision.ReminderTime -> decision.intent
             is VoiceEarlyDecision.ReminderPlace -> decision.intent
             else -> return ReminderHandlingResult.Skip
