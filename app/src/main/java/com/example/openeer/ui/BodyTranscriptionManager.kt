@@ -13,6 +13,8 @@ import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.min
 
@@ -79,6 +81,28 @@ internal class BodyTranscriptionManager(
 
     fun removeGroupId(blockId: Long) {
         groupIdByAudio.remove(blockId)
+    }
+
+    suspend fun ensureAudioStack(blockId: Long) {
+        val needsGroup = groupIdByAudio[blockId].isNullOrEmpty()
+        val needsTextBlock = textBlockIdByAudio[blockId] == null
+        if (!needsGroup && !needsTextBlock) return
+
+        withContext(Dispatchers.IO) {
+            if (needsGroup) {
+                val resolvedGroup = blocksRepository.getBlock(blockId)?.groupId
+                if (!resolvedGroup.isNullOrBlank()) {
+                    groupIdByAudio[blockId] = resolvedGroup
+                }
+            }
+            if (needsTextBlock) {
+                val resolvedTextId = runCatching { blocksRepository.findTextForAudio(blockId) }
+                    .getOrNull()
+                if (resolvedTextId != null) {
+                    textBlockIdByAudio[blockId] = resolvedTextId
+                }
+            }
+        }
     }
 
     fun replaceProvisionalWithRefined(blockId: Long, refined: String): ReplacementResult? {
