@@ -62,10 +62,19 @@ class VoiceCommandRouter(
                     EarlyIntentHint.of(EarlyIntentHint.IntentType.REMINDER, trimmed, triggers)
                 )
 
-                null -> EarlyAnalysis(
-                    VoiceEarlyDecision.ReminderIncomplete(trimmed),
-                    EarlyIntentHint.of(EarlyIntentHint.IntentType.REMINDER_INCOMPLETE, trimmed, triggers)
-                )
+                null -> {
+                    val unknownPlaceLabel = when (val placeResult = placeIntentParser.routeEarly(trimmed)) {
+                        is LocalPlaceIntentParser.PlaceResult.Unknown -> placeResult.label
+                        else -> null
+                    }
+                    EarlyAnalysis(
+                        VoiceEarlyDecision.ReminderIncomplete(
+                            rawText = trimmed,
+                            unknownPlaceLabel = unknownPlaceLabel,
+                        ),
+                        EarlyIntentHint.of(EarlyIntentHint.IntentType.REMINDER_INCOMPLETE, trimmed, triggers)
+                    )
+                }
             }
         }
 
@@ -419,7 +428,10 @@ sealed class VoiceEarlyDecision(val logToken: String) {
         val rawText: String,
     ) : VoiceEarlyDecision("REMINDER_PLACE")
 
-    data class ReminderIncomplete(val rawText: String) : VoiceEarlyDecision("REMINDER_INCOMPLETE")
+    data class ReminderIncomplete(
+        val rawText: String,
+        val unknownPlaceLabel: String? = null,
+    ) : VoiceEarlyDecision("REMINDER_INCOMPLETE")
 }
 
 sealed class VoiceRouteDecision(val logToken: String) {
