@@ -904,18 +904,14 @@ class NotePanelController(
             )
             currentActionMode = mode
             lastSelectionBounds = null
-            if (menu.findItem(MENU_INLINE_LINK_TO_NOTE) == null) {
-                menu.add(0, MENU_INLINE_LINK_TO_NOTE, 100, activity.getString(R.string.inline_link_selection_action))
-                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
-            }
-            if (menu.findItem(MENU_INLINE_LINK_TO_CHILD_NOTE) == null) {
-                menu.add(
-                    0,
-                    MENU_INLINE_LINK_TO_CHILD_NOTE,
-                    101,
-                    activity.getString(R.string.inline_link_selection_action_child),
-                ).setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
-            }
+            val inlineLinkTitle = activity.getString(R.string.inline_link_selection_action)
+            menu.removeItem(MENU_INLINE_LINK_TO_NOTE)
+            menu.add(0, MENU_INLINE_LINK_TO_NOTE, 0, inlineLinkTitle)
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            val childLinkTitle = activity.getString(R.string.inline_link_selection_action_child)
+            menu.removeItem(MENU_INLINE_LINK_TO_CHILD_NOTE)
+            menu.add(0, MENU_INLINE_LINK_TO_CHILD_NOTE, 1, childLinkTitle)
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
             diag(
                 "onCreateActionMode: end menuSize=${menu.size()} items=${(0 until menu.size()).joinToString { index -> menu.getItem(index).let { item -> "#${index}(id=${item.itemId},title=${item.title},visible=${item.isVisible},enabled=${item.isEnabled})" } }}",
             )
@@ -928,13 +924,23 @@ class NotePanelController(
             )
             val linkItem = menu.findItem(MENU_INLINE_LINK_TO_NOTE)
             val linkVisible = shouldShowInlineLinkAction()
+            linkItem?.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
             linkItem?.isVisible = linkVisible
             linkItem?.isEnabled = linkVisible
 
             val childItem = menu.findItem(MENU_INLINE_LINK_TO_CHILD_NOTE)
             val childVisible = shouldShowChildInlineLinkAction()
+            childItem?.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
             childItem?.isVisible = childVisible
             childItem?.isEnabled = childVisible
+
+            val linkItemIds = setOf(MENU_INLINE_LINK_TO_NOTE, MENU_INLINE_LINK_TO_CHILD_NOTE)
+            for (index in 0 until menu.size()) {
+                val item = menu.getItem(index)
+                if (item.itemId !in linkItemIds) {
+                    item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+                }
+            }
             diag(
                 "onPrepareActionMode: end linkVisible=$linkVisible childVisible=$childVisible menuSize=${menu.size()} items=${(0 until menu.size()).joinToString { index -> menu.getItem(index).let { item -> "#${index}(id=${item.itemId},title=${item.title},visible=${item.isVisible},enabled=${item.isEnabled})" } }}",
             )
