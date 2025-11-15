@@ -94,6 +94,7 @@ internal class VoiceCommandHandler(
         reqId: String?,
     ) {
         ListUiLogTracker.mark(noteId, reqId)
+        bodyManager.ensureAudioStack(audioBlockId)
         val listHandle = listManager.removeHandle(audioBlockId)
         withContext(Dispatchers.IO) {
             blocksRepo.updateAudioTranscription(audioBlockId, refinedText)
