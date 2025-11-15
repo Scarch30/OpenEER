@@ -49,6 +49,12 @@ class LocalPlaceIntentParser @JvmOverloads constructor(
         val label: String,
     )
 
+    sealed class PlaceResult {
+        data object None : PlaceResult()
+        data class Resolved(val parse: PlaceParseResult) : PlaceResult()
+        data class Unknown(val label: String) : PlaceResult()
+    }
+
     sealed class PlaceQuery {
         data object CurrentLocation : PlaceQuery()
         data class Favorite(
@@ -102,10 +108,21 @@ class LocalPlaceIntentParser @JvmOverloads constructor(
         )
     }
 
-    fun routeEarly(text: String): PlaceParseResult? = try {
-        parse(text)
-    } catch (error: FavoriteNotFound) {
-        null
+    fun routeEarly(text: String): PlaceResult {
+        if (text.isBlank()) return PlaceResult.None
+
+        val parseResult = try {
+            parse(text)
+        } catch (error: FavoriteNotFound) {
+            val normalized = error.candidate.normalized
+            return if (normalized.isNotEmpty()) {
+                PlaceResult.Unknown(normalized)
+            } else {
+                PlaceResult.None
+            }
+        }
+
+        return parseResult?.let { PlaceResult.Resolved(it) } ?: PlaceResult.None
     }
 
     private fun resolvePlace(candidate: FavoriteCandidate, modifiers: ModifierExtraction): PlaceResolution {
