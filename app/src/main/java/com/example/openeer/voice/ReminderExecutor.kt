@@ -4,11 +4,8 @@ import android.Manifest
 import android.app.AlarmManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.location.Address
-import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
-import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.openeer.data.AppDatabase
@@ -19,7 +16,6 @@ import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.voice.ReminderIntent.Field
 import com.example.openeer.voice.VoiceRouteDecision
 import org.json.JSONObject
-import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -34,16 +30,12 @@ class ReminderExecutor(
     },
     currentLocationResolver: suspend () -> Location = {
         resolveCurrentLocation(context.applicationContext)
-    },
-    geocodeResolver: suspend (String) -> GeocodedPlace? = { query ->
-        geocode(context.applicationContext, query)
     }
 ) {
 
     private val appContext = context.applicationContext
     private val placeParser = voiceDependencies.placeParser
     private val currentLocationResolver = currentLocationResolver
-    private val geocodeResolver = geocodeResolver
 
     suspend fun createFromVoice(noteId: Long, labelFromWhisper: String): Long {
         val parseResult = LocalTimeIntentParser.parseReminder(labelFromWhisper)
@@ -65,8 +57,11 @@ class ReminderExecutor(
         noteId: Long,
         text: String
     ): Long {
-        val parseResult = placeParser.parse(text)
-            ?: throw IncompleteException("No place intent parsed")
+        val parseResult = try {
+            placeParser.parse(text)
+        } catch (error: LocalPlaceIntentParser.FavoriteNotFound) {
+            throw IncompleteException("favorite_not_found")
+        } ?: throw IncompleteException("No place intent parsed")
 
         val resolvedPlace = resolvePlace(parseResult.place)
         val sanitizedLabel = sanitizeLabel(parseResult.label)
@@ -242,10 +237,6 @@ class ReminderExecutor(
         return try {
             val snapshot = pending.placeSnapshot
             val resolved = when {
-                snapshot != null && intent.placeQuery is LocalPlaceIntentParser.PlaceQuery.FreeText &&
-                    snapshot.query is PendingVoiceReminder.PlaceQuerySnapshot.FreeText &&
-                    snapshot.query.normalized == intent.placeQuery.normalized -> snapshot.resolved.toResolvedPlace()
-
                 snapshot != null && intent.placeQuery is LocalPlaceIntentParser.PlaceQuery.CurrentLocation &&
                     snapshot.query is PendingVoiceReminder.PlaceQuerySnapshot.CurrentLocation -> snapshot.resolved.toResolvedPlace()
 
@@ -339,7 +330,6 @@ class ReminderExecutor(
 
         sealed class PlaceQuerySnapshot {
             object CurrentLocation : PlaceQuerySnapshot()
-            data class FreeText(val normalized: String, val spokenForm: String) : PlaceQuerySnapshot()
             data class Favorite(
                 val id: Long,
                 val key: String,
@@ -394,11 +384,6 @@ class ReminderExecutor(
                         val queryJson = payload.getJSONObject("query")
                         val querySnapshot = when (queryJson.getString("type")) {
                             "CURRENT" -> PlaceQuerySnapshot.CurrentLocation
-                            "FREE_TEXT" -> PlaceQuerySnapshot.FreeText(
-                                normalized = queryJson.getString("normalized"),
-                                spokenForm = queryJson.getString("spoken"),
-                            )
-
                             "FAVORITE" -> PlaceQuerySnapshot.Favorite(
                                 id = queryJson.getLong("id"),
                                 key = queryJson.getString("key"),
@@ -414,11 +399,6 @@ class ReminderExecutor(
                         }
                         val placeQuery = when (querySnapshot) {
                             is PlaceQuerySnapshot.CurrentLocation -> LocalPlaceIntentParser.PlaceQuery.CurrentLocation
-                            is PlaceQuerySnapshot.FreeText -> LocalPlaceIntentParser.PlaceQuery.FreeText(
-                                normalized = querySnapshot.normalized,
-                                spokenForm = querySnapshot.spokenForm,
-                            )
-
                             is PlaceQuerySnapshot.Favorite -> LocalPlaceIntentParser.PlaceQuery.Favorite(
                                 id = querySnapshot.id,
                                 key = querySnapshot.key,
@@ -477,11 +457,6 @@ class ReminderExecutor(
     private fun ReminderIntent.Place.toSnapshot(resolved: ResolvedPlace): PendingVoiceReminder.PlaceSnapshot {
         val querySnapshot = when (val query = placeQuery) {
             LocalPlaceIntentParser.PlaceQuery.CurrentLocation -> PendingVoiceReminder.PlaceQuerySnapshot.CurrentLocation
-            is LocalPlaceIntentParser.PlaceQuery.FreeText -> PendingVoiceReminder.PlaceQuerySnapshot.FreeText(
-                normalized = query.normalized,
-                spokenForm = query.spokenForm,
-            )
-
             is LocalPlaceIntentParser.PlaceQuery.Favorite -> PendingVoiceReminder.PlaceQuerySnapshot.Favorite(
                 id = query.id,
                 key = query.key,
@@ -537,12 +512,6 @@ class ReminderExecutor(
                 val queryJson = JSONObject().apply {
                     when (val query = snapshot.query) {
                         is PendingVoiceReminder.PlaceQuerySnapshot.CurrentLocation -> put("type", "CURRENT")
-                        is PendingVoiceReminder.PlaceQuerySnapshot.FreeText -> {
-                            put("type", "FREE_TEXT")
-                            put("normalized", query.normalized)
-                            put("spoken", query.spokenForm)
-                        }
-
                         is PendingVoiceReminder.PlaceQuerySnapshot.Favorite -> {
                             put("type", "FAVORITE")
                             put("id", query.id)
@@ -607,12 +576,6 @@ class ReminderExecutor(
 
     class IncompleteException(message: String? = null) : Exception(message)
 
-    data class GeocodedPlace(
-        val latitude: Double,
-        val longitude: Double,
-        val label: String?,
-    )
-
     private data class ResolvedPlace(
         val latitude: Double,
         val longitude: Double,
@@ -629,9 +592,6 @@ class ReminderExecutor(
             is LocalPlaceIntentParser.PlaceQuery.Favorite ->
                 "Favorite(id=${query.id}, key=${query.key}, lat=${query.lat}, lon=${query.lon})"
 
-            is LocalPlaceIntentParser.PlaceQuery.FreeText ->
-                "FreeText(normalized=\"${query.normalized}\")"
-
             LocalPlaceIntentParser.PlaceQuery.CurrentLocation ->
                 "CurrentLocation(lat=$latitude, lon=$longitude)"
         }
@@ -647,17 +607,6 @@ class ReminderExecutor(
                 longitude = location.longitude,
                 placeLabel = null,
                 startingInside = true,
-            )
-        }
-
-        is LocalPlaceIntentParser.PlaceQuery.FreeText -> {
-            val geocoded = geocodeResolver(query.normalized)
-                ?: throw IncompleteException("missing_place")
-            ResolvedPlace(
-                latitude = geocoded.latitude,
-                longitude = geocoded.longitude,
-                placeLabel = geocoded.label,
-                startingInside = false,
             )
         }
 
@@ -706,29 +655,4 @@ private fun resolveCurrentLocation(appContext: Context): Location {
         runCatching { lm.getLastKnownLocation(provider) }.getOrNull()
     }
     return location ?: throw ReminderExecutor.IncompleteException("No last known location")
-}
-
-private suspend fun geocode(
-    appContext: Context,
-    query: String,
-): ReminderExecutor.GeocodedPlace? {
-    if (!Geocoder.isPresent()) return null
-    val geocoder = Geocoder(appContext, Locale.getDefault())
-    return withContext(Dispatchers.IO) {
-        runCatching {
-            @Suppress("DEPRECATION")
-            val results: List<Address>? = if (Build.VERSION.SDK_INT >= 33) {
-                geocoder.getFromLocationName(query, 1)
-            } else {
-                geocoder.getFromLocationName(query, 1)
-            }
-            results?.firstOrNull()?.let { address ->
-                ReminderExecutor.GeocodedPlace(
-                    latitude = address.latitude,
-                    longitude = address.longitude,
-                    label = address.getAddressLine(0)?.takeIf { it.isNotBlank() } ?: query.trim()
-                )
-            }
-        }.getOrNull()
-    }
 }

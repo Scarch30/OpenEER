@@ -370,9 +370,6 @@ class VoiceCommandRouter(
                 val lon = roundCoord(place.lon)
                 "fav:${place.id}:${place.key}:$lat:$lon"
             }
-            is LocalPlaceIntentParser.PlaceQuery.FreeText -> normalizeForKey(place.normalized)
-                ?: normalizeForKey(place.spokenForm)
-                ?: EMPTY_ITEMS_HASH
         }
     }
 
