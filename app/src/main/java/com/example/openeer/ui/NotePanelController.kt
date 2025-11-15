@@ -40,6 +40,7 @@ import com.example.openeer.data.block.BlockEntity
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.link.InlineLinkEntity
 import com.example.openeer.databinding.ActivityMainBinding
+import com.example.openeer.ui.editor.EditorBodyController
 import com.example.openeer.ui.library.LibraryFragment
 import com.example.openeer.ui.sheets.ReminderListSheet
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
@@ -744,9 +745,9 @@ class NotePanelController(
             diag("resolveSelectionBounds: note=${note.id} type=${note.type} (LIST) -> abort")
             return null
         }
-        val editor = binding.bodyEditor
-        val selectionStart = editor.selectionStart
-        val selectionEnd = editor.selectionEnd
+        val editorView = EditorBodyController.selectionHost ?: binding.bodyEditor
+        val selectionStart = editorView.selectionStart
+        val selectionEnd = editorView.selectionEnd
         if (selectionStart == -1 || selectionEnd == -1) {
             diag(
                 "resolveSelectionBounds: invalid raw selection start=$selectionStart end=$selectionEnd note=${note.id}",
@@ -763,7 +764,7 @@ class NotePanelController(
         }
         val bounds = start to end
         diag(
-            "resolveSelectionBounds: resolved bounds=$bounds rawStart=$selectionStart rawEnd=$selectionEnd note=${note.id} hostBlockId=$motherHostBlockId childTargets=${childNoteTargets.size}",
+            "resolveSelectionBounds: resolved bounds=$bounds rawStart=$selectionStart rawEnd=$selectionEnd note=${note.id} hostBlockId=$motherHostBlockId childTargets=${childNoteTargets.size} editorHost=${editorView::class.java.simpleName}",
         )
         return bounds
     }
