@@ -32,6 +32,10 @@ class EditorBodyController(
     private var editUiActive = false
     private var editingNoteId: Long? = null
 
+    companion object {
+        var selectionHost: EditText? = null
+    }
+
     init {
         wireKeyboardListener()
     }
@@ -170,6 +174,7 @@ class EditorBodyController(
     private fun showInlineEditor(noteId: Long, caretPosition: Int?) {
         editingNoteId = noteId
         val overlay = editOverlay ?: createOverlay()
+        selectionHost = overlay
         diag(
             "showInlineEditor: overlay=$overlay callback=${overlay.customSelectionActionModeCallback} " +
                 "bodyCallback=${binding.bodyEditor.customSelectionActionModeCallback}"
