@@ -6,14 +6,21 @@ import com.example.openeer.R
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.ui.BodyTranscriptionManager.DictationCommitContext
+import com.example.openeer.core.LocationPerms
 import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceEarlyDecision
 import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import kotlin.coroutines.resume
 
 internal class VoiceCommandHandler(
     private val activity: AppCompatActivity,
@@ -108,6 +115,10 @@ internal class VoiceCommandHandler(
             is VoiceEarlyDecision.ReminderPlace -> decision.intent
             else -> return null
         }
+        if (decision is VoiceEarlyDecision.ReminderPlace && !hasVoiceGeofencePermissions()) {
+            Log.d("MicCtl", "Rappel lieu anticipé ignoré: permissions manquantes")
+            return null
+        }
         val result = runCatching {
             reminderExecutor.createEarlyReminderFromVosk(noteId, rawText, intent)
         }
@@ -139,6 +150,42 @@ internal class VoiceCommandHandler(
         reqId: String,
     ) {
         ListUiLogTracker.mark(noteId, reqId)
+        if (decision is VoiceRouteDecision.ReminderPlace) {
+            when (ensureVoiceGeofencePermissions()) {
+                GeoPermissionStatus.GRANTED -> Unit
+                GeoPermissionStatus.FOREGROUND_DENIED -> {
+                    Log.w("MicCtl", "Création de rappel lieu annulée: permission localisation refusée")
+                    handleNoteDecision(
+                        noteId = noteId,
+                        audioBlockId = audioBlockId,
+                        refinedText = refinedText,
+                        sessionBaseline = sessionBaseline,
+                        commitContext = commitContext,
+                        reqId = reqId,
+                    )
+                    withContext(Dispatchers.Main) {
+                        showTopBubble(activity.getString(R.string.voice_reminder_location_permission_hint))
+                    }
+                    return
+                }
+
+                GeoPermissionStatus.BACKGROUND_DENIED -> {
+                    Log.w("MicCtl", "Création de rappel lieu annulée: permission arrière-plan manquante")
+                    handleNoteDecision(
+                        noteId = noteId,
+                        audioBlockId = audioBlockId,
+                        refinedText = refinedText,
+                        sessionBaseline = sessionBaseline,
+                        commitContext = commitContext,
+                        reqId = reqId,
+                    )
+                    withContext(Dispatchers.Main) {
+                        showTopBubble(activity.getString(R.string.voice_reminder_background_permission_hint))
+                    }
+                    return
+                }
+            }
+        }
         val result = runCatching {
             when (decision) {
                 is VoiceRouteDecision.ReminderTime -> reminderExecutor.createFromVoice(noteId, refinedText)
@@ -286,6 +333,166 @@ internal class VoiceCommandHandler(
             }
         }
         cleanupVoiceCaptureArtifacts(audioBlockId, audioPath)
+    }
+
+    private fun hasVoiceGeofencePermissions(): Boolean {
+        val ctx = activity.applicationContext
+        if (!LocationPerms.hasFine(ctx)) return false
+        if (LocationPerms.requiresBackground(ctx) && !LocationPerms.hasBackground(ctx)) return false
+        return true
+    }
+
+    private suspend fun ensureVoiceGeofencePermissions(): GeoPermissionStatus {
+        val ctx = activity.applicationContext
+        LocationPerms.dump(ctx)
+        if (!LocationPerms.hasFine(ctx)) {
+            val granted = requestFinePermission()
+            if (!granted) return GeoPermissionStatus.FOREGROUND_DENIED
+        }
+        if (LocationPerms.requiresBackground(ctx) && !LocationPerms.hasBackground(ctx)) {
+            val accepted = showVoiceBackgroundPermissionDialog()
+            if (!accepted) {
+                return GeoPermissionStatus.BACKGROUND_DENIED
+            }
+            if (LocationPerms.mustOpenSettingsForBackground()) {
+                awaitResumeAfter { LocationPerms.launchSettingsForBackground(activity) }
+            } else {
+                val granted = requestBackgroundPermission()
+                if (!granted) return GeoPermissionStatus.BACKGROUND_DENIED
+            }
+            LocationPerms.dump(ctx)
+            if (!LocationPerms.hasBackground(ctx)) {
+                return GeoPermissionStatus.BACKGROUND_DENIED
+            }
+        }
+        return GeoPermissionStatus.GRANTED
+    }
+
+    private suspend fun requestFinePermission(): Boolean =
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { cont ->
+                var resolved = false
+                LocationPerms.requestFine(activity, object : LocationPerms.Callback {
+                    override fun onResult(granted: Boolean) {
+                        if (!resolved && cont.isActive) {
+                            resolved = true
+                            cont.resume(granted)
+                        }
+                    }
+                })
+                cont.invokeOnCancellation { resolved = true }
+            }
+        }
+
+    private suspend fun requestBackgroundPermission(): Boolean =
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { cont ->
+                var resolved = false
+                LocationPerms.requestBackground(activity, object : LocationPerms.Callback {
+                    override fun onResult(granted: Boolean) {
+                        if (!resolved && cont.isActive) {
+                            resolved = true
+                            cont.resume(granted)
+                        }
+                    }
+                })
+                cont.invokeOnCancellation { resolved = true }
+            }
+        }
+
+    private suspend fun showVoiceBackgroundPermissionDialog(): Boolean =
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { cont ->
+                var resolved = false
+                val positiveRes = if (LocationPerms.mustOpenSettingsForBackground()) {
+                    R.string.map_background_location_positive_settings
+                } else {
+                    R.string.map_background_location_positive_request
+                }
+                val dialog = MaterialAlertDialogBuilder(activity)
+                    .setTitle(R.string.map_background_location_title)
+                    .setMessage(R.string.map_background_location_message)
+                    .setPositiveButton(positiveRes) { _, _ ->
+                        if (!resolved && cont.isActive) {
+                            resolved = true
+                            cont.resume(true)
+                        }
+                    }
+                    .setNegativeButton(R.string.map_background_location_negative) { _, _ ->
+                        if (!resolved && cont.isActive) {
+                            resolved = true
+                            cont.resume(false)
+                        }
+                    }
+                    .setOnCancelListener {
+                        if (!resolved && cont.isActive) {
+                            resolved = true
+                            cont.resume(false)
+                        }
+                    }
+                    .create()
+                dialog.setOnDismissListener {
+                    if (!resolved && cont.isActive) {
+                        resolved = true
+                        cont.resume(false)
+                    }
+                }
+                dialog.show()
+                cont.invokeOnCancellation {
+                    resolved = true
+                    dialog.dismiss()
+                }
+            }
+        }
+
+    private suspend fun awaitResumeAfter(action: () -> Unit) {
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { cont ->
+                val lifecycle = activity.lifecycle
+                var sawPause = false
+                val decorView = activity.window?.decorView
+                lateinit var fallbackRunnable: Runnable
+                val observer = object : LifecycleEventObserver {
+                    override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                        when (event) {
+                            Lifecycle.Event.ON_PAUSE -> sawPause = true
+                            Lifecycle.Event.ON_RESUME -> {
+                                if (sawPause && cont.isActive) {
+                                    decorView?.removeCallbacks(fallbackRunnable)
+                                    lifecycle.removeObserver(this)
+                                    cont.resume(Unit)
+                                }
+                            }
+                            Lifecycle.Event.ON_DESTROY -> {
+                                decorView?.removeCallbacks(fallbackRunnable)
+                                lifecycle.removeObserver(this)
+                                if (cont.isActive) cont.resume(Unit)
+                            }
+                            else -> Unit
+                        }
+                    }
+                }
+                fallbackRunnable = Runnable {
+                    if (!sawPause && cont.isActive) {
+                        lifecycle.removeObserver(observer)
+                        cont.resume(Unit)
+                    }
+                }
+                lifecycle.addObserver(observer)
+                decorView?.postDelayed(fallbackRunnable, 300)
+                action()
+                cont.invokeOnCancellation {
+                    decorView?.removeCallbacks(fallbackRunnable)
+                    lifecycle.removeObserver(observer)
+                }
+            }
+        }
+    }
+
+    private enum class GeoPermissionStatus {
+        GRANTED,
+        FOREGROUND_DENIED,
+        BACKGROUND_DENIED
     }
 
     suspend fun cleanupVoiceCaptureArtifacts(audioBlockId: Long, audioPath: String) {

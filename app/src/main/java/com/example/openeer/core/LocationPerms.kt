@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentActivity
 
 object LocationPerms {
     private const val TAG = "LocationPerms"
@@ -47,10 +48,15 @@ object LocationPerms {
     }
 
     fun requestFine(fragment: Fragment, cb: Callback) {
-        Log.d(TAG, "perms: request FINE")
+        Log.d(TAG, "perms: request FINE (fragment)")
+        requestFine(fragment.requireActivity(), cb)
+    }
+
+    fun requestFine(activity: FragmentActivity, cb: Callback) {
+        Log.d(TAG, "perms: request FINE (activity)")
         registerCb(REQ_FINE, cb)
         ActivityCompat.requestPermissions(
-            fragment.requireActivity(),
+            activity,
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
             REQ_FINE
         )
@@ -58,15 +64,19 @@ object LocationPerms {
 
     // Uniquement pour API 29 (Android 10), au-delà il faut passer par Settings
     fun requestBackground(fragment: Fragment, cb: Callback) {
+        requestBackground(fragment.requireActivity(), cb)
+    }
+
+    fun requestBackground(activity: FragmentActivity, cb: Callback) {
         if (Build.VERSION.SDK_INT >= 30) {
             Log.w(TAG, "requestBackground() called on API>=30 → must use launchSettingsForBackground()")
             cb.onResult(false)
             return
         }
-        Log.d(TAG, "perms: request BG (API29 only)")
+        Log.d(TAG, "perms: request BG (API29 only, activity)")
         registerCb(REQ_BG, cb)
         ActivityCompat.requestPermissions(
-            fragment.requireActivity(),
+            activity,
             arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
             REQ_BG
         )
@@ -81,7 +91,17 @@ object LocationPerms {
      *  4) APPLICATION_DETAILS_SETTINGS (fiche appli)
      */
     fun launchSettingsForBackground(fragment: Fragment) {
-        val ctx = fragment.requireContext()
+        launchSettingsForBackgroundInternal(fragment.requireContext(), fragment::startActivity)
+    }
+
+    fun launchSettingsForBackground(activity: FragmentActivity) {
+        launchSettingsForBackgroundInternal(activity, activity::startActivity)
+    }
+
+    private fun launchSettingsForBackgroundInternal(
+        ctx: Context,
+        starter: (Intent) -> Unit
+    ) {
         val pkg = ctx.packageName
 
         // Intents semi-publics (pour la tentative 1)
@@ -98,7 +118,7 @@ object LocationPerms {
 
         var ok = runCatching {
             Log.d(TAG, "perms: trying MANAGE_APP_PERMISSION for $pkg (BG)")
-            fragment.startActivity(deepIntent)
+            starter(deepIntent)
             true
         }.getOrElse { err ->
             Log.w(TAG, "perms: deep intent failed, fallback to app details", err)
@@ -111,7 +131,7 @@ object LocationPerms {
                 data = Uri.fromParts("package", pkg, null)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            ok = tryStart(fragment, permissionsIntent) // Utilisation de votre fonction tryStart existante
+            ok = tryStart(starter, permissionsIntent)
 
             if (!ok) {
                 // 3) Fallback garanti → fiche de l’application (Infos sur l'appli)
@@ -119,16 +139,16 @@ object LocationPerms {
                     data = Uri.fromParts("package", pkg, null)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                runCatching { fragment.startActivity(fallbackDetails) }
+                runCatching { starter(fallbackDetails) }
                     .onFailure { e -> Log.e(TAG, "perms: unable to open app details", e) }
             }
         }
     }
 
 
-    private fun tryStart(fragment: Fragment, intent: Intent): Boolean {
+    private fun tryStart(starter: (Intent) -> Unit, intent: Intent): Boolean {
         return runCatching {
-            fragment.startActivity(intent)
+            starter(intent)
             true
         }.getOrElse {
             Log.w(TAG, "startActivity failed for ${intent.action}", it)
