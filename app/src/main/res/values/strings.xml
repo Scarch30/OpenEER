@@ -318,6 +318,7 @@
     <string name="map_favorite_here_permission_denied">Autorisation GPS requise</string>
     <string name="map_favorite_here_location_unavailable">Position actuelle introuvable</string>
     <string name="favorites_sheet_title">Favoris</string>
+    <string name="reminder_create_favorite">Créer un favori…</string>
     <string name="favorites_sheet_subtitle">Renommez vos lieux et ajustez leurs paramètres par défaut.</string>
     <string name="favorites_empty_state">Aucun favori enregistré pour le moment.</string>
     <string name="favorites_detail_back">← Retour</string>

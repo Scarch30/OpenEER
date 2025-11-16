@@ -231,6 +231,12 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         updateLocationPreview()
     }
 
+    private val createFavoriteLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        refreshFavorites()
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -283,9 +289,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         useCurrentLocationButton = view.findViewById(R.id.btnUseCurrentLocation)
         favoritesList = view.findViewById(R.id.listFavorites)
         favoritesEmptyView = view.findViewById(R.id.textFavoritesEmpty)
+        val createFavoriteButton: MaterialButton = view.findViewById(R.id.btnCreateFavorite)
 
         favoritesList.layoutManager = LinearLayoutManager(requireContext())
         favoritesList.adapter = favoritesAdapter
+        createFavoriteButton.setOnClickListener { launchFavoriteCreationFlow() }
 
         radiusInput.editText?.setText(DEFAULT_RADIUS_METERS.toString())
         cooldownInput.editText?.setText(DEFAULT_COOLDOWN_MINUTES.toString())
@@ -395,6 +403,16 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         val ctx = requireContext()
         val intent = MapActivity.newPickLocationIntent(ctx, noteId)
         mapPickerLauncher.launch(intent)
+    }
+
+    private fun launchFavoriteCreationFlow() {
+        val ctx = requireContext()
+        val intent = MapActivity.newBrowseIntent(
+            ctx,
+            noteId = noteId,
+            initialSearchQuery = currentLabel()
+        )
+        createFavoriteLauncher.launch(intent)
     }
 
     override fun onResume() {
