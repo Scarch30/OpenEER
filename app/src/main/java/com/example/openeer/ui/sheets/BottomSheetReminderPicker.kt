@@ -16,11 +16,16 @@ import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.AppCompatSpinner
 import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.example.openeer.R
 import com.example.openeer.core.LocationPerms
 import com.example.openeer.data.AppDatabase
+import com.example.openeer.data.favorites.FavoriteEntity
 import com.example.openeer.data.reminders.ReminderEntity
 import com.example.openeer.domain.ReminderUseCases
+import com.example.openeer.domain.favorites.FavoritesService
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.library.MapFragment
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -32,6 +37,9 @@ import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import java.util.Calendar
 import kotlin.LazyThreadSafetyMode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class ReminderPickerInitialMode {
     TIME,
@@ -174,6 +182,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     internal lateinit var editRepeatCustom: TextInputEditText
     internal lateinit var spinnerRepeatCustomUnit: AppCompatSpinner
     internal lateinit var useCurrentLocationButton: MaterialButton
+    private lateinit var favoritesList: RecyclerView
+    private lateinit var favoritesEmptyView: View
+    private val favoritesAdapter = FavoritePlaceAdapter { favorite ->
+        applyFavoriteSelection(favorite)
+    }
 
     internal var selectedLat: Double? = null
     internal var selectedLon: Double? = null
@@ -190,6 +203,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
     internal var backgroundPermissionDialog: AlertDialog? = null
     internal var pendingGeoAction: (() -> Unit)? = null
     internal var waitingBgSettingsReturn = false
+
+    private val favoritesService by lazy(LazyThreadSafetyMode.NONE) {
+        val appContext = requireContext().applicationContext
+        FavoritesService(obtainDatabase(appContext))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -263,6 +281,11 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         editRepeatCustom = view.findViewById(R.id.editRepeatCustom)
         spinnerRepeatCustomUnit = view.findViewById(R.id.spinnerRepeatCustomUnit)
         useCurrentLocationButton = view.findViewById(R.id.btnUseCurrentLocation)
+        favoritesList = view.findViewById(R.id.listFavorites)
+        favoritesEmptyView = view.findViewById(R.id.textFavoritesEmpty)
+
+        favoritesList.layoutManager = LinearLayoutManager(requireContext())
+        favoritesList.adapter = favoritesAdapter
 
         radiusInput.editText?.setText(DEFAULT_RADIUS_METERS.toString())
         cooldownInput.editText?.setText(DEFAULT_COOLDOWN_MINUTES.toString())
@@ -343,6 +366,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         }
 
         updatePrimaryButtonsLabel()
+        refreshFavorites()
 
         if (isEditing) {
             reminderId?.let { loadReminderForEdit(it) }
@@ -388,6 +412,7 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 Log.w(TAG, "GeoFlow onResume: BG still missing, not scheduling geofence")
             }
         }
+        refreshFavorites()
     }
 
     override fun onDestroyView() {
@@ -397,6 +422,36 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         planGeoButton = null
         textWhenSummary = null
         super.onDestroyView()
+    }
+
+    private fun refreshFavorites() {
+        if (!isAdded || !::favoritesList.isInitialized || !::favoritesEmptyView.isInitialized) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val favorites = withContext(Dispatchers.IO) {
+                favoritesService.getAll()
+            }
+            favoritesAdapter.submitList(favorites)
+            favoritesList.isVisible = favorites.isNotEmpty()
+            favoritesEmptyView.isVisible = favorites.isEmpty()
+        }
+    }
+
+    private fun applyFavoriteSelection(favorite: FavoriteEntity) {
+        selectedLat = favorite.lat
+        selectedLon = favorite.lon
+        selectedLabel = favorite.displayName
+        startingInsideGeofence = false
+
+        val radiusValue = favorite.defaultRadiusMeters.takeIf { it > 0 }
+            ?: DEFAULT_RADIUS_METERS
+        radiusInput.error = null
+        radiusInput.editText?.setText(radiusValue.toString())
+
+        cooldownInput.error = null
+        cooldownInput.editText?.setText(favorite.defaultCooldownMinutes.toString())
+
+        everySwitch.isChecked = favorite.defaultEveryTime
+        updateLocationPreview()
     }
 
     override fun onRequestPermissionsResult(
