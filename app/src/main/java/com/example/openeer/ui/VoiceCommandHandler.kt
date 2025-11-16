@@ -12,6 +12,7 @@ import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.ui.BodyTranscriptionManager.DictationCommitContext
 import com.example.openeer.ui.dialogs.UnknownPlaceDialog
 import com.example.openeer.ui.library.MapActivity
+import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceEarlyDecision
@@ -111,8 +112,8 @@ internal class VoiceCommandHandler(
                     )
                     activity.startActivity(browseIntent)
                 },
-                onModifyReminder = { _, _ ->
-                    showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+                onModifyReminder = { pendingNoteId, reminderText ->
+                    openReminderEditor(pendingNoteId, reminderText)
                 },
                 onCancel = {
                     // no-op
@@ -120,6 +121,20 @@ internal class VoiceCommandHandler(
             )
         }
         return ReminderHandlingResult.Skip
+    }
+
+    private fun openReminderEditor(noteId: Long?, reminderText: String) {
+        val targetNoteId = noteId?.takeIf { it > 0L }
+        if (targetNoteId == null) {
+            showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
+            return
+        }
+
+        val fragment = BottomSheetReminderPicker.newInstance(
+            noteId = targetNoteId,
+            initialLabel = reminderText.takeIf { it.isNotBlank() },
+        )
+        fragment.show(activity.supportFragmentManager, BottomSheetReminderPicker.TAG)
     }
 
     suspend fun handleNoteDecision(
