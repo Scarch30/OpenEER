@@ -1232,7 +1232,7 @@ class MicBarController(
         error: VoiceCommandHandler.ReminderCommandError,
     ) {
         val state = voiceCaptureStates.getOrPut(audioBlockId) { VoiceCaptureState() }
-        state.pendingReminderError = PendingReminderError(
+        val pendingError = PendingReminderError(
             noteId = noteId,
             audioBlockId = audioBlockId,
             refinedText = refinedText,
@@ -1244,6 +1244,7 @@ class MicBarController(
             intentKey = intentKey,
             error = error,
         )
+        state.pendingReminderError = pendingError
         val disputedLabel = error.disputedLabel
         if (error.type == VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND &&
             !disputedLabel.isNullOrBlank()
