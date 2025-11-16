@@ -33,6 +33,18 @@ import com.google.android.material.textfield.TextInputLayout
 import java.util.Calendar
 import kotlin.LazyThreadSafetyMode
 
+enum class ReminderPickerInitialMode {
+    TIME,
+    PLACE;
+
+    companion object {
+        fun fromValue(raw: String?): ReminderPickerInitialMode? {
+            if (raw.isNullOrBlank()) return null
+            return runCatching { valueOf(raw) }.getOrNull()
+        }
+    }
+}
+
 class BottomSheetReminderPicker : BottomSheetDialogFragment() {
 
     companion object {
@@ -40,7 +52,10 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         private const val ARG_BLOCK_ID = "arg_block_id"
         private const val ARG_REMINDER_ID = "arg_reminder_id"
         private const val ARG_INITIAL_LABEL = "arg_initial_label"
+        private const val ARG_INITIAL_MODE = "arg_initial_mode"
+        private const val ARG_INITIAL_TEXT = "arg_initial_text"
         internal const val TAG = "ReminderPicker"
+        private const val INIT_LOG_TAG = "ReminderSheetInit"
         internal const val DEFAULT_RADIUS_METERS = 100
         private const val DEFAULT_COOLDOWN_MINUTES = 30
         private const val PREFS_NAME = "reminder_picker"
@@ -53,6 +68,8 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             noteId: Long,
             blockId: Long? = null,
             initialLabel: String? = null,
+            initialMode: ReminderPickerInitialMode? = null,
+            initialText: String? = null,
         ): BottomSheetReminderPicker {
             val fragment = BottomSheetReminderPicker()
             fragment.arguments = Bundle().apply {
@@ -63,14 +80,30 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
                 if (!initialLabel.isNullOrBlank()) {
                     putString(ARG_INITIAL_LABEL, initialLabel)
                 }
+                if (initialMode != null) {
+                    putString(ARG_INITIAL_MODE, initialMode.name)
+                }
+                if (!initialText.isNullOrBlank()) {
+                    putString(ARG_INITIAL_TEXT, initialText)
+                }
             }
             return fragment
         }
 
-        fun newInstanceForEdit(reminderId: Long): BottomSheetReminderPicker {
+        fun newInstanceForEdit(
+            reminderId: Long,
+            initialMode: ReminderPickerInitialMode? = null,
+            initialText: String? = null,
+        ): BottomSheetReminderPicker {
             return BottomSheetReminderPicker().apply {
                 arguments = Bundle().apply {
                     putLong(ARG_REMINDER_ID, reminderId)
+                    if (initialMode != null) {
+                        putString(ARG_INITIAL_MODE, initialMode.name)
+                    }
+                    if (!initialText.isNullOrBlank()) {
+                        putString(ARG_INITIAL_TEXT, initialText)
+                    }
                 }
             }
         }
@@ -94,6 +127,12 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
 
     internal val isEditing: Boolean
         get() = reminderId != null
+
+    private val initialModeArg: ReminderPickerInitialMode?
+        get() = ReminderPickerInitialMode.fromValue(arguments?.getString(ARG_INITIAL_MODE))
+
+    private val initialTextArg: String?
+        get() = arguments?.getString(ARG_INITIAL_TEXT)
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     internal var reminderUseCasesFactory: (() -> ReminderUseCases)? = null
@@ -228,11 +267,22 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
         radiusInput.editText?.setText(DEFAULT_RADIUS_METERS.toString())
         cooldownInput.editText?.setText(DEFAULT_COOLDOWN_MINUTES.toString())
 
+        val requestedInitialMode = initialModeArg
+        val requestedInitialText = initialTextArg
+        Log.d(
+            INIT_LOG_TAG,
+            "initialMode=${requestedInitialMode?.name ?: "default"}, initialTextProvided=${!requestedInitialText.isNullOrBlank()}"
+        )
+
         toggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked) return@addOnButtonCheckedListener
             updateSections(checkedId)
         }
-        toggleGroup.check(R.id.btnModeTime)
+        val initialToggleId = when (requestedInitialMode) {
+            ReminderPickerInitialMode.PLACE -> R.id.btnModePlace
+            else -> R.id.btnModeTime
+        }
+        toggleGroup.check(initialToggleId)
 
         geoTriggerToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked) return@addOnButtonCheckedListener
@@ -298,8 +348,13 @@ class BottomSheetReminderPicker : BottomSheetDialogFragment() {
             reminderId?.let { loadReminderForEdit(it) }
         } else {
             val requestedLabel = arguments?.getString(ARG_INITIAL_LABEL)
-            if (!requestedLabel.isNullOrBlank()) {
-                labelInput.editText?.setText(requestedLabel)
+            when {
+                !requestedInitialText.isNullOrBlank() -> {
+                    labelInput.editText?.setText(requestedInitialText)
+                }
+                !requestedLabel.isNullOrBlank() -> {
+                    labelInput.editText?.setText(requestedLabel)
+                }
             }
             val baseNoteId = noteIdValue ?: requireArguments().getLong(ARG_NOTE_ID)
             preloadExistingData(baseNoteId)
