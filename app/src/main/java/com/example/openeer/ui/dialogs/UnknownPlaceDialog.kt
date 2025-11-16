@@ -26,8 +26,9 @@ internal object UnknownPlaceDialog {
         spokenLabel: String,
         noteId: Long?,
         reminderText: String,
+        reminderLabel: String? = null,
         onCreateFavorite: (Long?, String) -> Unit,
-        onModifyReminder: (Long?, String) -> Unit,
+        onModifyReminder: (Long?, String, String?) -> Unit,
         onCancel: () -> Unit,
     ) {
         val message = buildString {
@@ -46,7 +47,7 @@ internal object UnknownPlaceDialog {
                 onCreateFavorite(noteId, spokenLabel)
             }
             .setNeutralButton(R.string.voice_unknown_place_modify) { _, _ ->
-                onModifyReminder(noteId, reminderText)
+                onModifyReminder(noteId, reminderText, reminderLabel)
             }
             .setNegativeButton(R.string.voice_unknown_place_cancel) { _, _ -> onCancel() }
             .setOnCancelListener { onCancel() }
