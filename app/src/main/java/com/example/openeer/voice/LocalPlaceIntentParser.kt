@@ -108,6 +108,17 @@ class LocalPlaceIntentParser @JvmOverloads constructor(
         )
     }
 
+    fun extractReminderLabel(text: String): String? {
+        if (text.isBlank()) return null
+
+        val sanitized = text.replace('’', '\'')
+        val transitionMatch = findTransition(sanitized) ?: return null
+        val left = sanitized.substring(0, transitionMatch.range.first).trim()
+        if (left.isEmpty()) return null
+
+        return extractLabel(left)
+    }
+
     fun routeEarly(text: String): PlaceResult {
         if (text.isBlank()) return PlaceResult.None
 
