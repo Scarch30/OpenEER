@@ -1048,21 +1048,6 @@ class MicBarController(
                 }
             }
 
-            is VoiceRouteDecision.ReminderIncomplete -> {
-                Log.d(
-                    "VoiceReminderFlow",
-                    "routed REMINDER_INCOMPLETE (unknown place) note=$targetNoteId " +
-                        "raw=\"${sanitizeReminderTextForLog(decision.rawText)}\" label=${decision.unknownPlaceLabel}",
-                )
-                voiceCommandHandler.handleReminderIncompleteDecision(
-                    noteId = targetNoteId,
-                    audioBlockId = audioBlockId,
-                    audioPath = audioPath,
-                    decision = decision,
-                    reqId = reqId,
-                )
-            }
-
             VoiceRouteDecision.INCOMPLETE -> {
                 voiceCommandHandler.handleNoteDecision(
                     noteId = targetNoteId,
