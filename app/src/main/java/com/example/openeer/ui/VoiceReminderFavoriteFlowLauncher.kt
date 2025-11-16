@@ -23,6 +23,7 @@ internal object VoiceReminderFavoriteFlowLauncher {
             initialSearchQuery = sanitizedQuery,
             voiceReminderFavoriteFlow = true,
             voiceReminderRawText = sanitizedRawText,
+            voiceReminderPlacePhrase = sanitizedQuery,
         )
         Log.d(
             "VoiceReminderFlow",
