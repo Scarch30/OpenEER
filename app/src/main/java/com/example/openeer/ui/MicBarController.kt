@@ -1102,7 +1102,6 @@ class MicBarController(
                     commitContext = commitContext,
                     reqId = reqId,
                     fromReminderIntent = true,
-                    skipPlainTextFallback = true,
                 )
                 withContext(Dispatchers.Main) {
                     showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))

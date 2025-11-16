@@ -169,12 +169,10 @@ internal class VoiceCommandHandler(
         commitContext: DictationCommitContext,
         reqId: String?,
         fromReminderIntent: Boolean = false,
-        skipPlainTextFallback: Boolean = false,
     ) {
         ListUiLogTracker.mark(noteId, reqId)
         bodyManager.ensureAudioStack(audioBlockId)
         val listHandle = listManager.removeHandle(audioBlockId)
-        var fallbackSkipped = false
         withContext(Dispatchers.IO) {
             blocksRepo.updateAudioTranscription(audioBlockId, refinedText)
 
@@ -186,15 +184,6 @@ internal class VoiceCommandHandler(
             if (maybeTextId != null) {
                 blocksRepo.updateText(maybeTextId, refinedText)
             } else {
-                if (skipPlainTextFallback && fromReminderIntent) {
-                    fallbackSkipped = true
-                    Log.d(
-                        "VoiceReminderFlow",
-                        "skip fallback to plain text (incomplete reminder, fromReminder=true) " +
-                            "noteId=$noteId audioBlockId=$audioBlockId",
-                    )
-                    return@withContext
-                }
                 val useGid = bodyManager.groupIdFor(audioBlockId) ?: generateGroupId()
                 val createdId = blocksRepo.appendTranscription(
                     noteId = noteId,
@@ -208,15 +197,6 @@ internal class VoiceCommandHandler(
                         "audioBlockId=$audioBlockId createdBlockId=$createdId raw=\"${sanitizeForLog(refinedText)}\"",
                 )
             }
-        }
-
-        if (fallbackSkipped) {
-            if (listHandle == null) {
-                withContext(Dispatchers.Main) {
-                    bodyManager.removeProvisionalForBlock(audioBlockId)
-                }
-            }
-            return
         }
 
         if (listHandle == null) {
