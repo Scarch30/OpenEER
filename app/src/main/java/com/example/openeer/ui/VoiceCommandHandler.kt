@@ -10,8 +10,6 @@ import com.example.openeer.core.LocationPerms
 import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.ui.BodyTranscriptionManager.DictationCommitContext
-import com.example.openeer.ui.dialogs.UnknownPlaceDialog
-import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.ReminderPickerInitialMode
 import com.example.openeer.voice.ListVoiceExecutor
@@ -107,26 +105,11 @@ internal class VoiceCommandHandler(
                 "placeIntent detected kind=UNKNOWN_FAVORITE noteId=$noteId " +
                     "raw=\"${sanitizeForLog(decision.rawText)}\" reminderLabel=${decision.reminderLabel} dialog=early",
             )
-            UnknownPlaceDialog.showForReminderCapture(
+            VoiceReminderFavoriteFlowLauncher.launch(
                 activity = activity,
-                spokenLabel = label,
                 noteId = noteId.takeIf { it > 0 },
-                reminderText = decision.rawText,
-                reminderLabel = decision.reminderLabel,
-                onCreateFavorite = { targetNoteId, spokenLabel ->
-                    val browseIntent = MapActivity.newBrowseIntent(
-                        activity,
-                        noteId = targetNoteId,
-                        initialSearchQuery = spokenLabel,
-                    )
-                    activity.startActivity(browseIntent)
-                },
-                onModifyReminder = { pendingNoteId, reminderText, reminderLabel ->
-                    openReminderEditorFromVoice(pendingNoteId, reminderText, reminderLabel)
-                },
-                onCancel = {
-                    // no-op
-                },
+                placePhrase = label,
+                rawCommandText = decision.rawText,
             )
         }
         return ReminderHandlingResult.Skip

@@ -79,6 +79,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
     internal var hintDismissRunnable: Runnable? = null
     internal var hasRequestedLocationPermission = false
     internal var initialSearchQuery: String? = null
+    internal var isVoiceReminderFavoriteFlow = false
+    internal var voiceReminderRawText: String? = null
 
     internal var symbolManager: SymbolManager? = null
     internal var polylineManager: LineManager? = null
@@ -148,6 +150,10 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         const val STATE_PICK_MODE = "state_pick_mode"
         const val ARG_INITIAL_SEARCH_QUERY = "arg_initial_search_query"
         const val STATE_INITIAL_SEARCH_QUERY = "state_initial_search_query"
+        const val ARG_VOICE_REMINDER_FAVORITE_FLOW = "arg_voice_reminder_favorite_flow"
+        const val STATE_VOICE_REMINDER_FAVORITE_FLOW = "state_voice_reminder_favorite_flow"
+        const val ARG_VOICE_REMINDER_RAW_TEXT = "arg_voice_reminder_raw_text"
+        const val STATE_VOICE_REMINDER_RAW_TEXT = "state_voice_reminder_raw_text"
         const val RESULT_MANUAL_ROUTE = "result_manual_route"
         const val RESULT_MANUAL_ROUTE_LAT = "result_manual_route_lat"
         const val RESULT_MANUAL_ROUTE_LON = "result_manual_route_lon"
@@ -167,6 +173,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             showLibraryPins: Boolean = false,
             pickMode: Boolean = false,
             initialSearchQuery: String? = null,
+            voiceReminderFavoriteFlow: Boolean = false,
+            voiceReminderRawText: String? = null,
         ): MapFragment =
             MapFragment().apply {
                 arguments = Bundle().apply {
@@ -177,6 +185,12 @@ class MapFragment : Fragment(), OnMapReadyCallback {
                     putBoolean(ARG_PICK_MODE, pickMode)
                     if (!initialSearchQuery.isNullOrBlank()) {
                         putString(ARG_INITIAL_SEARCH_QUERY, initialSearchQuery)
+                    }
+                    if (voiceReminderFavoriteFlow) {
+                        putBoolean(ARG_VOICE_REMINDER_FAVORITE_FLOW, true)
+                    }
+                    if (!voiceReminderRawText.isNullOrBlank()) {
+                        putString(ARG_VOICE_REMINDER_RAW_TEXT, voiceReminderRawText)
                     }
                 }
             }
@@ -212,6 +226,11 @@ class MapFragment : Fragment(), OnMapReadyCallback {
             ?: false
         initialSearchQuery = savedInstanceState?.getString(STATE_INITIAL_SEARCH_QUERY)
             ?: arguments?.getString(ARG_INITIAL_SEARCH_QUERY)
+        isVoiceReminderFavoriteFlow = savedInstanceState?.getBoolean(STATE_VOICE_REMINDER_FAVORITE_FLOW)
+            ?: arguments?.getBoolean(ARG_VOICE_REMINDER_FAVORITE_FLOW)
+            ?: false
+        voiceReminderRawText = savedInstanceState?.getString(STATE_VOICE_REMINDER_RAW_TEXT)
+            ?: arguments?.getString(ARG_VOICE_REMINDER_RAW_TEXT)
         startMode = when {
             pickModeOverride -> MapActivity.MODE_PICK_LOCATION
             else -> when (val mode = savedInstanceState?.getString(STATE_MODE) ?: arguments?.getString(ARG_MODE)) {
@@ -285,6 +304,8 @@ class MapFragment : Fragment(), OnMapReadyCallback {
         outState.putString(STATE_MODE, startMode)
         outState.putBoolean(STATE_PICK_MODE, pickModeOverride)
         outState.putString(STATE_INITIAL_SEARCH_QUERY, initialSearchQuery)
+        outState.putBoolean(STATE_VOICE_REMINDER_FAVORITE_FLOW, isVoiceReminderFavoriteFlow)
+        outState.putString(STATE_VOICE_REMINDER_RAW_TEXT, voiceReminderRawText)
     }
 
     override fun onResume() {
