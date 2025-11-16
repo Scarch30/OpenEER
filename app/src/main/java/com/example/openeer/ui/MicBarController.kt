@@ -703,6 +703,29 @@ class MicBarController(
         }
     }
 
+    private suspend fun suppressReminderIncompleteBody(
+        noteId: Long,
+        audioBlockId: Long,
+        rawText: String,
+    ) {
+        var removedFromList = false
+        if (listManager.has(audioBlockId)) {
+            removedFromList = listManager.removeProvisionalForBlock(
+                audioBlockId,
+                ProvisionalRemovalReason.REMINDER,
+                reqId = null,
+            )
+        }
+
+        withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
+
+        Log.d(
+            "VoiceReminderFlow",
+            "suppressing provisional text for unknown place reminder note=$noteId audioBlock=$audioBlockId " +
+                "target=${if (removedFromList) "list" else "body"} raw=\"${sanitizeReminderTextForLog(rawText)}\"",
+        )
+    }
+
     private suspend fun handleEarlyDecision(
         decision: VoiceEarlyDecision,
         targetNoteId: Long,
@@ -888,6 +911,13 @@ class MicBarController(
                     commitContext = commitContext,
                     reqId = reqId,
                 )
+                if (!decision.unknownPlaceLabel.isNullOrBlank()) {
+                    suppressReminderIncompleteBody(
+                        noteId = targetNoteId,
+                        audioBlockId = audioBlockId,
+                        rawText = decision.rawText,
+                    )
+                }
                 EarlyHandlingResult(skipWhisper = false)
             }
         }
