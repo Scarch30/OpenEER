@@ -163,12 +163,31 @@ class VoiceCommandRouter(
             }
 
             null -> {
-                logDecision(VoiceRouteDecision.INCOMPLETE, trimmed, reason = "missing_place_or_time")
-                Log.d(
-                    "ListDiag",
-                    "ROUTER: decision=${VoiceRouteDecision.INCOMPLETE} text='${sanitizedForListDiag}' note=null",
-                )
-                VoiceRouteDecision.INCOMPLETE
+                val unknownPlaceLabel = when (val placeResult = placeIntentParser.routeEarly(trimmed)) {
+                    is LocalPlaceIntentParser.PlaceResult.Unknown -> placeResult.label
+                    else -> null
+                }
+                if (unknownPlaceLabel != null) {
+                    val reminderLabel = placeIntentParser.extractReminderLabel(trimmed)
+                    val decision = VoiceRouteDecision.ReminderIncomplete(
+                        rawText = trimmed,
+                        unknownPlaceLabel = unknownPlaceLabel,
+                        reminderLabel = reminderLabel,
+                    )
+                    logDecision(decision, trimmed, reason = "missing_place_or_time")
+                    Log.d(
+                        "ListDiag",
+                        "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null",
+                    )
+                    decision
+                } else {
+                    logDecision(VoiceRouteDecision.INCOMPLETE, trimmed, reason = "missing_place_or_time")
+                    Log.d(
+                        "ListDiag",
+                        "ROUTER: decision=${VoiceRouteDecision.INCOMPLETE} text='${sanitizedForListDiag}' note=null",
+                    )
+                    VoiceRouteDecision.INCOMPLETE
+                }
             }
         }
     }
@@ -191,6 +210,7 @@ class VoiceCommandRouter(
         return when (decision) {
             VoiceRouteDecision.NOTE -> null
             VoiceRouteDecision.INCOMPLETE -> null
+            is VoiceRouteDecision.ReminderIncomplete -> null
             VoiceRouteDecision.LIST_INCOMPLETE -> null
             is VoiceRouteDecision.List -> listIntentKey(
                 action = decision.action,
@@ -441,6 +461,11 @@ sealed class VoiceRouteDecision(val logToken: String) {
     object NOTE : VoiceRouteDecision("NOTE")
     data class ReminderTime(val intent: ReminderIntent.Time) : VoiceRouteDecision("REMINDER_TIME")
     data class ReminderPlace(val intent: ReminderIntent.Place) : VoiceRouteDecision("REMINDER_PLACE")
+    data class ReminderIncomplete(
+        val rawText: String,
+        val unknownPlaceLabel: String? = null,
+        val reminderLabel: String? = null,
+    ) : VoiceRouteDecision("REMINDER_INCOMPLETE")
     object INCOMPLETE : VoiceRouteDecision("INCOMPLETE")
     data class List(
         val action: VoiceListAction,
