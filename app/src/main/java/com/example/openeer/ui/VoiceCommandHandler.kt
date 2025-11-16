@@ -21,6 +21,7 @@ import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
+import java.util.Collections
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -62,6 +63,8 @@ internal class VoiceCommandHandler(
     }
 
     private val pendingVoiceCaptures = mutableMapOf<Long, VoiceCaptureCleanupState>()
+    private val geoReminderHandledAudioBlocks =
+        Collections.synchronizedSet(mutableSetOf<Long>())
 
     fun registerVoiceCapture(audioBlockId: Long, audioPath: String) {
         val sanitized = audioPath.takeIf { it.isNotBlank() } ?: ""
@@ -93,12 +96,14 @@ internal class VoiceCommandHandler(
 
     private suspend fun handleEarlyReminderIncomplete(
         noteId: Long,
+        audioBlockId: Long,
         decision: VoiceEarlyDecision.ReminderIncomplete,
     ): ReminderHandlingResult {
         val label = decision.unknownPlaceLabel
         if (label.isNullOrBlank()) {
             return ReminderHandlingResult.Skip
         }
+        markReminderAudioHandledByGeoFlow(audioBlockId)
         withContext(Dispatchers.Main) {
             Log.d(
                 "VoiceReminderFlow",
@@ -156,6 +161,7 @@ internal class VoiceCommandHandler(
         ListUiLogTracker.mark(noteId, reqId)
         bodyManager.ensureAudioStack(audioBlockId)
         val listHandle = listManager.removeHandle(audioBlockId)
+        var fallbackSuppressed = false
         withContext(Dispatchers.IO) {
             blocksRepo.updateAudioTranscription(audioBlockId, refinedText)
 
@@ -167,26 +173,44 @@ internal class VoiceCommandHandler(
             if (maybeTextId != null) {
                 blocksRepo.updateText(maybeTextId, refinedText)
             } else {
-                val useGid = bodyManager.groupIdFor(audioBlockId) ?: generateGroupId()
-                val createdId = blocksRepo.appendTranscription(
-                    noteId = noteId,
-                    text = refinedText,
-                    groupId = useGid,
-                )
-                bodyManager.recordTextBlock(audioBlockId, createdId)
-                Log.d(
-                    "VoiceReminderFlow",
-                    "fallback to plain text block for noteId=$noteId fromReminder=$fromReminderIntent " +
-                        "audioBlockId=$audioBlockId createdBlockId=$createdId raw=\"${sanitizeForLog(refinedText)}\"",
-                )
+                val shouldSkipFallback =
+                    fromReminderIntent && isReminderAudioHandledByGeoFlow(audioBlockId)
+                if (shouldSkipFallback) {
+                    fallbackSuppressed = true
+                    Log.d(
+                        "VoiceReminderFlow",
+                        "skipping fallback for audioBlockId=$audioBlockId noteId=$noteId " +
+                            "(handled by geo reminder flow)",
+                    )
+                } else {
+                    val useGid = bodyManager.groupIdFor(audioBlockId) ?: generateGroupId()
+                    val createdId = blocksRepo.appendTranscription(
+                        noteId = noteId,
+                        text = refinedText,
+                        groupId = useGid,
+                    )
+                    bodyManager.recordTextBlock(audioBlockId, createdId)
+                    Log.d(
+                        "VoiceReminderFlow",
+                        "fallback to plain text block for noteId=$noteId fromReminder=$fromReminderIntent " +
+                            "audioBlockId=$audioBlockId createdBlockId=$createdId raw=\"${sanitizeForLog(refinedText)}\"",
+                    )
+                }
             }
         }
 
         if (listHandle == null) {
             withContext(Dispatchers.Main) {
-                val replacement = bodyManager.replaceProvisionalWithRefined(audioBlockId, refinedText)
+                if (fallbackSuppressed) {
+                    bodyManager.removeProvisionalForBlock(audioBlockId)
+                } else {
+                    bodyManager.replaceProvisionalWithRefined(audioBlockId, refinedText)
+                }
+                clearGeoReminderHandledAudioBlock(audioBlockId)
                 bodyManager.commitNoteBody(noteId, sessionBaseline, commitContext)
             }
+        } else if (fallbackSuppressed) {
+            clearGeoReminderHandledAudioBlock(audioBlockId)
         }
     }
 
@@ -219,6 +243,18 @@ internal class VoiceCommandHandler(
         Log.d("MicCtl", "Reminder créé via voix: id=$reminderId pour note=$noteId")
     }
 
+    fun markReminderAudioHandledByGeoFlow(audioBlockId: Long) {
+        geoReminderHandledAudioBlocks.add(audioBlockId)
+    }
+
+    private fun isReminderAudioHandledByGeoFlow(audioBlockId: Long): Boolean {
+        return geoReminderHandledAudioBlocks.contains(audioBlockId)
+    }
+
+    private fun clearGeoReminderHandledAudioBlock(audioBlockId: Long) {
+        geoReminderHandledAudioBlocks.remove(audioBlockId)
+    }
+
     suspend fun handleEarlyReminderDecision(
         noteId: Long,
         audioBlockId: Long,
@@ -232,7 +268,7 @@ internal class VoiceCommandHandler(
         ListUiLogTracker.mark(noteId, reqId)
         val intent = when (decision) {
             is VoiceEarlyDecision.ReminderIncomplete ->
-                return handleEarlyReminderIncomplete(noteId, decision)
+                return handleEarlyReminderIncomplete(noteId, audioBlockId, decision)
 
             is VoiceEarlyDecision.ReminderTime -> decision.intent
             is VoiceEarlyDecision.ReminderPlace -> decision.intent
@@ -705,6 +741,7 @@ internal class VoiceCommandHandler(
     }
 
     suspend fun cleanupVoiceCaptureReferences(audioBlockId: Long) {
+        clearGeoReminderHandledAudioBlock(audioBlockId)
         val textBlockId = bodyManager.removeTextBlock(audioBlockId)
         bodyManager.removeGroupId(audioBlockId)
         bodyManager.removeRange(audioBlockId)
