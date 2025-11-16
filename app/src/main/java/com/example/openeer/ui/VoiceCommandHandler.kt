@@ -414,51 +414,6 @@ internal class VoiceCommandHandler(
         )
     }
 
-    suspend fun handleReminderIncompleteDecision(
-        noteId: Long,
-        audioBlockId: Long,
-        audioPath: String,
-        decision: VoiceRouteDecision.ReminderIncomplete,
-        reqId: String,
-    ) {
-        ListUiLogTracker.mark(noteId, reqId)
-        cleanupVoiceCaptureReferences(audioBlockId)
-        scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
-        val label = decision.unknownPlaceLabel
-        withContext(Dispatchers.Main) {
-            if (label.isNullOrBlank()) {
-                showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
-            } else {
-                Log.d(
-                    "VoiceReminderFlow",
-                    "placeIntent detected kind=UNKNOWN_FAVORITE noteId=$noteId " +
-                        "raw=\"${sanitizeForLog(decision.rawText)}\" reminderLabel=${decision.reminderLabel} dialog=final",
-                )
-                UnknownPlaceDialog.showForReminderCapture(
-                    activity = activity,
-                    spokenLabel = label,
-                    noteId = noteId.takeIf { it > 0 },
-                    reminderText = decision.rawText,
-                    reminderLabel = decision.reminderLabel,
-                    onCreateFavorite = { targetNoteId, spokenLabel ->
-                        val browseIntent = MapActivity.newBrowseIntent(
-                            activity,
-                            noteId = targetNoteId,
-                            initialSearchQuery = spokenLabel,
-                        )
-                        activity.startActivity(browseIntent)
-                    },
-                    onModifyReminder = { pendingNoteId, reminderText, reminderLabel ->
-                        openReminderEditorFromVoice(pendingNoteId, reminderText, reminderLabel)
-                    },
-                    onCancel = {
-                        // no-op
-                    },
-                )
-            }
-        }
-    }
-
     suspend fun handleListDecision(
         noteId: Long?,
         audioBlockId: Long,
