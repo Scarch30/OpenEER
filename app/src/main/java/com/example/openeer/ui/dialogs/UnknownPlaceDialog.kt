@@ -1,5 +1,6 @@
 package com.example.openeer.ui.dialogs
 
+import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import com.example.openeer.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -12,6 +13,10 @@ internal object UnknownPlaceDialog {
         onCreateFavorite: () -> Unit,
         onStay: () -> Unit,
     ) {
+        Log.d(
+            "VoiceReminderFlow",
+            "showing unknownPlace dialog noteId=-1 hasReminder=false raw=\"\" label=$label mode=manual",
+        )
         MaterialAlertDialogBuilder(activity)
             .setTitle(activity.getString(R.string.voice_unknown_place_title, label))
             .setMessage(R.string.voice_unknown_place_message)
@@ -39,6 +44,13 @@ internal object UnknownPlaceDialog {
                 append(reminderText)
             }
         }
+
+        Log.d(
+            "VoiceReminderFlow",
+            "showing unknownPlace dialog noteId=${noteId ?: -1} hasReminder=false " +
+                "raw=\"${reminderText.replace('\n', ' ').replace('\r', ' ').replace("\"", "\\\"")}\" " +
+                "label=$spokenLabel mode=capture",
+        )
 
         MaterialAlertDialogBuilder(activity)
             .setTitle(activity.getString(R.string.voice_unknown_place_title, spokenLabel))

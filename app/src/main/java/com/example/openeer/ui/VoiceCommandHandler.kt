@@ -15,7 +15,9 @@ import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
 import com.example.openeer.ui.sheets.ReminderPickerInitialMode
 import com.example.openeer.voice.ListVoiceExecutor
+import com.example.openeer.voice.LocalPlaceIntentParser
 import com.example.openeer.voice.ReminderExecutor
+import com.example.openeer.voice.ReminderIntent
 import com.example.openeer.voice.VoiceEarlyDecision
 import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
@@ -100,6 +102,11 @@ internal class VoiceCommandHandler(
             return ReminderHandlingResult.Skip
         }
         withContext(Dispatchers.Main) {
+            Log.d(
+                "VoiceReminderFlow",
+                "placeIntent detected kind=UNKNOWN_FAVORITE noteId=$noteId " +
+                    "raw=\"${sanitizeForLog(decision.rawText)}\" reminderLabel=${decision.reminderLabel} dialog=early",
+            )
             UnknownPlaceDialog.showForReminderCapture(
                 activity = activity,
                 spokenLabel = label,
@@ -161,6 +168,7 @@ internal class VoiceCommandHandler(
         sessionBaseline: String?,
         commitContext: DictationCommitContext,
         reqId: String?,
+        fromReminderIntent: Boolean = false,
     ) {
         ListUiLogTracker.mark(noteId, reqId)
         bodyManager.ensureAudioStack(audioBlockId)
@@ -183,6 +191,11 @@ internal class VoiceCommandHandler(
                     groupId = useGid,
                 )
                 bodyManager.recordTextBlock(audioBlockId, createdId)
+                Log.d(
+                    "VoiceReminderFlow",
+                    "fallback to plain text block for noteId=$noteId fromReminder=$fromReminderIntent " +
+                        "audioBlockId=$audioBlockId createdBlockId=$createdId raw=\"${sanitizeForLog(refinedText)}\"",
+                )
             }
         }
 
@@ -242,6 +255,13 @@ internal class VoiceCommandHandler(
             is VoiceEarlyDecision.ReminderPlace -> decision.intent
             else -> return ReminderHandlingResult.Skip
         }
+        if (decision is VoiceEarlyDecision.ReminderPlace) {
+            Log.d(
+                "VoiceReminderFlow",
+                "placeIntent detected kind=${describePlaceKind(decision.intent)} noteId=$noteId " +
+                    "raw=\"${sanitizeForLog(decision.rawText)}\" stage=EARLY",
+            )
+        }
         if (decision is VoiceEarlyDecision.ReminderPlace && !hasVoiceGeofencePermissions()) {
             Log.d("MicCtl", "Rappel lieu anticipé ignoré: permissions manquantes")
             val ctx = activity.applicationContext
@@ -258,6 +278,11 @@ internal class VoiceCommandHandler(
             reminderExecutor.createEarlyReminderFromVosk(noteId, rawText, intent)
         }
         result.onSuccess { pending ->
+            Log.d(
+                "VoiceReminderFlow",
+                "creating reminder entity type=${decision.logToken} noteId=$noteId " +
+                    "reminderId=${pending.reminderId} stage=EARLY",
+            )
             onReminderCreated(noteId, audioBlockId, audioPath, pending.reminderId, reqId)
         }.onFailure { error ->
             if (error is ReminderExecutor.IncompleteException) {
@@ -269,6 +294,15 @@ internal class VoiceCommandHandler(
         return result.fold(
             onSuccess = { pending -> ReminderHandlingResult.Success(pending) },
             onFailure = { error ->
+                if (error is ReminderExecutor.FavoriteNotFoundException &&
+                    decision is VoiceEarlyDecision.ReminderPlace
+                ) {
+                    Log.d(
+                        "VoiceReminderFlow",
+                        "placeIntent detected kind=UNKNOWN_FAVORITE noteId=$noteId " +
+                            "raw=\"${sanitizeForLog(decision.rawText)}\" stage=EARLY",
+                    )
+                }
                 val (type, disputedLabel) = when (error) {
                     is ReminderExecutor.FavoriteNotFoundException ->
                         ReminderCommandErrorType.FAVORITE_NOT_FOUND to error.query
@@ -300,6 +334,14 @@ internal class VoiceCommandHandler(
         reqId: String,
     ): ReminderHandlingResult {
         ListUiLogTracker.mark(noteId, reqId)
+        val sanitized = sanitizeForLog(refinedText)
+        if (decision is VoiceRouteDecision.ReminderPlace) {
+            Log.d(
+                "VoiceReminderFlow",
+                "placeIntent detected kind=${describePlaceKind(decision.intent)} noteId=$noteId " +
+                    "raw=\"$sanitized\" stage=FINAL",
+            )
+        }
         if (decision is VoiceRouteDecision.ReminderPlace) {
             when (ensureVoiceGeofencePermissions()) {
                 GeoPermissionStatus.GRANTED -> Unit
@@ -327,6 +369,11 @@ internal class VoiceCommandHandler(
         }
 
         result.onSuccess { reminderId ->
+            Log.d(
+                "VoiceReminderFlow",
+                "creating reminder entity type=${decision.logToken} noteId=$noteId " +
+                    "reminderId=$reminderId stage=FINAL",
+            )
             onReminderCreated(noteId, audioBlockId, audioPath, reminderId, reqId)
         }.onFailure { error ->
             if (error is ReminderExecutor.IncompleteException) {
@@ -338,6 +385,15 @@ internal class VoiceCommandHandler(
         return result.fold(
             onSuccess = { ReminderHandlingResult.Success() },
             onFailure = { error ->
+                if (error is ReminderExecutor.FavoriteNotFoundException &&
+                    decision is VoiceRouteDecision.ReminderPlace
+                ) {
+                    Log.d(
+                        "VoiceReminderFlow",
+                        "placeIntent detected kind=UNKNOWN_FAVORITE noteId=$noteId " +
+                            "raw=\"$sanitized\" stage=FINAL query=${error.query}",
+                    )
+                }
                 val (type, disputedLabel) = when (error) {
                     is ReminderExecutor.FavoriteNotFoundException ->
                         ReminderCommandErrorType.FAVORITE_NOT_FOUND to error.query
@@ -675,6 +731,17 @@ internal class VoiceCommandHandler(
             withContext(Dispatchers.IO) {
                 blocksRepo.deleteBlock(textBlockId)
             }
+        }
+    }
+
+    private fun sanitizeForLog(raw: String): String {
+        return raw.replace('\n', ' ').replace('\r', ' ').replace("\"", "\\\"")
+    }
+
+    private fun describePlaceKind(intent: ReminderIntent.Place): String {
+        return when (val place = intent.placeQuery) {
+            is LocalPlaceIntentParser.PlaceQuery.CurrentLocation -> "CURRENT_LOCATION"
+            is LocalPlaceIntentParser.PlaceQuery.Favorite -> "FAVORITE:${place.key}"
         }
     }
 }
