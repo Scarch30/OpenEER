@@ -1279,6 +1279,7 @@ class MicBarController(
     ) {
         val state = voiceCaptureStates[audioBlockId] ?: return
         val pendingError = state.pendingReminderError ?: return
+        voiceCommandHandler.markReminderAudioHandledByGeoFlow(audioBlockId)
         VoiceReminderFavoriteFlowLauncher.launch(
             activity = activity,
             noteId = pendingError.noteId,
