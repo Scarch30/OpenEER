@@ -1056,6 +1056,7 @@ class MicBarController(
                     sessionBaseline = commitContext.baselineBody,
                     commitContext = commitContext,
                     reqId = reqId,
+                    fromReminderIntent = true,
                 )
                 withContext(Dispatchers.Main) {
                     showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
@@ -1247,6 +1248,12 @@ class MicBarController(
         if (error.type == VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND &&
             !disputedLabel.isNullOrBlank()
         ) {
+            Log.d(
+                "VoiceReminderFlow",
+                "showing unknownPlace dialog noteId=${pendingError.noteId} audioBlockId=$audioBlockId " +
+                    "hasReminder=false raw=\"${sanitizeReminderTextForLog(pendingError.refinedText)}\" " +
+                    "label=$disputedLabel",
+            )
             showUnknownPlaceDialog(audioBlockId, disputedLabel)
         } else {
             showReminderErrorDialog(audioBlockId, error)
@@ -1337,6 +1344,7 @@ class MicBarController(
                 sessionBaseline = pendingError.sessionBaseline,
                 commitContext = pendingError.commitContext,
                 reqId = pendingError.reqId,
+                fromReminderIntent = true,
             )
             finalizeReminderAfterChoice(pendingError)
         }
@@ -1382,6 +1390,10 @@ class MicBarController(
             val sanitized = text.replace("\n", " ").replace("\r", " ")
             "\"" + sanitized.replace("\"", "\\\"") + "\""
         }
+    }
+
+    private fun sanitizeReminderTextForLog(text: String): String {
+        return text.replace('\n', ' ').replace('\r', ' ').replace("\"", "\\\"")
     }
 
     private suspend fun finalizeListCommandCleanup(
