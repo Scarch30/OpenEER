@@ -13,6 +13,7 @@ import com.example.openeer.ui.BodyTranscriptionManager.DictationCommitContext
 import com.example.openeer.ui.dialogs.UnknownPlaceDialog
 import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.ui.sheets.BottomSheetReminderPicker
+import com.example.openeer.ui.sheets.ReminderPickerInitialMode
 import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.ReminderExecutor
 import com.example.openeer.voice.VoiceEarlyDecision
@@ -113,7 +114,7 @@ internal class VoiceCommandHandler(
                     activity.startActivity(browseIntent)
                 },
                 onModifyReminder = { pendingNoteId, reminderText ->
-                    openReminderEditor(pendingNoteId, reminderText)
+                    openReminderEditorFromVoice(pendingNoteId, reminderText)
                 },
                 onCancel = {
                     // no-op
@@ -123,16 +124,23 @@ internal class VoiceCommandHandler(
         return ReminderHandlingResult.Skip
     }
 
-    private fun openReminderEditor(noteId: Long?, reminderText: String) {
+    private fun openReminderEditorFromVoice(noteId: Long?, rawReminderText: String) {
         val targetNoteId = noteId?.takeIf { it > 0L }
         if (targetNoteId == null) {
             showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
             return
         }
 
+        Log.d(
+            "VoiceReminderFlow",
+            "Opening reminder editor from voice: noteId=$targetNoteId rawText=$rawReminderText",
+        )
+
         val fragment = BottomSheetReminderPicker.newInstance(
             noteId = targetNoteId,
-            initialLabel = reminderText.takeIf { it.isNotBlank() },
+            initialLabel = rawReminderText.takeIf { it.isNotBlank() },
+            initialMode = ReminderPickerInitialMode.PLACE,
+            initialText = rawReminderText.takeIf { it.isNotBlank() },
         )
         fragment.show(activity.supportFragmentManager, BottomSheetReminderPicker.TAG)
     }
