@@ -141,8 +141,6 @@
     <string name="map_menu_create_reminder_geo_once">Quand je repasse ici</string>
     <string name="map_menu_create_reminder_geo_every">À chaque fois que je repasse ici</string>
     <string name="reminder_geo_location_missing">Position introuvable pour cette note</string>
-    <string name="voice_reminder_geo_created_toast">Rappel géolocalisé créé pour « %1$s »</string>
-    <string name="voice_reminder_geo_failed_toast">Impossible de créer le rappel géolocalisé.</string>
 
     <string name="action_validate">Valider</string>
     <string name="action_cancel">Annuler</string>
