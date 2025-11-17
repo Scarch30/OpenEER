@@ -38,9 +38,6 @@ class MapActivity : AppCompatActivity() {
             val showPins = intent.getBooleanExtra(EXTRA_SHOW_LIBRARY_PINS, false)
             val initialSearch = intent.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY)
 
-            val isVoiceFavoriteFlow = intent.getBooleanExtra(EXTRA_VOICE_REMINDER_FAVORITE_FLOW, false)
-            val voiceRawText = intent.getStringExtra(EXTRA_VOICE_REMINDER_RAW_TEXT)
-
             val fragment = MapFragment.newInstance(
                 noteId = noteId,
                 blockId = blockId,
@@ -48,8 +45,6 @@ class MapActivity : AppCompatActivity() {
                 showLibraryPins = showPins,
                 pickMode = isPickMode,
                 initialSearchQuery = initialSearch,
-                voiceReminderFavoriteFlow = isVoiceFavoriteFlow,
-                voiceReminderRawText = voiceRawText,
             )
             supportFragmentManager
                 .beginTransaction()
@@ -140,10 +135,6 @@ class MapActivity : AppCompatActivity() {
         // 🔹 nouveau : extra pour activer l’overlay des pastilles (vue Library)
         const val EXTRA_SHOW_LIBRARY_PINS = "com.example.openeer.map.EXTRA_SHOW_LIBRARY_PINS"
         const val EXTRA_INITIAL_SEARCH_QUERY = "com.example.openeer.map.EXTRA_INITIAL_SEARCH_QUERY"
-        const val EXTRA_VOICE_REMINDER_FAVORITE_FLOW =
-            "com.example.openeer.map.EXTRA_VOICE_REMINDER_FAVORITE_FLOW"
-        const val EXTRA_VOICE_REMINDER_RAW_TEXT =
-            "com.example.openeer.map.EXTRA_VOICE_REMINDER_RAW_TEXT"
 
         const val MODE_BROWSE = "BROWSE"
         const val MODE_CENTER_ON_HERE = "CENTER_ON_HERE"
@@ -158,8 +149,6 @@ class MapActivity : AppCompatActivity() {
             noteId: Long? = null,
             blockId: Long? = null,
             initialSearchQuery: String? = null,
-            voiceReminderFavoriteFlow: Boolean = false,
-            voiceReminderRawText: String? = null,
         ): Intent = Intent(context, MapActivity::class.java).apply {
             putExtra(EXTRA_MODE, MODE_BROWSE)
             noteId?.takeIf { it > 0 }?.let { putExtra(EXTRA_NOTE_ID, it) }
@@ -167,10 +156,6 @@ class MapActivity : AppCompatActivity() {
             // En mode Carte standard (prise de notes), on ne veut PAS d’overlay
             putExtra(EXTRA_SHOW_LIBRARY_PINS, false)
             initialSearchQuery?.let { putExtra(EXTRA_INITIAL_SEARCH_QUERY, it) }
-            if (voiceReminderFavoriteFlow) {
-                putExtra(EXTRA_VOICE_REMINDER_FAVORITE_FLOW, true)
-                voiceReminderRawText?.let { putExtra(EXTRA_VOICE_REMINDER_RAW_TEXT, it) }
-            }
         }
 
         // 🔹 helper explicite pour la vue “Library > Carte” (affiche les pastilles)
