@@ -13,11 +13,7 @@ class ReminderIntentParser(
             )
         }
 
-        val placeParse = try {
-            placeParser.parse(text)
-        } catch (error: LocalPlaceIntentParser.FavoriteNotFound) {
-            return null
-        }
+        val placeParse = placeParser.parse(text)
         if (placeParse != null) {
             return ReminderIntent.Place(placeParse)
         }

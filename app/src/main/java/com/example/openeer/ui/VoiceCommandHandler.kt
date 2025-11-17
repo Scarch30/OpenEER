@@ -300,6 +300,18 @@ internal class VoiceCommandHandler(
     ): ReminderHandlingResult {
         ListUiLogTracker.mark(noteId, reqId)
         val sanitized = sanitizeForLog(refinedText)
+        if (decision is VoiceRouteDecision.ReminderError) {
+            val errorType = when (decision.errorType) {
+                VoiceRouteDecision.ReminderErrorType.FAVORITE_NOT_FOUND ->
+                    ReminderCommandErrorType.FAVORITE_NOT_FOUND
+            }
+            return ReminderHandlingResult.Error(
+                ReminderCommandError(
+                    type = errorType,
+                    disputedLabel = decision.disputedLabel,
+                ),
+            )
+        }
         if (decision is VoiceRouteDecision.ReminderPlace) {
             Log.d(
                 "VoiceReminderFlow",
