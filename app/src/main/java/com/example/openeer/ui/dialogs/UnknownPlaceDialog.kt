@@ -11,18 +11,18 @@ internal object UnknownPlaceDialog {
         activity: AppCompatActivity,
         label: String,
         onCreateFavorite: () -> Unit,
-        onStay: () -> Unit,
+        onCancel: () -> Unit,
+        builderFactory: (AppCompatActivity) -> MaterialAlertDialogBuilder = { MaterialAlertDialogBuilder(it) },
     ) {
         Log.d(
             "VoiceReminderFlow",
             "showing unknownPlace dialog noteId=-1 hasReminder=false raw=\"\" label=$label mode=manual",
         )
-        MaterialAlertDialogBuilder(activity)
-            .setTitle(activity.getString(R.string.voice_unknown_place_title, label))
-            .setMessage(R.string.voice_unknown_place_message)
+        builderFactory(activity)
+            .setMessage(R.string.voice_unknown_place_blocked_message)
             .setPositiveButton(R.string.voice_unknown_place_create) { _, _ -> onCreateFavorite() }
-            .setNegativeButton(R.string.voice_unknown_place_cancel) { _, _ -> onStay() }
-            .setOnCancelListener { onStay() }
+            .setNegativeButton(R.string.voice_unknown_place_cancel) { _, _ -> onCancel() }
+            .setOnCancelListener { onCancel() }
             .show()
     }
 
@@ -31,20 +31,10 @@ internal object UnknownPlaceDialog {
         spokenLabel: String,
         noteId: Long?,
         reminderText: String,
-        reminderLabel: String? = null,
         onCreateFavorite: (Long?, String) -> Unit,
-        onModifyReminder: (Long?, String, String?) -> Unit,
         onCancel: () -> Unit,
+        builderFactory: (AppCompatActivity) -> MaterialAlertDialogBuilder = { MaterialAlertDialogBuilder(it) },
     ) {
-        val message = buildString {
-            append(activity.getString(R.string.voice_unknown_place_message))
-            if (reminderText.isNotBlank()) {
-                append('\n')
-                append('\n')
-                append(reminderText)
-            }
-        }
-
         Log.d(
             "VoiceReminderFlow",
             "showing unknownPlace dialog noteId=${noteId ?: -1} hasReminder=false " +
@@ -52,17 +42,12 @@ internal object UnknownPlaceDialog {
                 "label=$spokenLabel mode=capture",
         )
 
-        MaterialAlertDialogBuilder(activity)
-            .setTitle(activity.getString(R.string.voice_unknown_place_title, spokenLabel))
-            .setMessage(message)
-            .setPositiveButton(R.string.voice_unknown_place_create) { _, _ ->
-                onCreateFavorite(noteId, spokenLabel)
-            }
-            .setNeutralButton(R.string.voice_unknown_place_modify) { _, _ ->
-                onModifyReminder(noteId, reminderText, reminderLabel)
-            }
-            .setNegativeButton(R.string.voice_unknown_place_cancel) { _, _ -> onCancel() }
-            .setOnCancelListener { onCancel() }
-            .show()
+        show(
+            activity = activity,
+            label = spokenLabel,
+            onCreateFavorite = { onCreateFavorite(noteId, spokenLabel) },
+            onCancel = onCancel,
+            builderFactory = builderFactory,
+        )
     }
 }

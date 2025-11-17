@@ -54,5 +54,11 @@ gradle.projectsEvaluated {
         }.configureEach {
             dependsOn(setupAndroidSdk)
         }
+        project.tasks.matching { task ->
+            val name = task.name
+            name.startsWith("process", ignoreCase = true) && name.endsWith("Resources", ignoreCase = true)
+        }.configureEach {
+            dependsOn(setupAndroidSdk)
+        }
     }
 }
