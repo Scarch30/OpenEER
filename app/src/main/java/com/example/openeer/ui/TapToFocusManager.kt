@@ -11,7 +11,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 /**
  * Encapsule la logique "tap to focus" sur le corps de note.
  */
-class TapToFocusManager(
+internal class TapToFocusManager(
     private val activity: MainActivity,
     private val binding: ActivityMainBinding,
     private val notePanel: NotePanelController,
