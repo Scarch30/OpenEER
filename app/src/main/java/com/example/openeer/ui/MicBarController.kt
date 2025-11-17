@@ -96,6 +96,11 @@ class MicBarController(
         listExecutor,
         showTopBubble,
     )
+    private val reminderCleanup = ReminderTranscriptionCleaner(
+        listManager,
+        bodyManager,
+        voiceCommandHandler,
+    )
 
     private val adaptiveRouter = AdaptiveRouter()
 
@@ -1284,7 +1289,7 @@ class MicBarController(
                 activity = activity,
                 label = label,
                 onCreateFavorite = { launchFavoriteCreationFlow(audioBlockId, label) },
-                onStay = { commitReminderErrorToNote(audioBlockId) },
+                onCancel = { purgeReminderTextAfterError(audioBlockId) },
             )
         }
     }
@@ -1301,7 +1306,21 @@ class MicBarController(
             initialSearchQuery = label,
         )
         activity.startActivity(intent)
-        commitReminderErrorToNote(audioBlockId)
+        purgeReminderTextAfterError(audioBlockId)
+    }
+
+    private fun purgeReminderTextAfterError(audioBlockId: Long) {
+        val state = voiceCaptureStates[audioBlockId] ?: return
+        val pendingError = state.pendingReminderError ?: return
+        state.pendingReminderError = null
+        activity.lifecycleScope.launch {
+            reminderCleanup.discard(
+                audioBlockId = audioBlockId,
+                audioPath = pendingError.audioPath,
+                reqId = pendingError.reqId,
+            )
+            finalizeReminderAfterChoice(pendingError)
+        }
     }
 
     private fun retryReminderAfterError(audioBlockId: Long) {

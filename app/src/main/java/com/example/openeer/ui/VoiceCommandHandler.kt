@@ -12,8 +12,6 @@ import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.ui.BodyTranscriptionManager.DictationCommitContext
 import com.example.openeer.ui.dialogs.UnknownPlaceDialog
 import com.example.openeer.ui.library.MapActivity
-import com.example.openeer.ui.sheets.BottomSheetReminderPicker
-import com.example.openeer.ui.sheets.ReminderPickerInitialMode
 import com.example.openeer.voice.ListVoiceExecutor
 import com.example.openeer.voice.LocalPlaceIntentParser
 import com.example.openeer.voice.ReminderExecutor
@@ -112,7 +110,6 @@ internal class VoiceCommandHandler(
                 spokenLabel = label,
                 noteId = noteId.takeIf { it > 0 },
                 reminderText = decision.rawText,
-                reminderLabel = decision.reminderLabel,
                 onCreateFavorite = { targetNoteId, spokenLabel ->
                     val browseIntent = MapActivity.newBrowseIntent(
                         activity,
@@ -121,44 +118,12 @@ internal class VoiceCommandHandler(
                     )
                     activity.startActivity(browseIntent)
                 },
-                onModifyReminder = { pendingNoteId, reminderText, reminderLabel ->
-                    openReminderEditorFromVoice(pendingNoteId, reminderText, reminderLabel)
-                },
                 onCancel = {
                     // no-op
                 },
             )
         }
         return ReminderHandlingResult.Skip
-    }
-
-    private fun openReminderEditorFromVoice(
-        noteId: Long?,
-        rawReminderText: String,
-        reminderLabel: String? = null,
-    ) {
-        val targetNoteId = noteId?.takeIf { it > 0L }
-        if (targetNoteId == null) {
-            showTopBubble(activity.getString(R.string.voice_reminder_incomplete_hint))
-            return
-        }
-
-        Log.d(
-            "VoiceReminderFlow",
-            "Opening reminder editor from voice: noteId=$targetNoteId rawText=$rawReminderText label=$reminderLabel",
-        )
-
-        val sanitizedLabel = reminderLabel?.takeIf { it.isNotBlank() }
-        val fallbackText = rawReminderText.takeIf { it.isNotBlank() }
-        val initialText = sanitizedLabel ?: fallbackText
-
-        val fragment = BottomSheetReminderPicker.newInstance(
-            noteId = targetNoteId,
-            initialLabel = fallbackText,
-            initialMode = ReminderPickerInitialMode.PLACE,
-            initialText = initialText,
-        )
-        fragment.show(activity.supportFragmentManager, BottomSheetReminderPicker.TAG)
     }
 
     suspend fun handleNoteDecision(

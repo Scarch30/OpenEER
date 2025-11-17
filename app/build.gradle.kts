@@ -140,6 +140,7 @@ dependencies {
     testImplementation("androidx.fragment:fragment-testing:1.8.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("androidx.room:room-testing:$room")
+    testImplementation("io.mockk:mockk:1.13.12")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     implementation("androidx.core:core-splashscreen:1.0.1")
