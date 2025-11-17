@@ -44,7 +44,7 @@ import java.util.UUID
 import kotlin.math.abs
 import kotlin.text.RegexOption
 
-class MicBarController(
+internal class MicBarController(
     private val activity: AppCompatActivity,
     private val binding: ActivityMainBinding,
     private val repo: NoteRepository,
