@@ -20,6 +20,8 @@ import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
 import com.example.openeer.stt.FinalResult
 import com.example.openeer.ui.dialogs.ReminderErrorDialog
+import com.example.openeer.ui.dialogs.UnknownPlaceDialog
+import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.voice.AdaptiveRouter
 import com.example.openeer.voice.EarlyIntentHint
 import com.example.openeer.voice.ListVoiceExecutor
@@ -1249,11 +1251,11 @@ class MicBarController(
         ) {
             Log.d(
                 "VoiceReminderFlow",
-                "routing unknownPlace to map noteId=${pendingError.noteId} audioBlockId=$audioBlockId " +
+                "showing unknownPlace dialog noteId=${pendingError.noteId} audioBlockId=$audioBlockId " +
                     "hasReminder=false raw=\"${sanitizeReminderTextForLog(pendingError.refinedText)}\" " +
                     "label=$disputedLabel",
             )
-            launchFavoriteCreationFlow(audioBlockId, disputedLabel)
+            showUnknownPlaceDialog(audioBlockId, disputedLabel)
         } else {
             showReminderErrorDialog(audioBlockId, error)
         }
@@ -1273,18 +1275,32 @@ class MicBarController(
         }
     }
 
+    private fun showUnknownPlaceDialog(
+        audioBlockId: Long,
+        label: String,
+    ) {
+        activity.lifecycleScope.launch {
+            UnknownPlaceDialog.show(
+                activity = activity,
+                label = label,
+                onCreateFavorite = { launchFavoriteCreationFlow(audioBlockId, label) },
+                onStay = { commitReminderErrorToNote(audioBlockId) },
+            )
+        }
+    }
+
     private fun launchFavoriteCreationFlow(
         audioBlockId: Long,
         label: String,
     ) {
         val state = voiceCaptureStates[audioBlockId] ?: return
         val pendingError = state.pendingReminderError ?: return
-        VoiceReminderFavoriteFlowLauncher.launch(
-            activity = activity,
+        val intent = MapActivity.newBrowseIntent(
+            activity,
             noteId = pendingError.noteId,
-            placePhrase = label,
-            rawCommandText = pendingError.refinedText,
+            initialSearchQuery = label,
         )
+        activity.startActivity(intent)
         commitReminderErrorToNote(audioBlockId)
     }
 
