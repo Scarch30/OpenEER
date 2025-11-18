@@ -9,6 +9,7 @@ import com.example.openeer.ui.library.MapActivity
 import com.example.openeer.voice.VoiceComponents
 import com.example.openeer.voice.VoiceDependencies
 import com.example.openeer.voice.VoiceRouteDecision
+import io.mockk.coAnswers
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -66,7 +67,7 @@ class MicBarControllerTest {
             val reminderCleanup = mockk<ReminderTranscriptionCleaner>()
             val controller = buildController(reminderCleanup)
             var cleanupDone = false
-            coEvery { reminderCleanup.discard(any(), any(), any()) } answers {
+            coEvery { reminderCleanup.discard(any(), any(), any()) } coAnswers {
                 cleanupDone = true
                 Unit
             }
