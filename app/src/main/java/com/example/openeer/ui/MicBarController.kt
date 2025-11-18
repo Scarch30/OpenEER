@@ -4,7 +4,6 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
 import android.widget.Toast
-import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
@@ -53,8 +52,7 @@ class MicBarController(
     private val getOpenNote: () -> Note?,
     private val onAppendLive: (String) -> Unit,
     private val onReplaceFinal: (String, Boolean) -> Unit,
-    private val showTopBubble: (String) -> Unit = {},
-    reminderCleanupOverride: ReminderTranscriptionCleaner? = null,
+    private val showTopBubble: (String) -> Unit = {}
 ) {
     // Etat rec
     private var recorder: PcmRecorder? = null
@@ -98,7 +96,7 @@ class MicBarController(
         listExecutor,
         showTopBubble,
     )
-    private val reminderCleanup = reminderCleanupOverride ?: ReminderTranscriptionCleaner(
+    private val reminderCleanup = ReminderTranscriptionCleaner(
         listManager,
         bodyManager,
         voiceCommandHandler,
@@ -1227,8 +1225,7 @@ class MicBarController(
         return matches.take(2).count() >= 2
     }
 
-    @VisibleForTesting
-    internal suspend fun registerReminderError(
+    private fun registerReminderError(
         audioBlockId: Long,
         noteId: Long,
         refinedText: String,
@@ -1254,22 +1251,19 @@ class MicBarController(
             error = error,
         )
         state.pendingReminderError = pendingError
-        ensureReminderTranscriptionDiscarded(pendingError)
-        withContext(Dispatchers.Main) {
-            val disputedLabel = error.disputedLabel
-            if (error.type == VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND &&
-                !disputedLabel.isNullOrBlank()
-            ) {
-                Log.d(
-                    "VoiceReminderFlow",
-                    "showing unknownPlace dialog noteId=${pendingError.noteId} audioBlockId=$audioBlockId " +
-                        "hasReminder=false raw=\"${sanitizeReminderTextForLog(pendingError.refinedText)}\" " +
-                        "label=$disputedLabel",
-                )
-                showUnknownPlaceDialog(audioBlockId, disputedLabel)
-            } else {
-                showReminderErrorDialog(audioBlockId, error)
-            }
+        val disputedLabel = error.disputedLabel
+        if (error.type == VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND &&
+            !disputedLabel.isNullOrBlank()
+        ) {
+            Log.d(
+                "VoiceReminderFlow",
+                "showing unknownPlace dialog noteId=${pendingError.noteId} audioBlockId=$audioBlockId " +
+                    "hasReminder=false raw=\"${sanitizeReminderTextForLog(pendingError.refinedText)}\" " +
+                    "label=$disputedLabel",
+            )
+            showUnknownPlaceDialog(audioBlockId, disputedLabel)
+        } else {
+            showReminderErrorDialog(audioBlockId, error)
         }
     }
 
@@ -1277,24 +1271,28 @@ class MicBarController(
         audioBlockId: Long,
         error: VoiceCommandHandler.ReminderCommandError,
     ) {
-        ReminderErrorDialog.show(
-            activity = activity,
-            error = error,
-            onRetry = { retryReminderAfterError(audioBlockId) },
-            onKeep = { commitReminderErrorToNote(audioBlockId) },
-        )
+        activity.lifecycleScope.launch {
+            ReminderErrorDialog.show(
+                activity = activity,
+                error = error,
+                onRetry = { retryReminderAfterError(audioBlockId) },
+                onKeep = { commitReminderErrorToNote(audioBlockId) },
+            )
+        }
     }
 
     private fun showUnknownPlaceDialog(
         audioBlockId: Long,
         label: String,
     ) {
-        UnknownPlaceDialog.show(
-            activity = activity,
-            label = label,
-            onCreateFavorite = { launchFavoriteCreationFlow(audioBlockId, label) },
-            onCancel = { purgeReminderTextAfterError(audioBlockId) },
-        )
+        activity.lifecycleScope.launch {
+            UnknownPlaceDialog.show(
+                activity = activity,
+                label = label,
+                onCreateFavorite = { launchFavoriteCreationFlow(audioBlockId, label) },
+                onCancel = { purgeReminderTextAfterError(audioBlockId) },
+            )
+        }
     }
 
     private fun launchFavoriteCreationFlow(
@@ -1317,7 +1315,11 @@ class MicBarController(
         val pendingError = state.pendingReminderError ?: return
         state.pendingReminderError = null
         activity.lifecycleScope.launch {
-            ensureReminderTranscriptionDiscarded(pendingError)
+            reminderCleanup.discard(
+                audioBlockId = audioBlockId,
+                audioPath = pendingError.audioPath,
+                reqId = pendingError.reqId,
+            )
             finalizeReminderAfterChoice(pendingError)
         }
     }
@@ -1356,7 +1358,6 @@ class MicBarController(
         val pendingError = state.pendingReminderError ?: return
         state.pendingReminderError = null
         activity.lifecycleScope.launch {
-            ensureReminderTranscriptionDiscarded(pendingError)
             voiceCommandHandler.handleNoteDecision(
                 noteId = pendingError.noteId,
                 audioBlockId = pendingError.audioBlockId,
@@ -1695,18 +1696,7 @@ class MicBarController(
         val reqId: String,
         val intentKey: String?,
         var error: VoiceCommandHandler.ReminderCommandError,
-        var transcriptionCleaned: Boolean = false,
     )
-
-    private suspend fun ensureReminderTranscriptionDiscarded(pendingError: PendingReminderError) {
-        if (pendingError.transcriptionCleaned) return
-        reminderCleanup.discard(
-            audioBlockId = pendingError.audioBlockId,
-            audioPath = pendingError.audioPath,
-            reqId = pendingError.reqId,
-        )
-        pendingError.transcriptionCleaned = true
-    }
 
     private data class SessionBaseline(
         val noteId: Long,
