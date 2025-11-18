@@ -1018,8 +1018,7 @@ class MicBarController(
             }
 
             is VoiceRouteDecision.ReminderTime,
-            is VoiceRouteDecision.ReminderPlace,
-            is VoiceRouteDecision.ReminderError -> {
+            is VoiceRouteDecision.ReminderPlace -> {
                 val reminderResult = voiceCommandHandler.handleReminderDecision(
                     noteId = targetNoteId,
                     audioBlockId = audioBlockId,

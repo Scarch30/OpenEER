@@ -148,7 +148,6 @@ class ReminderExecutor(
         val result = when (finalDecision) {
             is VoiceRouteDecision.ReminderTime -> reconcileTimeReminder(pending, reminder, finalDecision.intent)
             is VoiceRouteDecision.ReminderPlace -> reconcilePlaceReminder(pending, reminder, finalDecision.intent)
-            is VoiceRouteDecision.ReminderError -> handleNonReminder(pending, reminder)
             else -> handleNonReminder(pending, reminder)
         }
         val sanitized = finalText.replace("\"", "\\\"")

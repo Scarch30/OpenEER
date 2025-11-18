@@ -51,14 +51,7 @@ class VoiceCommandRouter(
 
         if (reminderClassifier.hasTrigger(trimmed)) {
             val triggers = mutableSetOf("reminder")
-            var favoriteError: LocalPlaceIntentParser.FavoriteNotFound? = null
-            val intent = try {
-                reminderIntentParser.parse(trimmed)
-            } catch (error: LocalPlaceIntentParser.FavoriteNotFound) {
-                favoriteError = error
-                null
-            }
-            return when (intent) {
+            return when (val intent = reminderIntentParser.parse(trimmed)) {
                 is ReminderIntent.Time -> EarlyAnalysis(
                     VoiceEarlyDecision.ReminderTime(intent, trimmed),
                     EarlyIntentHint.of(EarlyIntentHint.IntentType.REMINDER, trimmed, triggers)
@@ -70,11 +63,10 @@ class VoiceCommandRouter(
                 )
 
                 null -> {
-                    val unknownPlaceLabel = favoriteError?.candidate?.normalized?.takeIf { it.isNotEmpty() }
-                        ?: when (val placeResult = placeIntentParser.routeEarly(trimmed)) {
-                            is LocalPlaceIntentParser.PlaceResult.Unknown -> placeResult.label
-                            else -> null
-                        }
+                    val unknownPlaceLabel = when (val placeResult = placeIntentParser.routeEarly(trimmed)) {
+                        is LocalPlaceIntentParser.PlaceResult.Unknown -> placeResult.label
+                        else -> null
+                    }
                     val reminderLabel = placeIntentParser.extractReminderLabel(trimmed)
                     EarlyAnalysis(
                         VoiceEarlyDecision.ReminderIncomplete(
@@ -155,43 +147,29 @@ class VoiceCommandRouter(
             return VoiceRouteDecision.NOTE
         }
 
-        return try {
-            when (val intent = reminderIntentParser.parse(trimmed)) {
-                is ReminderIntent.Time -> {
-                    val decision = VoiceRouteDecision.ReminderTime(intent)
-                    logDecision(decision, trimmed)
-                    Log.d("ListDiag", "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null")
-                    decision
-                }
-
-                is ReminderIntent.Place -> {
-                    val decision = VoiceRouteDecision.ReminderPlace(intent)
-                    logDecision(decision, trimmed)
-                    Log.d("ListDiag", "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null")
-                    decision
-                }
-
-                null -> {
-                    logDecision(VoiceRouteDecision.INCOMPLETE, trimmed, reason = "missing_place_or_time")
-                    Log.d(
-                        "ListDiag",
-                        "ROUTER: decision=${VoiceRouteDecision.INCOMPLETE} text='${sanitizedForListDiag}' note=null",
-                    )
-                    VoiceRouteDecision.INCOMPLETE
-                }
+        return when (val intent = reminderIntentParser.parse(trimmed)) {
+            is ReminderIntent.Time -> {
+                val decision = VoiceRouteDecision.ReminderTime(intent)
+                logDecision(decision, trimmed)
+                Log.d("ListDiag", "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null")
+                decision
             }
-        } catch (error: LocalPlaceIntentParser.FavoriteNotFound) {
-            val disputedLabel = error.candidate.normalized.takeIf { it.isNotEmpty() } ?: error.candidate.raw
-            val decision = VoiceRouteDecision.ReminderError(
-                errorType = VoiceRouteDecision.ReminderErrorType.FAVORITE_NOT_FOUND,
-                disputedLabel = disputedLabel,
-            )
-            logDecision(decision, trimmed, reason = "favorite_not_found")
-            Log.d(
-                "ListDiag",
-                "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null",
-            )
-            decision
+
+            is ReminderIntent.Place -> {
+                val decision = VoiceRouteDecision.ReminderPlace(intent)
+                logDecision(decision, trimmed)
+                Log.d("ListDiag", "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null")
+                decision
+            }
+
+            null -> {
+                logDecision(VoiceRouteDecision.INCOMPLETE, trimmed, reason = "missing_place_or_time")
+                Log.d(
+                    "ListDiag",
+                    "ROUTER: decision=${VoiceRouteDecision.INCOMPLETE} text='${sanitizedForListDiag}' note=null",
+                )
+                VoiceRouteDecision.INCOMPLETE
+            }
         }
     }
 
@@ -234,7 +212,6 @@ class VoiceCommandRouter(
                 extras = extras,
                 reqId = reqId,
             )
-            is VoiceRouteDecision.ReminderError -> null
         }
     }
 
@@ -464,20 +441,12 @@ sealed class VoiceRouteDecision(val logToken: String) {
     object NOTE : VoiceRouteDecision("NOTE")
     data class ReminderTime(val intent: ReminderIntent.Time) : VoiceRouteDecision("REMINDER_TIME")
     data class ReminderPlace(val intent: ReminderIntent.Place) : VoiceRouteDecision("REMINDER_PLACE")
-    data class ReminderError(
-        val errorType: ReminderErrorType,
-        val disputedLabel: String? = null,
-    ) : VoiceRouteDecision("REMINDER_ERROR")
     object INCOMPLETE : VoiceRouteDecision("INCOMPLETE")
     data class List(
         val action: VoiceListAction,
         val items: kotlin.collections.List<String>,
     ) : VoiceRouteDecision("LIST_${action.name}")
     object LIST_INCOMPLETE : VoiceRouteDecision("LIST_INCOMPLETE")
-
-    enum class ReminderErrorType {
-        FAVORITE_NOT_FOUND,
-    }
 }
 
 enum class VoiceListAction {
