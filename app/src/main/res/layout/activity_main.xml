@@ -29,7 +29,7 @@
     <!-- Statut en haut de l'écran -->
     <TextView
         android:id="@+id/txtActivity"
-        android:text="Appuyez pour parler"
+        android:text="@string/mic_label_idle"
         android:textStyle="bold"
         android:textSize="18sp"
         android:padding="12dp"
@@ -554,7 +554,7 @@
             android:contentDescription="Micro" />
         <TextView
             android:id="@+id/labelMic"
-            android:text="Appuyez pour parler"
+            android:text="@string/mic_label_idle"
             android:textSize="18sp"
             android:alpha="0.9"
             android:layout_marginStart="12dp"

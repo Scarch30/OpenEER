@@ -1,5 +1,11 @@
 <resources>
     <string name="app_name">OpenEER</string>
+    <string name="mic_label_idle">Appuyez pour parler</string>
+    <string name="mic_label_recording_ptt">Enregistrement (PTT)…</string>
+    <string name="mic_label_recording_hands_free">Mains libres — tap pour arrêter</string>
+    <string name="mic_indicator_idle">Prêt</string>
+    <string name="mic_indicator_recording_ptt">REC (PTT) • relâchez pour arrêter</string>
+    <string name="mic_indicator_recording_hands_free">REC (mains libres) • tap pour arrêter</string>
     <string name="notif_channel_reminders">Rappels OpenEER</string>
     <string name="notif_channel_reminders_desc">Notifications de rappel</string>
     <string name="notif_channel_alarms">Alarmes OpenEER</string>
