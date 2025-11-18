@@ -7,6 +7,7 @@ class ReminderIntentParser(
     sealed class ParseResult {
         data object None : ParseResult()
         data class Intent(val intent: ReminderIntent) : ParseResult()
+        data class FavoriteError(val error: LocalPlaceIntentParser.FavoriteNotFound) : ParseResult()
     }
 
     fun parse(text: String): ParseResult {
@@ -21,11 +22,15 @@ class ReminderIntentParser(
             )
         }
 
-        val placeParse = placeParser.parse(text)
-        return if (placeParse != null) {
-            ParseResult.Intent(ReminderIntent.Place(placeParse))
-        } else {
-            ParseResult.None
+        return try {
+            val placeParse = placeParser.parse(text)
+            if (placeParse != null) {
+                ParseResult.Intent(ReminderIntent.Place(placeParse))
+            } else {
+                ParseResult.None
+            }
+        } catch (error: LocalPlaceIntentParser.FavoriteNotFound) {
+            ParseResult.FavoriteError(error)
         }
     }
 }

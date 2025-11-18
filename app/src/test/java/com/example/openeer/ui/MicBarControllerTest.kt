@@ -206,14 +206,12 @@ class MicBarControllerTest {
             coEvery { reminderCleanup.discard(any(), any(), any()) } returns Unit
             mockkObject(UnknownPlaceDialog)
             val labelSlot = slot<String>()
-            val createSlot = slot<() -> Unit>()
-            val cancelSlot = slot<() -> Unit>()
             every {
                 UnknownPlaceDialog.show(
                     activity = activity,
                     label = capture(labelSlot),
-                    onCreateFavorite = capture(createSlot),
-                    onCancel = capture(cancelSlot),
+                    onCreateFavorite = any(),
+                    onCancel = any(),
                     builderFactory = any(),
                 )
             } answers { }
@@ -245,8 +243,6 @@ class MicBarControllerTest {
             coVerify(exactly = 0) { voiceHandler.handleNoteDecision(any(), any(), any(), any(), any(), any()) }
             coVerify(exactly = 1) { reminderCleanup.discard(987L, "/tmp/audio3.wav", "req-reminder-error") }
             assertEquals(disputedLabel, labelSlot.captured)
-            assertTrue(createSlot.isCaptured)
-            assertTrue(cancelSlot.isCaptured)
         }
 
     private fun buildController(
