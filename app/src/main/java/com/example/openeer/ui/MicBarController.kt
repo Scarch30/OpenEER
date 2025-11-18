@@ -54,6 +54,7 @@ internal class MicBarController(
     private val onAppendLive: (String) -> Unit,
     private val onReplaceFinal: (String, Boolean) -> Unit,
     private val showTopBubble: (String) -> Unit = {},
+    voiceCommandHandlerOverride: VoiceCommandHandler? = null,
     reminderCleanupOverride: ReminderTranscriptionCleaner? = null,
 ) {
     // Etat rec
@@ -89,7 +90,7 @@ internal class MicBarController(
     private val listExecutor = ListVoiceExecutor(repo) { noteId, body ->
         withContext(Dispatchers.Main) { onCanonicalBodyReplaced(noteId, body) }
     }
-    private val voiceCommandHandler = VoiceCommandHandler(
+    private val voiceCommandHandler = voiceCommandHandlerOverride ?: VoiceCommandHandler(
         activity,
         blocksRepo,
         listManager,
@@ -914,7 +915,8 @@ internal class MicBarController(
     }
 
 
-    private suspend fun handleVoiceDecision(
+    @VisibleForTesting
+    internal suspend fun handleVoiceDecision(
         decision: VoiceRouteDecision,
         targetNoteId: Long,
         audioBlockId: Long,
