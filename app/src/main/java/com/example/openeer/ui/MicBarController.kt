@@ -4,10 +4,12 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
 import android.widget.Toast
+
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+
 import com.example.openeer.R
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.data.Note
@@ -16,7 +18,8 @@ import com.example.openeer.data.block.BlocksRepository
 import com.example.openeer.data.block.generateGroupId
 import com.example.openeer.databinding.ActivityMainBinding
 import com.example.openeer.services.WhisperService
-import com.example.openeer.stt.FinalResult
+import com.example.openeer.text.FrNumberITN
+import com.example.openeer.text.FrNumberSecondPass
 import com.example.openeer.ui.dialogs.ReminderErrorDialog
 import com.example.openeer.ui.dialogs.UnknownPlaceDialog
 import com.example.openeer.ui.library.MapActivity
@@ -29,15 +32,16 @@ import com.example.openeer.voice.VoiceComponents
 import com.example.openeer.voice.VoiceEarlyDecision
 import com.example.openeer.voice.VoiceListAction
 import com.example.openeer.voice.VoiceRouteDecision
-import com.example.openeer.text.FrNumberITN
-import com.example.openeer.text.FrNumberSecondPass
+
 import kotlinx.coroutines.*
+
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.text.Normalizer
 import java.util.Locale
 import java.util.UUID
+
 import kotlin.math.abs
 import kotlin.text.RegexOption
 
@@ -77,10 +81,6 @@ class MicBarController(
             }
 
             override fun onSegmentReady(result: MicRecordingCoordinator.SegmentResult) {
-                Log.d(
-                    "MicCtl",
-                    "Segment audio prêt (durée=${result.segmentDurationMs ?: -1}ms, wav=${result.wavPath != null})"
-                )
             }
 
             override fun onRecordingError(error: Throwable) {
@@ -374,13 +374,6 @@ class MicBarController(
                         }
                         AdaptiveRouter.Decision.disabledFallback(fallbackMode)
                     }
-                    if (attemptEarlyRouting) {
-                        val sanitized = initialVoskText.replace("\"", "\\\"")
-                        Log.d(
-                            "EarlyVC",
-                            "decision=${earlyDecision.logToken} adaptive=${adaptiveDecision.mode} score=${"%.2f".format(adaptiveDecision.score)} note=$targetNoteId text=\"$sanitized\""
-                        )
-                    }
                     maybeShowAdaptiveFeedback(adaptiveDecision.mode)
 
                     val sessionBaselineSnapshot = activeSessionBaseline
@@ -388,7 +381,6 @@ class MicBarController(
                         activity.lifecycleScope.launch {
                             val blockId = audioBlockId ?: return@launch
                             pendingWhisperJobs += 1
-                            Log.d("MicCtl", "Lancement de l'affinage Whisper pour le bloc #$blockId")
                             try {
                                 runCatching { WhisperService.ensureLoaded(activity.applicationContext) }
                                 val refinedText = WhisperService.transcribeWav(File(wavPath)).trim()
@@ -400,11 +392,9 @@ class MicBarController(
                                     refinedText,
                                     assumeListContext = hintList
                                 )
-                                Log.d("VoiceRoute", "Bloc #$blockId → décision $decision pour \"$refinedText\"")
 
                                 val pendingReminder = consumePendingReminder(blockId)
                                 if (pendingReminder != null) {
-                                    Log.d("EarlyVC", "ReconcileEarly reminder final=${decision.logToken}")
                                     val result = reminderExecutor.reconcileReminderWithWhisper(
                                         pendingReminder.pending,
                                         decision,
@@ -486,7 +476,6 @@ class MicBarController(
                             } finally {
                                 pendingWhisperJobs = (pendingWhisperJobs - 1).coerceAtLeast(0)
                             }
-                            Log.d("MicCtl", "Affinage Whisper terminé pour le bloc #$blockId")
                         }
                     }
 
@@ -499,7 +488,6 @@ class MicBarController(
                         val resolvedTarget = targetNoteId
                         if (resolvedTarget == null) {
                             Log.w("MicCtl", "Commande vocale anticipée ignorée: note cible introuvable")
-                            Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=noteNotFound")
                         } else {
                             val sessionIdForIntent = audioSessionId
                             val intentKey = voiceCommandRouter.intentKeyFor(
@@ -526,13 +514,6 @@ class MicBarController(
                                     skipDueToDuplicate -> "duplicate_early"
                                     else -> "unknown"
                                 }
-                                if (intentKey != null) {
-                                    Log.d(TAG_INTENT, "INTENT_SKIP_REASON req=$reqId key=$intentKey reason=$skipReason")
-                                }
-                                Log.d(
-                                    TAG_EARLY,
-                                    "EARLY_EXIT req=$reqId reason=${if (skipDueToResolution) "intentResolved" else "intentDuplicate"} key=$intentKey",
-                                )
                                 if (skipDueToResolution) {
                                     voiceCommandHandler.scheduleVoiceCaptureCleanup(
                                         audioBlockId,
@@ -576,7 +557,6 @@ class MicBarController(
                         is VoiceEarlyDecision.ListCommand -> if (earlyDecision.command.items.size <= 1) "singleItem" else "multiItem"
                         else -> "unsupported"
                     }
-                    Log.d(TAG_EARLY, "WHISPER req=$reqId skip=$skipWhisper reason=$whisperReason")
                     if (!skipWhisper) {
                         launchWhisper()
                     } else if (audioBlockId != null) {
@@ -731,7 +711,6 @@ class MicBarController(
                         skipIfListAdd = skipRemoval,
                     )
                     showEarlyListFeedback(decision.command.action)
-                    Log.d(TAG_EARLY, "EARLY_RESULT req=$reqId action=${decision.command.action} skipWhisper=true")
                     EarlyHandlingResult(skipWhisper = true)
                 }
             }
@@ -775,13 +754,7 @@ class MicBarController(
                         }
                     }
 
-                    is VoiceCommandHandler.ReminderHandlingResult.Error -> {
-                        Log.d(
-                            TAG_EARLY,
-                            "EARLY_RESULT req=$reqId reminder_error=${reminderResult.error.type}",
-                            reminderResult.error.cause,
-                        )
-                    }
+                    is VoiceCommandHandler.ReminderHandlingResult.Error -> Unit
 
                     VoiceCommandHandler.ReminderHandlingResult.Skip -> Unit
                 }
@@ -827,13 +800,7 @@ class MicBarController(
                         }
                     }
 
-                    is VoiceCommandHandler.ReminderHandlingResult.Error -> {
-                        Log.d(
-                            TAG_EARLY,
-                            "EARLY_RESULT req=$reqId reminder_error=${reminderResult.error.type}",
-                            reminderResult.error.cause,
-                        )
-                    }
+                    is VoiceCommandHandler.ReminderHandlingResult.Error -> Unit
 
                     VoiceCommandHandler.ReminderHandlingResult.Skip -> Unit
                 }
@@ -869,7 +836,6 @@ class MicBarController(
                 is VoiceEarlyDecision.ReminderIncomplete -> "REMINDER_INCOMPLETE"
                 is VoiceEarlyDecision.ListCommand -> decision.command.action.name
             }
-            Log.d(TAG_EARLY, "EARLY_RESULT req=$reqId action=$actionToken skipWhisper=${result.skipWhisper}")
         }
 
         return result
@@ -892,10 +858,6 @@ class MicBarController(
             reqId = reqId,
         )
         if (decision is VoiceRouteDecision.List) {
-            Log.d(
-                "ListDiag",
-                "FINAL-LIST: received action=${decision.action} note=$targetNoteId items=${decision.items} key=$intentKey",
-            )
         }
         var earlyApplied: SessionIntentRegistry.EarlyApplied? = null
         if (decision is VoiceRouteDecision.List && decision.action == VoiceListAction.ADD) {
@@ -905,10 +867,6 @@ class MicBarController(
             if (earlyApplied == null) {
                 sessionIntentRegistry.findEarlyAppliedByReq(reqId)?.let { (resolvedKey, fallback) ->
                     if (intentKey == null || intentKey != resolvedKey) {
-                        Log.d(
-                            TAG_INTENT,
-                            "INTENT_FALLBACK req=$reqId from=${intentKey ?: "none"} to=$resolvedKey",
-                        )
                     }
                     intentKey = resolvedKey
                     earlyApplied = fallback
@@ -921,16 +879,9 @@ class MicBarController(
         } ?: false
         if (decision is VoiceRouteDecision.List) {
             val state = intentKey?.let { key -> sessionIntentRegistry.stateOf(key, reqId = reqId) }
-            Log.d(
-                "ListDiag",
-                "FINAL-LIST: skip=$shouldSkipFinal state=$state",
-            )
         }
         intentKey?.let { key ->
             if (shouldSkipFinal) {
-                Log.d(TAG_INTENT, "INTENT_SKIP_REASON req=$reqId key=$key reason=duplicate_final")
-                Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=intentResolved key=$key")
-                Log.d("MicCtl", "FinalSkip/Resolved key=$key block=$audioBlockId")
                 voiceCommandHandler.scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
                 voiceCommandHandler.finalizeVoiceCaptureCleanup(audioBlockId)
                 clearVoiceCaptureState(audioBlockId)
@@ -946,17 +897,9 @@ class MicBarController(
             val noteId = targetNoteId
             if (noteId != null) {
                 try {
-                    Log.d(
-                        "ListDiag",
-                        "FINAL-LIST: applying action=${decision.action} refinedItems=${decision.items}",
-                    )
                     val sanitizedEarly = cleanupEarlyFusion(noteId, reconciliationTarget, decision.items, reqId)
                     reconcileEarlyListAdd(noteId, sanitizedEarly, decision.items)
                     finalizeListCommandCleanup(audioBlockId, audioPath, reqId)
-                    Log.d(
-                        "ListDiag",
-                        "FINAL-LIST: completed action=${decision.action} refinedCount=${decision.items.size}",
-                    )
                     intentKey?.let { key -> sessionIntentRegistry.markResolved(key, reqId = reqId) }
                 } catch (error: Throwable) {
                     intentKey?.let { key -> sessionIntentRegistry.remove(key) }
@@ -1043,10 +986,6 @@ class MicBarController(
             }
 
             is VoiceRouteDecision.List -> {
-                Log.d(
-                    "ListDiag",
-                    "FINAL-LIST: applying action=${decision.action} refinedItems=${decision.items}",
-                )
                 voiceCommandHandler.handleListDecision(
                     noteId = targetNoteId,
                     audioBlockId = audioBlockId,
@@ -1056,10 +995,6 @@ class MicBarController(
                     sessionBaseline = commitContext.baselineBody,
                     commitContext = commitContext,
                     reqId = reqId,
-                )
-                Log.d(
-                    "ListDiag",
-                    "FINAL-LIST: completed action=${decision.action} refinedCount=${decision.items.size}",
                 )
             }
             }
@@ -1088,14 +1023,9 @@ class MicBarController(
     ) {
         val trimmed = refinedItems.map { it.trim() }.filter { it.isNotEmpty() }
         val earlyIds = earlyApplied.affectedItemIds
-        Log.d(
-            TAG_EARLY,
-            "RECONCILE note=$noteId earlyCount=${earlyIds.size} refinedCount=${trimmed.size}",
-        )
         if (trimmed.isEmpty()) {
             if (earlyIds.isNotEmpty()) {
                 repo.removeItems(earlyIds)
-                Log.d(TAG_EARLY, "RECONCILE_REMOVE note=$noteId removed=${earlyIds.size}")
             }
             return
         }
@@ -1107,23 +1037,17 @@ class MicBarController(
             val original = earlyApplied.originalTexts.getOrNull(index)
             if (original != null && original == newText) continue
             repo.updateItemText(itemId, newText)
-            Log.d(TAG_EARLY, "RECONCILE_UPDATE note=$noteId item=$itemId text=\"${newText.replace("\n", " ")}\"")
         }
 
         if (trimmed.size > earlyIds.size) {
             val extras = trimmed.subList(earlyIds.size, trimmed.size)
             val added = blocksRepo.addItemsToNoteList(noteId, extras)
             if (added.addedIds.isNotEmpty()) {
-                Log.d(
-                    TAG_EARLY,
-                    "RECONCILE_APPEND note=$noteId added=${added.addedIds.size} ids=${added.addedIds}",
-                )
             }
         } else if (earlyIds.size > trimmed.size) {
             val removeIds = earlyIds.subList(trimmed.size, earlyIds.size)
             if (removeIds.isNotEmpty()) {
                 repo.removeItems(removeIds)
-                Log.d(TAG_EARLY, "RECONCILE_TRIM note=$noteId removed=${removeIds.size} ids=$removeIds")
             }
         }
     }
@@ -1157,7 +1081,6 @@ class MicBarController(
         candidates.forEach { (index, id, text) ->
             val removed = blocksRepo.removeListItems(noteId, listOf(id))
             if (removed.isEmpty()) {
-                Log.d(TAG_EARLY, "FUSION_CLEANUP req=$reqId already gone id=$id")
             } else {
                 removedIds.addAll(removed)
                 removedTexts.add(text)
@@ -1165,10 +1088,6 @@ class MicBarController(
             removedIndices.add(index)
         }
         if (removedIds.isNotEmpty()) {
-            Log.d(
-                TAG_EARLY,
-                "FUSION_CLEANUP req=$reqId removedIds=${removedIds.formatIdsForLog()} earlyTexts=${removedTexts.formatTextsForLog()}",
-            )
         }
         if (removedIndices.isEmpty()) return earlyApplied
 
@@ -1218,12 +1137,6 @@ class MicBarController(
         if (error.type == VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND &&
             !disputedLabel.isNullOrBlank()
         ) {
-            Log.d(
-                "VoiceReminderFlow",
-                "showing unknownPlace dialog noteId=${pendingError.noteId} audioBlockId=$audioBlockId " +
-                    "hasReminder=false raw=\"${sanitizeReminderTextForLog(pendingError.refinedText)}\" " +
-                    "label=$disputedLabel",
-            )
             showUnknownPlaceDialog(audioBlockId, disputedLabel)
         } else {
             showReminderErrorDialog(audioBlockId, error)
@@ -1377,7 +1290,6 @@ class MicBarController(
             reqId,
         )
         if (!removed) {
-            Log.d("ListUI", "PROVISIONAL already removed for block=$audioBlockId (early applied)")
             withContext(Dispatchers.Main) { bodyManager.removeProvisionalForBlock(audioBlockId) }
         }
         voiceCommandHandler.scheduleVoiceCaptureCleanup(audioBlockId, audioPath)
@@ -1394,18 +1306,12 @@ class MicBarController(
         val noteType = getOpenNote()?.takeIf { it.id == noteId }?.type?.name ?: "unknown"
         val baselineHash = activeSessionBaseline?.takeIf { it.noteId == noteId }?.hash ?: "none"
         val intentToken = intentKey ?: "none"
-        Log.d(
-            TAG_EARLY,
-            "ENTER req=$reqId note=$noteId action=${command.action} items=${command.items} feature=${FeatureFlags.voiceEarlyCommandsEnabled} intentKey=$intentToken noteType=$noteType baselineHash=$baselineHash",
-        )
         if (!FeatureFlags.voiceEarlyCommandsEnabled) {
-            Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=flagDisabled")
             return null
         }
         val requested = command.items
         return when (command.action) {
             VoiceListAction.ADD -> {
-                Log.d(TAG_EARLY, "CALL_REPO req=$reqId note=$noteId size=${requested.size}")
                 val added = blocksRepo.addItemsToNoteList(noteId, requested, reqId = reqId)
                 val addedIds = added.addedIds
                 val addedEntities = if (addedIds.isNotEmpty()) {
@@ -1415,9 +1321,7 @@ class MicBarController(
                 }
                 if (addedIds.isEmpty()) {
                     val whyEmpty = added.whyEmpty?.name ?: "UNKNOWN"
-                    Log.d(TAG_EARLY, "NO_ADD req=$reqId whyEmpty=$whyEmpty")
                 } else {
-                    Log.d(TAG_EARLY, "RESULT req=$reqId added=${addedIds.size} ids=$addedIds")
                 }
                 if (!intentKey.isNullOrEmpty()) {
                     val storedTexts = addedEntities.map { it.text }
@@ -1443,12 +1347,10 @@ class MicBarController(
                         )
                     }
                 }
-                Log.d(TAG_EARLY, "EARLY_RESULT req=$reqId action=${command.action} skipWhisper=false")
                 EarlyHandlingResult(skipWhisper = false)
             }
 
             VoiceListAction.REMOVE -> {
-                Log.d(TAG_EARLY, "CALL_REPO req=$reqId note=$noteId size=${requested.size}")
                 var removedCount = 0
                 var ambiguous = false
                 for (item in requested) {
@@ -1459,7 +1361,6 @@ class MicBarController(
                         removedCount += result.affectedItems.size
                     }
                 }
-                Log.d(TAG_EARLY, "RESULT req=$reqId affected=$removedCount ambiguous=$ambiguous")
                 withContext(Dispatchers.Main) {
                     val messageRes = when {
                         ambiguous -> R.string.voice_early_list_multiple_matches
@@ -1468,15 +1369,10 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
-                Log.d(
-                    TAG_EARLY,
-                    "EARLY_RESULT req=$reqId action=${command.action} skipWhisper=true ambiguous=$ambiguous count=$removedCount",
-                )
                 EarlyHandlingResult(skipWhisper = true)
             }
 
             VoiceListAction.TOGGLE, VoiceListAction.UNTICK -> {
-                Log.d(TAG_EARLY, "CALL_REPO req=$reqId note=$noteId size=${requested.size}")
                 var updatedCount = 0
                 var ambiguous = false
                 val targetDone = command.action == VoiceListAction.TOGGLE
@@ -1488,7 +1384,6 @@ class MicBarController(
                         updatedCount += result.affectedItems.size
                     }
                 }
-                Log.d(TAG_EARLY, "RESULT req=$reqId affected=$updatedCount ambiguous=$ambiguous")
                 withContext(Dispatchers.Main) {
                     val messageRes = when {
                         ambiguous -> R.string.voice_early_list_multiple_matches
@@ -1501,16 +1396,11 @@ class MicBarController(
                     }
                     showTopBubble(activity.getString(messageRes))
                 }
-                Log.d(
-                    TAG_EARLY,
-                    "EARLY_RESULT req=$reqId action=${command.action} skipWhisper=true ambiguous=$ambiguous count=$updatedCount",
-                )
                 EarlyHandlingResult(skipWhisper = true)
             }
 
             VoiceListAction.CONVERT_TO_LIST,
             VoiceListAction.CONVERT_TO_TEXT -> {
-                Log.d(TAG_EARLY, "EARLY_EXIT req=$reqId reason=unsupportedAction action=${command.action}")
                 null
             }
         }
@@ -1614,8 +1504,6 @@ class MicBarController(
         private const val LIST_PLACEHOLDER = "(transcription en cours…)"
         private const val INTENT_TTL_MS = 20_000L
         private const val ADAPTIVE_FEEDBACK_THROTTLE_MS = 1500L
-        private const val TAG_EARLY = "ListEarly"
-        private const val TAG_INTENT = "ListIntent"
         private val WORD_SPLIT_REGEX = "\\s+".toRegex()
         private val BASELINE_SPACE_REGEX = "\\s+".toRegex()
         private val DIACRITIC_REGEX = "\\p{Mn}+".toRegex()
@@ -1699,10 +1587,6 @@ class MicBarController(
             entry.originalTexts = originalTexts.toList()
             entry.appliedTexts = appliedTexts.toList()
             entry.reqTokens.add(reqToken(reqId))
-            Log.d(
-                TAG_INTENT,
-                "INTENT_REGISTER req=${reqToken(reqId)} key=$intentKey state=APPLIED_EARLY ids=$affectedItemIds",
-            )
         }
 
         @Synchronized
@@ -1716,10 +1600,6 @@ class MicBarController(
             entry.originalTexts = emptyList()
             entry.appliedTexts = emptyList()
             entry.reqTokens.add(reqToken(reqId))
-            Log.d(
-                TAG_INTENT,
-                "INTENT_REGISTER req=${reqToken(reqId)} key=$intentKey state=RESOLVED ids=[]",
-            )
         }
 
         @Synchronized
@@ -1748,10 +1628,6 @@ class MicBarController(
             val match = entries.entries.firstOrNull { (_, entry) ->
                 entry.state == State.APPLIED_EARLY && entry.reqTokens.contains(token)
             } ?: return null
-            Log.d(
-                TAG_INTENT,
-                "INTENT_FALLBACK_MATCH req=$token key=${match.key}",
-            )
             val entry = match.value
             return match.key to EarlyApplied(entry.affectedItemIds, entry.originalTexts, entry.appliedTexts)
         }
@@ -1806,7 +1682,6 @@ class MicBarController(
                 before == null -> "NEW"
                 else -> "NEW"
             }
-            Log.d(TAG_INTENT, "INTENT_TTL_CHECK req=$reqToken key=$intentKey state=$stateToken age=$age")
         }
 
         @Synchronized
