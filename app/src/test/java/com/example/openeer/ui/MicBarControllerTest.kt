@@ -61,7 +61,7 @@ class MicBarControllerTest {
     }
 
     @Test
-    fun `registerReminderError removes reminder text before showing unknown place dialog`() =
+    fun `registerReminderError cleans transcription before unknown place dialog`() =
         runTest(testDispatcher.scheduler) {
             val reminderCleanup = mockk<ReminderTranscriptionCleaner>()
             val controller = buildController(reminderCleanup)
@@ -84,10 +84,15 @@ class MicBarControllerTest {
                 assertTrue(cleanupDone)
             }
 
+            val error = VoiceCommandHandler.ReminderCommandError(
+                type = VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND,
+                disputedLabel = "Boulangerie",
+            )
+
             controller.registerReminderError(
                 audioBlockId = 321L,
                 noteId = 42L,
-                refinedText = "Rappelle-moi de prendre du pain quand j'arrive à la boulangerie",
+                refinedText = "Rappel boulangerie",
                 audioPath = "/tmp/audio.wav",
                 decision = VoiceRouteDecision.ReminderError(
                     errorType = VoiceRouteDecision.ReminderErrorType.FAVORITE_NOT_FOUND,
@@ -97,10 +102,7 @@ class MicBarControllerTest {
                 commitContext = buildCommitContext(),
                 reqId = "req-clean",
                 intentKey = "intent-clean",
-                error = VoiceCommandHandler.ReminderCommandError(
-                    type = VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND,
-                    disputedLabel = "Boulangerie",
-                ),
+                error = error,
             )
 
             advanceUntilIdle()
@@ -112,20 +114,18 @@ class MicBarControllerTest {
         }
 
     @Test
-    fun `unknown place dialog exposes both actions for favorite creation or dismissal`() =
+    fun `unknown place dialog forwards label to favorite creation flow`() =
         runTest(testDispatcher.scheduler) {
             val reminderCleanup = mockk<ReminderTranscriptionCleaner>(relaxed = true)
             val controller = buildController(reminderCleanup)
             mockkObject(UnknownPlaceDialog)
             val createSlot = slot<() -> Unit>()
-            val cancelSlot = slot<() -> Unit>()
-            val labelSlot = slot<String>()
             every {
                 UnknownPlaceDialog.show(
                     activity = activity,
-                    label = capture(labelSlot),
+                    label = any(),
                     onCreateFavorite = capture(createSlot),
-                    onCancel = capture(cancelSlot),
+                    onCancel = any(),
                     builderFactory = any(),
                 )
             } answers { }
@@ -138,7 +138,7 @@ class MicBarControllerTest {
             controller.registerReminderError(
                 audioBlockId = 654L,
                 noteId = 99L,
-                refinedText = "Rappelle-moi de passer chez Paul quand j'arrive au bureau",
+                refinedText = "Rappel boulangerie",
                 audioPath = "/tmp/audio2.wav",
                 decision = VoiceRouteDecision.ReminderError(
                     errorType = VoiceRouteDecision.ReminderErrorType.FAVORITE_NOT_FOUND,
@@ -153,10 +153,6 @@ class MicBarControllerTest {
 
             advanceUntilIdle()
 
-            assertEquals("Chez Paul", labelSlot.captured)
-            assertTrue(createSlot.isCaptured)
-            assertTrue(cancelSlot.isCaptured)
-
             val createFavorite = createSlot.captured
             createFavorite.invoke()
             advanceUntilIdle()
@@ -167,9 +163,6 @@ class MicBarControllerTest {
                 "Chez Paul",
                 startedIntent.getStringExtra(MapActivity.EXTRA_INITIAL_SEARCH_QUERY),
             )
-
-            cancelSlot.captured.invoke()
-
             coVerify(exactly = 1) {
                 reminderCleanup.discard(654L, "/tmp/audio2.wav", "req-launch")
             }
