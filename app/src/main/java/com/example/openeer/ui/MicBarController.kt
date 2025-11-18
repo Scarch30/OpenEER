@@ -9,7 +9,6 @@ import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
-import com.example.openeer.audio.PcmRecorder
 import com.example.openeer.core.FeatureFlags
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
@@ -53,19 +52,42 @@ class MicBarController(
     private val onReplaceFinal: (String, Boolean) -> Unit,
     private val showTopBubble: (String) -> Unit = {}
 ) {
-    // Etat rec
-    private var recorder: PcmRecorder? = null
-
     // Gestes
     private var downX = 0f
     private val swipeThreshold = 120f
     private var switchedToHandsFree = false
     private var movedTooMuch = false
 
-    // Transcription live
-    private var live: LiveTranscriber? = null
     private var lastWasHandsFree = false
     private val micUiState = MicUiStateController(activity, binding, activity.lifecycleScope)
+
+    private val recordingCoordinator = MicRecordingCoordinator(
+        activity,
+        object : MicRecordingCoordinator.Listener {
+            override fun onLiveEvent(event: LiveTranscriber.TranscriptionEvent) {
+                when (event) {
+                    is LiveTranscriber.TranscriptionEvent.Partial -> {
+                        binding.liveTranscriptionBar.isVisible = true
+                        binding.liveTranscriptionText.text = event.text
+                    }
+                    is LiveTranscriber.TranscriptionEvent.Final -> {
+                        binding.liveTranscriptionText.text = event.text
+                    }
+                }
+            }
+
+            override fun onSegmentReady(result: MicRecordingCoordinator.SegmentResult) {
+                Log.d(
+                    "MicCtl",
+                    "Segment audio prêt (durée=${result.segmentDurationMs ?: -1}ms, wav=${result.wavPath != null})"
+                )
+            }
+
+            override fun onRecordingError(error: Throwable) {
+                Log.e("MicCtl", "Erreur coordonnateur micro", error)
+            }
+        }
+    )
 
     private val bodyManager = BodyTranscriptionManager(
         binding.bodyEditor,
@@ -105,7 +127,6 @@ class MicBarController(
     private val audioSessionIdsByBlock = mutableMapOf<Long, Long>()
     private val sessionIntentRegistry = SessionIntentRegistry()
     private var pendingWhisperJobs = 0
-    private var segmentStartRealtime: Long? = null
     private var lastAdaptiveFeedbackAt: Long = 0L
     private var activeSessionBaseline: SessionBaseline? = null
 
@@ -158,11 +179,7 @@ class MicBarController(
 
         micUiState.onPressToTalkStarted()
         currentAudioSessionId = nextAudioSessionId++
-        if (recorder == null) recorder = PcmRecorder(activity)
-        recorder?.start()
-        Log.d("MicCtl", "Recorder.start()")
-
-        segmentStartRealtime = SystemClock.elapsedRealtime()
+        recordingCoordinator.startSegment()
         binding.liveTranscriptionBar.isVisible = true
         binding.liveTranscriptionText.text = ""
 
@@ -182,25 +199,6 @@ class MicBarController(
         )
         activeSessionNoteId = noteId
 
-        live = LiveTranscriber(activity).apply {
-            onEvent = { event ->
-                when (event) {
-                    is LiveTranscriber.TranscriptionEvent.Partial -> {
-                        binding.liveTranscriptionBar.isVisible = true
-                        binding.liveTranscriptionText.text = event.text
-                    }
-                    is LiveTranscriber.TranscriptionEvent.Final -> {
-                        // On n’ajoute plus rien ici : le Vosk "final" sera posé quand on stoppe.
-                        binding.liveTranscriptionText.text = event.text
-                    }
-                }
-            }
-            start()
-        }
-
-        recorder?.onPcmChunk = { chunk ->
-            live?.feed(chunk)
-        }
     }
 
     private fun newReqId(): String = UUID.randomUUID().toString().take(8)
@@ -218,13 +216,13 @@ class MicBarController(
         val audioSessionId = currentAudioSessionId
         currentAudioSessionId = null
 
-        val rec = recorder
-        recorder = null
-        rec?.onPcmChunk = null
-
         micUiState.onRecordingStopped()
 
         activity.lifecycleScope.launch {
+            val segment = recordingCoordinator.stopSegment()
+            val wavPath = segment.wavPath
+            val finalResult = segment.finalResult
+            val segmentDurationMs = segment.segmentDurationMs
 
             // --- Préfiltre local "quatre-vingt(s)" (section AA) -------------
             // Objectif : convertir AVANT l’ITN pour éviter le découpage 4 20 ...
@@ -261,12 +259,6 @@ class MicBarController(
             var newBlockId: Long? = null
             var provisionalList: ListProvisionalItem? = null
             try {
-                val wavPath = withContext(Dispatchers.IO) {
-                    rec?.stop()
-                    rec?.finalizeToWav()
-                }
-                val segmentDurationMs = segmentStartRealtime?.let { SystemClock.elapsedRealtime() - it }
-                val finalResult = withContext(Dispatchers.IO) { live?.stopDetailed() } ?: FinalResult.Empty
                 val rawVoskText = finalResult.text.trim()
 
                 // ✅ Nouvel ordre de normalisation (préfiltre → ITN → 2e passe)
@@ -275,8 +267,6 @@ class MicBarController(
                 normalizedVosk = FrNumberSecondPass.apply(normalizedVosk)
 
                 val initialVoskText = normalizedVosk.ifBlank { rawVoskText }
-                live = null
-
                 val openIdNow = getOpenNoteId()
                 val targetNoteId = activeSessionNoteId ?: openIdNow
                 val noteSnapshot = getOpenNote()
@@ -293,7 +283,6 @@ class MicBarController(
                     withContext(Dispatchers.Main) { bodyManager.buffer.removeCurrentSession() }
                     activeSessionNoteId = null
                     activeSessionBaseline = null
-                    segmentStartRealtime = null
                     if (!wavPath.isNullOrBlank()) runCatching { File(wavPath).takeIf { it.exists() }?.delete() }
                     return@launch
                 }
@@ -605,7 +594,6 @@ class MicBarController(
                 }
             } catch (e: Throwable) {
                 Log.e("MicCtl", "Erreur dans stopSegment", e)
-                live = null
                 val detachedHandle = provisionalList
                 if (detachedHandle != null) {
                     val fallback = detachedHandle.initialText
@@ -614,7 +602,6 @@ class MicBarController(
             } finally {
                 activeSessionNoteId = null
                 activeSessionBaseline = null
-                segmentStartRealtime = null
             }
         }
     }
