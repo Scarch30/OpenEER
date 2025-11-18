@@ -52,8 +52,20 @@ class VoiceCommandRouter(
 
         if (reminderClassifier.hasTrigger(trimmed)) {
             val triggers = mutableSetOf("reminder")
-            val parseResult = reminderIntentParser.parse(trimmed)
-            val favoriteError = (parseResult as? ParseResult.FavoriteError)?.error
+            val parseResult = try {
+                reminderIntentParser.parse(trimmed)
+            } catch (favoriteNotFound: LocalPlaceIntentParser.FavoriteNotFound) {
+                val disputedLabel = disputedLabelFrom(favoriteNotFound)
+                val reminderLabel = placeIntentParser.extractReminderLabel(trimmed)
+                return EarlyAnalysis(
+                    VoiceEarlyDecision.ReminderIncomplete(
+                        rawText = trimmed,
+                        unknownPlaceLabel = disputedLabel,
+                        reminderLabel = reminderLabel,
+                    ),
+                    EarlyIntentHint.of(EarlyIntentHint.IntentType.REMINDER_INCOMPLETE, trimmed, triggers),
+                )
+            }
             return when (val intent = (parseResult as? ParseResult.Intent)?.intent) {
                 is ReminderIntent.Time -> EarlyAnalysis(
                     VoiceEarlyDecision.ReminderTime(intent, trimmed),
@@ -66,11 +78,10 @@ class VoiceCommandRouter(
                 )
 
                 null -> {
-                    val unknownPlaceLabel = favoriteError?.candidate?.normalized?.takeIf { it.isNotEmpty() }
-                        ?: when (val placeResult = placeIntentParser.routeEarly(trimmed)) {
-                            is LocalPlaceIntentParser.PlaceResult.Unknown -> placeResult.label
-                            else -> null
-                        }
+                    val unknownPlaceLabel = when (val placeResult = placeIntentParser.routeEarly(trimmed)) {
+                        is LocalPlaceIntentParser.PlaceResult.Unknown -> placeResult.label
+                        else -> null
+                    }
                     val reminderLabel = placeIntentParser.extractReminderLabel(trimmed)
                     EarlyAnalysis(
                         VoiceEarlyDecision.ReminderIncomplete(
@@ -151,7 +162,23 @@ class VoiceCommandRouter(
             return VoiceRouteDecision.NOTE
         }
 
-        return when (val parseResult = reminderIntentParser.parse(trimmed)) {
+        val parseResult = try {
+            reminderIntentParser.parse(trimmed)
+        } catch (favoriteNotFound: LocalPlaceIntentParser.FavoriteNotFound) {
+            val disputedLabel = disputedLabelFrom(favoriteNotFound)
+            val decision = VoiceRouteDecision.ReminderError(
+                errorType = VoiceRouteDecision.ReminderErrorType.FAVORITE_NOT_FOUND,
+                disputedLabel = disputedLabel,
+            )
+            logDecision(decision, trimmed, reason = "favorite_not_found")
+            Log.d(
+                "ListDiag",
+                "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null",
+            )
+            return decision
+        }
+
+        return when (parseResult) {
             is ParseResult.Intent -> {
                 when (val intent = parseResult.intent) {
                     is ReminderIntent.Time -> {
@@ -168,21 +195,6 @@ class VoiceCommandRouter(
                         decision
                     }
                 }
-            }
-
-            is ParseResult.FavoriteError -> {
-                val candidate = parseResult.error.candidate
-                val disputedLabel = candidate.normalized.takeIf { it.isNotEmpty() } ?: candidate.raw
-                val decision = VoiceRouteDecision.ReminderError(
-                    errorType = VoiceRouteDecision.ReminderErrorType.FAVORITE_NOT_FOUND,
-                    disputedLabel = disputedLabel,
-                )
-                logDecision(decision, trimmed, reason = "favorite_not_found")
-                Log.d(
-                    "ListDiag",
-                    "ROUTER: decision=$decision text='${sanitizedForListDiag}' note=null",
-                )
-                decision
             }
 
             ParseResult.None -> {
@@ -423,6 +435,11 @@ class VoiceCommandRouter(
 
     private fun roundCoord(value: Double): String {
         return String.format(Locale.US, "%.5f", value)
+    }
+
+    private fun disputedLabelFrom(error: LocalPlaceIntentParser.FavoriteNotFound): String {
+        val candidate = error.candidate
+        return candidate.normalized.takeIf { it.isNotEmpty() } ?: candidate.raw
     }
 
     companion object {
