@@ -11,7 +11,6 @@ import androidx.lifecycle.lifecycleScope
 import com.example.openeer.R
 import com.example.openeer.audio.PcmRecorder
 import com.example.openeer.core.FeatureFlags
-import com.example.openeer.core.RecordingState
 import com.example.openeer.data.Note
 import com.example.openeer.data.NoteRepository
 import com.example.openeer.data.block.BlocksRepository
@@ -56,7 +55,6 @@ class MicBarController(
 ) {
     // Etat rec
     private var recorder: PcmRecorder? = null
-    private var state = RecordingState.IDLE
 
     // Gestes
     private var downX = 0f
@@ -67,6 +65,7 @@ class MicBarController(
     // Transcription live
     private var live: LiveTranscriber? = null
     private var lastWasHandsFree = false
+    private val micUiState = MicUiStateController(activity, binding, activity.lifecycleScope)
 
     private val bodyManager = BodyTranscriptionManager(
         binding.bodyEditor,
@@ -115,7 +114,7 @@ class MicBarController(
         downX = initialX
         switchedToHandsFree = false
         movedTooMuch = false
-        if (state == RecordingState.IDLE) startPttPress(allowNoNoteYet = true)
+        if (micUiState.isIdle()) startPttPress(allowNoNoteYet = true)
     }
 
     fun onTouch(ev: MotionEvent): Boolean {
@@ -124,10 +123,10 @@ class MicBarController(
                 downX = ev.x
                 switchedToHandsFree = false
                 movedTooMuch = false
-                if (state == RecordingState.IDLE) startPttPress(allowNoNoteYet = true)
+                if (micUiState.isIdle()) startPttPress(allowNoNoteYet = true)
             }
             MotionEvent.ACTION_MOVE -> {
-                if (state == RecordingState.RECORDING_PTT) {
+                if (micUiState.isRecordingPtt()) {
                     val dx = ev.x - downX
                     val adx = abs(dx)
                     if (adx > 8f) movedTooMuch = true
@@ -138,13 +137,12 @@ class MicBarController(
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                when (state) {
-                    RecordingState.RECORDING_PTT -> stopSegment()
-                    RecordingState.RECORDING_HANDS_FREE -> {
+                when {
+                    micUiState.isRecordingPtt() -> stopSegment()
+                    micUiState.isRecordingHandsFree() -> {
                         val adx = abs(ev.x - downX)
                         if (adx < 20f && !movedTooMuch) stopSegment()
                     }
-                    else -> Unit
                 }
             }
         }
@@ -158,17 +156,13 @@ class MicBarController(
             return
         }
 
-        state = RecordingState.RECORDING_PTT
+        micUiState.onPressToTalkStarted()
         currentAudioSessionId = nextAudioSessionId++
         if (recorder == null) recorder = PcmRecorder(activity)
         recorder?.start()
         Log.d("MicCtl", "Recorder.start()")
 
         segmentStartRealtime = SystemClock.elapsedRealtime()
-
-        binding.labelMic.text = "Enregistrement (PTT)…"
-        binding.iconMic.alpha = 1f
-        binding.txtActivity.text = "REC (PTT) • relâchez pour arrêter"
         binding.liveTranscriptionBar.isVisible = true
         binding.liveTranscriptionText.text = ""
 
@@ -212,18 +206,15 @@ class MicBarController(
     private fun newReqId(): String = UUID.randomUUID().toString().take(8)
 
     private fun switchPttToHandsFree() {
-        if (state != RecordingState.RECORDING_PTT) return
-        state = RecordingState.RECORDING_HANDS_FREE
-        binding.labelMic.text = "Mains libres — tap pour arrêter"
-        binding.txtActivity.text = "REC (mains libres) • tap pour arrêter"
-        Log.d("MicCtl", "Switch to hands-free")
+        if (!micUiState.isRecordingPtt()) return
+        micUiState.onHandsFreeEngaged()
     }
 
 
 
     private fun stopSegment() {
-        if (state == RecordingState.IDLE) return
-        lastWasHandsFree = (state == RecordingState.RECORDING_HANDS_FREE)
+        if (micUiState.isIdle()) return
+        lastWasHandsFree = micUiState.isRecordingHandsFree()
         val audioSessionId = currentAudioSessionId
         currentAudioSessionId = null
 
@@ -231,10 +222,7 @@ class MicBarController(
         recorder = null
         rec?.onPcmChunk = null
 
-        binding.iconMic.alpha = 0.9f
-        binding.labelMic.text = "Appuyez pour parler"
-        binding.txtActivity.text = "Prêt"
-        state = RecordingState.IDLE
+        micUiState.onRecordingStopped()
 
         activity.lifecycleScope.launch {
 
@@ -404,12 +392,7 @@ class MicBarController(
                             "decision=${earlyDecision.logToken} adaptive=${adaptiveDecision.mode} score=${"%.2f".format(adaptiveDecision.score)} note=$targetNoteId text=\"$sanitized\""
                         )
                     }
-                    if (FeatureFlags.voiceAdaptiveRoutingEnabled) {
-                        maybeShowAdaptiveFeedback(adaptiveDecision.mode)
-                        if (adaptiveDecision.mode == AdaptiveRouter.DecisionMode.REFINE_ONLY) {
-                            binding.txtActivity.text = activity.getString(R.string.voice_adaptive_feedback_refine)
-                        }
-                    }
+                    maybeShowAdaptiveFeedback(adaptiveDecision.mode)
 
                     val sessionBaselineSnapshot = activeSessionBaseline
                     val launchWhisper = {
@@ -640,8 +623,7 @@ class MicBarController(
 
 
 
-    fun isRecording(): Boolean =
-        state == RecordingState.RECORDING_PTT || state == RecordingState.RECORDING_HANDS_FREE
+    fun isRecording(): Boolean = micUiState.isRecording()
 
     private suspend fun removeEarlyCommandText(
         audioBlockId: Long,
@@ -1634,7 +1616,11 @@ class MicBarController(
             AdaptiveRouter.DecisionMode.REFLEX_THEN_REFINE -> R.string.voice_adaptive_feedback_pending
             AdaptiveRouter.DecisionMode.REFINE_ONLY -> R.string.voice_adaptive_feedback_refine
         }
-        showTopBubble(activity.getString(messageRes))
+        val message = activity.getString(messageRes)
+        showTopBubble(message)
+        if (mode == AdaptiveRouter.DecisionMode.REFINE_ONLY) {
+            micUiState.showTransientIndicator(message)
+        }
     }
 
     companion object {
