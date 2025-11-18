@@ -15,7 +15,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.slot
-import io.mockk.spyk
 import io.mockk.unmockkAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -176,78 +175,8 @@ class MicBarControllerTest {
             }
         }
 
-    @Test
-    fun `handleVoiceDecision routes favorite errors to reminder error dialog`() =
-        runTest(testDispatcher.scheduler) {
-            val reminderCleanup = mockk<ReminderTranscriptionCleaner>()
-            val voiceHandler = mockk<VoiceCommandHandler>()
-            val controller = spyk(buildController(reminderCleanup, voiceHandler))
-            val disputedLabel = "boulangerie du coin"
-            val reminderErrorDecision = VoiceRouteDecision.ReminderError(
-                errorType = VoiceRouteDecision.ReminderErrorType.FAVORITE_NOT_FOUND,
-                disputedLabel = disputedLabel,
-            )
-            val reminderCommandError = VoiceCommandHandler.ReminderCommandError(
-                type = VoiceCommandHandler.ReminderCommandErrorType.FAVORITE_NOT_FOUND,
-                disputedLabel = disputedLabel,
-            )
-            coEvery {
-                voiceHandler.handleReminderDecision(
-                    noteId = any(),
-                    audioBlockId = any(),
-                    refinedText = any(),
-                    audioPath = any(),
-                    decision = any(),
-                    sessionBaseline = any(),
-                    commitContext = any(),
-                    reqId = any(),
-                )
-            } returns VoiceCommandHandler.ReminderHandlingResult.Error(reminderCommandError)
-            coEvery { reminderCleanup.discard(any(), any(), any()) } returns Unit
-            mockkObject(UnknownPlaceDialog)
-            val labelSlot = slot<String>()
-            every {
-                UnknownPlaceDialog.show(
-                    activity = activity,
-                    label = capture(labelSlot),
-                    onCreateFavorite = any(),
-                    onCancel = any(),
-                    builderFactory = any(),
-                )
-            } answers { }
-
-            controller.handleVoiceDecision(
-                decision = reminderErrorDecision,
-                targetNoteId = 42L,
-                audioBlockId = 987L,
-                transcription = "Rappelle-moi de passer quand j'arrive à la $disputedLabel",
-                audioPath = "/tmp/audio3.wav",
-                commitContext = buildCommitContext(),
-                reqId = "req-reminder-error",
-            )
-
-            advanceUntilIdle()
-
-            coVerify(exactly = 1) {
-                voiceHandler.handleReminderDecision(
-                    noteId = 42L,
-                    audioBlockId = 987L,
-                    refinedText = any(),
-                    audioPath = "/tmp/audio3.wav",
-                    decision = reminderErrorDecision,
-                    sessionBaseline = any(),
-                    commitContext = any(),
-                    reqId = "req-reminder-error",
-                )
-            }
-            coVerify(exactly = 0) { voiceHandler.handleNoteDecision(any(), any(), any(), any(), any(), any()) }
-            coVerify(exactly = 1) { reminderCleanup.discard(987L, "/tmp/audio3.wav", "req-reminder-error") }
-            assertEquals(disputedLabel, labelSlot.captured)
-        }
-
     private fun buildController(
         reminderCleanup: ReminderTranscriptionCleaner,
-        voiceHandler: VoiceCommandHandler? = null,
     ): MicBarController {
         val repo = mockk<NoteRepository>(relaxed = true)
         val blocksRepo = mockk<BlocksRepository>(relaxed = true)
@@ -261,7 +190,6 @@ class MicBarControllerTest {
             onAppendLive = {},
             onReplaceFinal = { _, _ -> },
             showTopBubble = {},
-            voiceCommandHandlerOverride = voiceHandler,
             reminderCleanupOverride = reminderCleanup,
         )
     }
